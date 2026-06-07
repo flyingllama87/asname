@@ -30,6 +30,20 @@ $ asname 8.8.8.8
 IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States
 ```
 
+Add `--reverse-dns` (or `-r`) to also send a reverse DNS query and include PTR names in the output:
+
+```bash
+$ asname --reverse-dns 8.8.8.8
+IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Reverse DNS: dns.google
+```
+
+Add `--uniform` (or `-u`) to print aligned fields:
+
+```bash
+$ asname -u -r 8.8.8.8
+IP: 8.8.8.8                                → ASN: AS15169      → Name: GOOGLE - Google LLC, US                                      → Country: US, United States         → Reverse DNS: dns.google
+```
+
 ### Manual Updates
 
 You can manually trigger an update of the local databases using:

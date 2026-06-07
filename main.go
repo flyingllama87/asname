@@ -11,15 +11,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/urfave/cli/v2"
 
-		"asname/pkg/database"
+	"asname/pkg/database"
 )
 
 const (
@@ -30,6 +33,12 @@ const (
 	dbFilename     = "asname.db"
 	namesFilename  = "asn_db.txt"
 	defaultDirName = ".asname"
+	rdnsTimeout    = 5 * time.Second
+
+	uniformIPWidth      = 39
+	uniformASNWidth     = 12
+	uniformNameWidth    = 60
+	uniformCountryWidth = 24
 )
 
 func main() {
@@ -68,6 +77,16 @@ func main() {
 			&cli.BoolFlag{
 				Name:  "no-update",
 				Usage: "never auto-refresh data before a lookup",
+			},
+			&cli.BoolFlag{
+				Name:    "reverse-dns",
+				Aliases: []string{"r"},
+				Usage:   "also query reverse DNS and include PTR names in the output",
+			},
+			&cli.BoolFlag{
+				Name:    "uniform",
+				Aliases: []string{"u"},
+				Usage:   "print lookup output as aligned fields",
 			},
 		},
 		Commands: []*cli.Command{
@@ -174,9 +193,84 @@ func lookupAction(ctx *cli.Context) error {
 		country = c
 	}
 
-	fmt.Printf("IP: %s → ASN: %s → Name: %s → Country: %s\n",
-		ip, asn, name, country)
+	rdns := ""
+	if ctx.Bool("reverse-dns") {
+		rdnsCtx, cancel := context.WithTimeout(context.Background(), rdnsTimeout)
+		defer cancel()
+
+		rdns = "N/A"
+		if names, err := lookupReverseDNS(rdnsCtx, ip); err == nil && names != "" {
+			rdns = names
+		}
+	}
+
+	fmt.Print(formatLookupOutput(ip, asn, name, country, rdns, ctx.Bool("uniform")))
 	return nil
+}
+
+type outputField struct {
+	label string
+	value string
+}
+
+func formatLookupOutput(ip net.IP, asn, name, country, rdns string, uniform bool) string {
+	fields := []outputField{
+		{label: "IP", value: ip.String()},
+		{label: "ASN", value: asn},
+		{label: "Name", value: name},
+		{label: "Country", value: country},
+	}
+	if rdns != "" {
+		fields = append(fields, outputField{label: "Reverse DNS", value: rdns})
+	}
+
+	if !uniform {
+		parts := make([]string, 0, len(fields))
+		for _, field := range fields {
+			parts = append(parts, fmt.Sprintf("%s: %s", field.label, field.value))
+		}
+		return strings.Join(parts, " → ") + "\n"
+	}
+
+	if rdns != "" {
+		return fmt.Sprintf("IP: %-*s → ASN: %-*s → Name: %-*s → Country: %-*s → Reverse DNS: %s\n",
+			uniformIPWidth, ip.String(),
+			uniformASNWidth, asn,
+			uniformNameWidth, name,
+			uniformCountryWidth, country,
+			rdns)
+	}
+
+	return fmt.Sprintf("IP: %-*s → ASN: %-*s → Name: %-*s → Country: %s\n",
+		uniformIPWidth, ip.String(),
+		uniformASNWidth, asn,
+		uniformNameWidth, name,
+		country)
+}
+
+func lookupReverseDNS(ctx context.Context, ip net.IP) (string, error) {
+	names, err := net.DefaultResolver.LookupAddr(ctx, ip.String())
+	if err != nil {
+		return "", err
+	}
+	if len(names) == 0 {
+		return "", nil
+	}
+
+	return formatReverseDNSNames(names), nil
+}
+
+func formatReverseDNSNames(names []string) string {
+	normalized := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSuffix(name, ".")
+		if name != "" {
+			normalized = append(normalized, name)
+		}
+	}
+	sort.Strings(normalized)
+
+	return strings.Join(normalized, ", ")
 }
 
 var versionCommand = &cli.Command{
