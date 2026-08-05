@@ -12,7 +12,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"asname/pkg/database"
+	"github.com/flyingllama87/asname/pkg/database"
 )
 
 const (

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"asname/pkg/database"
+	"github.com/flyingllama87/asname/pkg/database"
 )
 
 // rirDelegatedURLs are the five Regional Internet Registries' delegation

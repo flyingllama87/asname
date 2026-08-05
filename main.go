@@ -25,7 +25,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
-	"asname/pkg/database"
+	"github.com/flyingllama87/asname/pkg/database"
 )
 
 const (
@@ -391,11 +391,15 @@ func formatReverseDNSNames(names []string) string {
 	return strings.Join(normalized, ", ")
 }
 
+// version is stamped in at build time by the Makefile via
+// -ldflags "-X main.version=...". The default marks a build made without it.
+var version = "dev"
+
 var versionCommand = &cli.Command{
 	Name:  "version",
 	Usage: "print version information and exit",
 	Action: func(_ *cli.Context) error {
-		fmt.Printf("asname v%s\n", "0.1.1")
+		fmt.Printf("asname v%s\n", version)
 		return nil
 	},
 }

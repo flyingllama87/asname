@@ -1,3 +1,8 @@
+// This file is derived from the asnlookup project
+// (https://github.com/banviktor/asnlookup), licensed under the Apache
+// License, Version 2.0. See the LICENSE and NOTICE files.
+// It has been modified for use in asname.
+
 package binarytrie_test
 
 import (
@@ -5,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	. "asname/pkg/binarytrie"
+	. "github.com/flyingllama87/asname/pkg/binarytrie"
 )
 
 func TestEmptyMarshaledArrayTrieLookup(t *testing.T) {

@@ -1,0 +1,10 @@
+asname
+Copyright 2026 Morgan Robertson
+
+This product includes software developed as part of the asnlookup project
+(https://github.com/banviktor/asnlookup), licensed under the Apache License,
+Version 2.0.
+
+The LC-trie implementation and binary database format under pkg/binarytrie and
+pkg/database are derived from that project. Those files have been modified;
+each one carries a notice to that effect.

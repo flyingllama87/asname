@@ -13,14 +13,20 @@ It mirrors the functionality of the original `asname` zsh helper, but executes f
 
 ## Installation
 
-You can build and install `asname` directly using the provided Makefile:
+```bash
+go install github.com/flyingllama87/asname@latest
+```
+
+Or build and install from a clone using the provided Makefile, which stamps the
+version into the binary and links it statically:
 
 ```bash
 make build
 sudo make install
 ```
 
-This will compile the tool and place the `asname` binary into `/usr/local/bin/`.
+This compiles the tool and places the `asname` binary into `/usr/local/bin/`.
+Run `make test` to run the test suite.
 
 ## Usage
 
@@ -98,3 +104,22 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/country.db`: The binary LC-trie database for IP to Country mapping.
 
 You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, and `ASNAME_COUNTRY` environment variables or their respective flags.
+
+## Credits
+
+The LC-trie implementation and the binary database format under `pkg/binarytrie`
+and `pkg/database` are derived from [asnlookup](https://github.com/banviktor/asnlookup)
+by [@banviktor](https://github.com/banviktor), used under the Apache License 2.0.
+Those files have been modified
+for use here — the database type was reworked into an interface, trie
+optimization was parallelised, and the marshalling header was changed. Each file
+carries a notice to that effect.
+
+Data comes from [RouteViews](http://archive.routeviews.org/) (BGP RIB dumps),
+[RIPE NCC](https://ftp.ripe.net/ripe/asnames/) (ASN names), and the RIR
+delegation statistics files (IP to country).
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and
+[NOTICE](NOTICE).

@@ -1,7 +1,6 @@
-VERSION = 0.1.1
+VERSION = 0.2.0
 BUILDDIR ?= build
 BINDIR ?= /usr/local/bin
-DOCKER_IMAGE ?= banviktor/asname
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 DATE = $(shell date -u +%Y%m%d)
@@ -18,7 +17,7 @@ deps:
 	go mod download
 
 $(BUILDDIR)/asname: deps
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '-extldflags "-static"' -o $(BUILDDIR)/asname .
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '-extldflags "-static" -X main.version=$(VERSION)' -o $(BUILDDIR)/asname .
 
 .PHONY: release
 release:

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"asname/pkg/database"
+	"github.com/flyingllama87/asname/pkg/database"
 )
 
 func testDatabase(t *testing.T, prefix string, value uint32) database.Database {

@@ -1,3 +1,8 @@
+// This file is derived from the asnlookup project
+// (https://github.com/banviktor/asnlookup), licensed under the Apache
+// License, Version 2.0. See the LICENSE and NOTICE files.
+// It has been modified for use in asname.
+
 package binarytrie
 
 import (
@@ -5,6 +10,10 @@ import (
 )
 
 const (
+	// arrayTrieMarshalHeader is the magic string stamped into every database
+	// file. It resembles an import path but is a wire constant: changing it
+	// makes previously written .db files unreadable, so it must not be updated
+	// to follow the module path.
 	arrayTrieMarshalHeader  = "asname/pkg/binarytrie\x00ArrayTrie\x00"
 	arrayTrieMarshalVersion = uint8(1)
 )

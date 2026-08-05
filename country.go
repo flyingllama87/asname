@@ -4,7 +4,7 @@ import (
 	"net"
 	"os"
 
-	"asname/pkg/database"
+	"github.com/flyingllama87/asname/pkg/database"
 )
 
 const (
