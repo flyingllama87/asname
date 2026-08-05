@@ -2,14 +2,14 @@
 
 `asname` is a fast, offline command-line utility written in Go for resolving IP addresses, hostnames and URLs to their Autonomous System Number (ASN), the AS owner's name, and the geographical country.
 
-It mirrors the functionality of the original `asname` zsh helper, but executes fully standalone (no Cgo, no system `geoiplookup` dependency) by utilizing an optimized binary LC-trie database format.
+Lookups are answered from local LC-trie databases, so there is no per-query network call and no API key or rate limit to worry about.
 
 ## Features
 
 - **Blazing Fast**: Uses offline LC-trie databases for instantaneous IP lookups.
 - **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file listing any mix of them.
 - **Auto-Updating**: Automatically fetches the latest RouteViews RIB dumps, RIPE ASN names, and RIR Delegation Statistics to build and maintain its own fresh databases when they get older than 30 days.
-- **Fully Standalone**: Built in Go without any Cgo bindings or external tool dependencies. 
+- **Fully Standalone**: A single static binary — no Cgo, and no `geoiplookup` or other system tool to install alongside it.
 
 ## Installation
 

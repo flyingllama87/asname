@@ -1,14 +1,12 @@
 // Command asname resolves an IP address, hostname or URL to its Autonomous
-// System number, the AS owner's name and the geographic country, mirroring the
-// `asname` zsh helper but as a single self-contained, offline Go binary. The
-// argument can also be a file holding a list of entries to look up.
+// System number, the AS owner's name and the geographic country. The argument
+// can also be a file holding a list of entries to look up.
 //
-// It is fully self-contained (aside from its data files and no cgo): an
-// LC-trie database for the IP->ASN mapping, a RIPE asn.txt derived file for the
-// ASN->name mapping and a second LC-trie built from the RIRs' delegation
-// statistics for the IP->country mapping. All of the data files can be
-// refreshed with `asname update`, and lookups auto-refresh stale data unless
-// disabled.
+// Lookups are answered offline, from three data files: an LC-trie database for
+// the IP->ASN mapping, a RIPE asn.txt derived file for the ASN->name mapping
+// and a second LC-trie built from the RIRs' delegation statistics for the
+// IP->country mapping. All of them can be refreshed with `asname update`, and
+// lookups auto-refresh stale data unless disabled.
 package main
 
 import (
