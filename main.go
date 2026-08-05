@@ -7,6 +7,9 @@
 // and a second LC-trie built from the RIRs' delegation statistics for the
 // IP->country mapping. All of them can be refreshed with `asname update`, and
 // lookups auto-refresh stale data unless disabled.
+//
+// City lookups are optional and add a fourth, much larger file, so they are
+// only enabled once the user asks with --city. See city.go.
 package main
 
 import (
@@ -21,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/oschwald/maxminddb-golang/v2"
 	"github.com/urfave/cli/v2"
 
 	"github.com/flyingllama87/asname/pkg/database"
@@ -42,6 +46,7 @@ const (
 	uniformASNWidth     = 12
 	uniformNameWidth    = 60
 	uniformCountryWidth = 24
+	uniformCityWidth    = 34
 )
 
 func main() {
@@ -72,6 +77,11 @@ func main() {
 				EnvVars: []string{countryEnvVar},
 				Usage:   "IP->country database `file` (default: <dir>/" + countryFilename + ")",
 			},
+			&cli.StringFlag{
+				Name:    "city-db",
+				EnvVars: []string{cityEnvVar},
+				Usage:   "IP->city database `file` (default: <dir>/" + cityFilename + ")",
+			},
 			&cli.DurationFlag{
 				Name:  "max-age",
 				Value: defaultMaxAge,
@@ -90,6 +100,15 @@ func main() {
 				Name:    "uniform",
 				Aliases: []string{"u"},
 				Usage:   "print lookup output as aligned fields",
+			},
+			&cli.BoolFlag{
+				Name:    "city",
+				Aliases: []string{"c"},
+				Usage:   "include the city, downloading the city database (~125MB) if absent; once present it is used without this flag",
+			},
+			&cli.BoolFlag{
+				Name:  "no-city",
+				Usage: "omit the city even when the city database is present",
 			},
 		},
 		Commands: []*cli.Command{
@@ -110,6 +129,7 @@ type config struct {
 	dbPath      string
 	namesPath   string
 	countryPath string
+	cityPath    string
 }
 
 func newConfig(ctx *cli.Context) config {
@@ -118,6 +138,7 @@ func newConfig(ctx *cli.Context) config {
 		dbPath:      ctx.String("db"),
 		namesPath:   ctx.String("names"),
 		countryPath: ctx.String("country"),
+		cityPath:    ctx.String("city-db"),
 	}
 	if c.dbPath == "" {
 		c.dbPath = filepath.Join(dir, dbFilename)
@@ -127,6 +148,9 @@ func newConfig(ctx *cli.Context) config {
 	}
 	if c.countryPath == "" {
 		c.countryPath = filepath.Join(dir, countryFilename)
+	}
+	if c.cityPath == "" {
+		c.cityPath = filepath.Join(dir, cityFilename)
 	}
 	return c
 }
@@ -152,17 +176,22 @@ func lookupAction(ctx *cli.Context) error {
 
 	cfg := newConfig(ctx)
 
+	// --city opts in once, by fetching the database; from then on its presence
+	// on disk is enough to keep the city in the output.
+	wantCity := !ctx.Bool("no-city") && (ctx.Bool("city") || cityDBPresent(cfg.cityPath))
+
 	// Auto-refresh stale or missing data unless the user opted out.
 	if !ctx.Bool("no-update") {
-		if err := autoUpdate(cfg, ctx.Duration("max-age")); err != nil {
+		if err := autoUpdate(cfg, ctx.Duration("max-age"), wantCity); err != nil {
 			fmt.Fprintln(os.Stderr, "asname: auto-update failed:", err)
 		}
 	}
 
-	eng, err := newEngine(cfg)
+	eng, err := newEngine(cfg, wantCity)
 	if err != nil {
 		return err
 	}
+	defer eng.close()
 
 	resolveTargets(context.Background(), targets)
 
@@ -213,9 +242,10 @@ type engine struct {
 	db        database.Database
 	names     map[uint32]string
 	countryDB database.Database
+	cityDB    *maxminddb.Reader
 }
 
-func newEngine(cfg config) (*engine, error) {
+func newEngine(cfg config, wantCity bool) (*engine, error) {
 	dbFile, err := os.Open(cfg.dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening ASN database (run `asname update`): %v", err)
@@ -238,7 +268,22 @@ func newEngine(cfg config) (*engine, error) {
 		countryDB = nil
 	}
 
-	return &engine{db: db, names: names, countryDB: countryDB}, nil
+	var cityDB *maxminddb.Reader
+	if wantCity {
+		if cityDB, err = loadCityDB(cfg.cityPath); err != nil {
+			fmt.Fprintln(os.Stderr, "asname: city database unavailable (run `asname update --city-only`):", err)
+			cityDB = nil
+		}
+	}
+
+	return &engine{db: db, names: names, countryDB: countryDB, cityDB: cityDB}, nil
+}
+
+// close releases the memory-mapped city database, if one was opened.
+func (e *engine) close() {
+	if e.cityDB != nil {
+		e.cityDB.Close()
+	}
 }
 
 func (e *engine) lookupTarget(t target) ([]lookupResult, error) {
@@ -288,6 +333,13 @@ func (e *engine) lookup(ip net.IP) (lookupResult, error) {
 		}
 	}
 
+	if e.cityDB != nil {
+		res.city = "Unknown"
+		if c := lookupCity(e.cityDB, ip); c != "" {
+			res.city = c
+		}
+	}
+
 	return res, nil
 }
 
@@ -298,6 +350,7 @@ type lookupResult struct {
 	asn     string
 	name    string
 	country string
+	city    string // empty when the city database is not in use
 	rdns    string
 }
 
@@ -325,6 +378,9 @@ func formatLookupOutput(res lookupResult, uniform, showHost bool) string {
 		outputField{label: "Name", value: res.name, width: uniformNameWidth},
 		outputField{label: "Country", value: res.country, width: uniformCountryWidth},
 	)
+	if res.city != "" {
+		fields = append(fields, outputField{label: "City", value: res.city, width: uniformCityWidth})
+	}
 	if res.rdns != "" {
 		fields = append(fields, outputField{label: "Reverse DNS", value: res.rdns})
 	}

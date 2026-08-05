@@ -1,6 +1,7 @@
 .idea/
 build/
 *.db
+*.mmdb
 rib.*.bz2
 
 # Release archives from `make release`, and a bare `go build` in the repo root.

@@ -78,6 +78,35 @@ $ asname --reverse-dns 8.8.8.8
 IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Reverse DNS: dns.google
 ```
 
+### City lookups
+
+City-level geolocation is optional and off by default, because the database is
+large. Enable it once with `--city` (or `-c`), which downloads it:
+
+```bash
+$ asname --city 8.8.8.8
+IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → City: Mountain View, California
+```
+
+After that the flag is not needed — the city is included whenever the database
+is present, and refreshed along with everything else:
+
+```bash
+$ asname 1.1.1.1
+IP: 1.1.1.1 → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US → Country: AU, Australia → City: Sydney, New South Wales
+```
+
+Use `--no-city` to suppress it for one run, or delete `~/.asname/city.mmdb` to
+opt back out for good. `asname update` refreshes the city database only once you
+already have it, so it is never fetched unasked.
+
+**Treat the city as a hint, not a fact.** DB-IP rate the free Lite database at
+an accuracy index of 77, against 96 for their commercial one. VPNs, mobile
+carriers, CGNAT and anycast routinely place an address hundreds of kilometres
+from where it really is — `dns.google`'s IPv6 anycast address reports as
+Montreal, for instance. The ASN and AS name come from BGP and are solid; the
+city is a best guess.
+
 Add `--uniform` (or `-u`) to print aligned fields:
 
 ```bash
@@ -102,8 +131,9 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/asname.db`: The binary LC-trie database for IP to ASN resolution.
 - `~/.asname/asn_db.txt`: The text file mapping ASNs to their respective names.
 - `~/.asname/country.db`: The binary LC-trie database for IP to Country mapping.
+- `~/.asname/city.mmdb`: The DB-IP Lite city database, in MaxMind DB format. Only present if you have enabled city lookups; ~125 MB.
 
-You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, and `ASNAME_COUNTRY` environment variables or their respective flags.
+You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, and `ASNAME_CITY` environment variables or their respective flags.
 
 ## Credits
 
@@ -118,6 +148,10 @@ carries a notice to that effect.
 Data comes from [RouteViews](http://archive.routeviews.org/) (BGP RIB dumps),
 [RIPE NCC](https://ftp.ripe.net/ripe/asnames/) (ASN names), and the RIR
 delegation statistics files (IP to country).
+
+City data is the DB-IP Lite database — IP Geolocation by [DB-IP](https://db-ip.com),
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It is
+downloaded on request and is not redistributed with this tool.
 
 ## License
 

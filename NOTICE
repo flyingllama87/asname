@@ -8,3 +8,9 @@ Version 2.0.
 The LC-trie implementation and binary database format under pkg/binarytrie and
 pkg/database are derived from that project. Those files have been modified;
 each one carries a notice to that effect.
+
+The optional IP to city database is the DB-IP Lite database, (c) DB-IP.com,
+licensed under the Creative Commons Attribution 4.0 International License
+(https://creativecommons.org/licenses/by/4.0/). IP Geolocation by DB-IP
+(https://db-ip.com). It is downloaded at the user's request and is not
+distributed with this software.

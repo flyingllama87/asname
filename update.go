@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/bzip2"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,9 @@ const (
 	routeViewsBase = "http://archive.routeviews.org/bgpdata"
 	// ripeASNames is the canonical ASN->name list maintained by RIPE.
 	ripeASNames = "https://ftp.ripe.net/ripe/asnames/asn.txt"
+	// dbipCityDump is the DB-IP Lite city database, published monthly under
+	// CC BY 4.0 and downloadable without an account. The %s is "2006-01".
+	dbipCityDump = "https://download.db-ip.com/free/dbip-city-lite-%s.mmdb.gz"
 
 	// optimizationFillFactor mirrors asnlookup-utils' default optimization
 	// level 5 (see optimizationLevelToFillFactor).
@@ -44,6 +48,10 @@ var updateCommand = &cli.Command{
 			Name:  "country-only",
 			Usage: "only refresh the IP->country database",
 		},
+		&cli.BoolFlag{
+			Name:  "city-only",
+			Usage: "only refresh the IP->city database (large; downloads it if absent)",
+		},
 		&cli.StringFlag{
 			Name:  "rib-url",
 			Usage: "download the RIB MRT dump from this `URL` instead of routeviews",
@@ -54,7 +62,7 @@ var updateCommand = &cli.Command{
 
 func updateAction(ctx *cli.Context) error {
 	cfg := newConfig(ctx)
-	for _, dir := range []string{cfg.dbPath, cfg.namesPath, cfg.countryPath} {
+	for _, dir := range []string{cfg.dbPath, cfg.namesPath, cfg.countryPath, cfg.cityPath} {
 		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 			return err
 		}
@@ -65,7 +73,8 @@ func updateAction(ctx *cli.Context) error {
 	dbOnly := ctx.Bool("db-only")
 	namesOnly := ctx.Bool("names-only")
 	countryOnly := ctx.Bool("country-only")
-	all := !dbOnly && !namesOnly && !countryOnly
+	cityOnly := ctx.Bool("city-only")
+	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly
 
 	if all || dbOnly {
 		if err := updateDatabase(cfg, ctx.String("rib-url")); err != nil {
@@ -82,12 +91,20 @@ func updateAction(ctx *cli.Context) error {
 			return fmt.Errorf("updating country database: %v", err)
 		}
 	}
+	// The city database is opt-in: a plain `asname update` refreshes it only
+	// once the user already has it, so nobody pays for it unasked.
+	if cityOnly || (all && cityDBPresent(cfg.cityPath)) {
+		if err := updateCityDB(cfg); err != nil {
+			return fmt.Errorf("updating city database: %v", err)
+		}
+	}
 	return nil
 }
 
 // autoUpdate refreshes any data file that is missing or older than maxAge.
-// A maxAge of 0 only fills in missing files.
-func autoUpdate(cfg config, maxAge time.Duration) error {
+// A maxAge of 0 only fills in missing files. The city database is only
+// considered when city is true, so it is never fetched behind the user's back.
+func autoUpdate(cfg config, maxAge time.Duration, city bool) error {
 	if stale(cfg.dbPath, maxAge) {
 		fmt.Fprintln(os.Stderr, "asname: refreshing ASN database...")
 		if err := os.MkdirAll(filepath.Dir(cfg.dbPath), 0o755); err != nil {
@@ -112,6 +129,15 @@ func autoUpdate(cfg config, maxAge time.Duration) error {
 			return err
 		}
 		if err := updateCountryDB(cfg); err != nil {
+			return err
+		}
+	}
+	if city && stale(cfg.cityPath, maxAge) {
+		fmt.Fprintln(os.Stderr, "asname: refreshing city database...")
+		if err := os.MkdirAll(filepath.Dir(cfg.cityPath), 0o755); err != nil {
+			return err
+		}
+		if err := updateCityDB(cfg); err != nil {
 			return err
 		}
 	}
@@ -200,6 +226,40 @@ func updateNames(cfg config) error {
 	return nil
 }
 
+// updateCityDB downloads the DB-IP Lite city database and decompresses it into
+// cfg.cityPath. It is streamed rather than buffered: the file is roughly 125MB
+// once expanded.
+func updateCityDB(cfg config) error {
+	now := time.Now().UTC()
+	var lastErr error
+	// The current month's file appears a day or two into the month, so fall
+	// back to the previous one rather than failing at a month boundary.
+	for _, month := range []time.Time{now, now.AddDate(0, -1, 0)} {
+		url := fmt.Sprintf(dbipCityDump, month.Format("2006-01"))
+		resp, err := httpGet(url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "asname: downloading city database %s\n", url)
+
+		gz, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			resp.Body.Close()
+			return fmt.Errorf("decompressing %s: %v", url, err)
+		}
+		n, err := streamFileAtomic(cfg.cityPath, gz)
+		gz.Close()
+		resp.Body.Close()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "asname: wrote %s (%d bytes)\n", cfg.cityPath, n)
+		return nil
+	}
+	return fmt.Errorf("no city database found on db-ip.com: %v", lastErr)
+}
+
 // latestRIBURL discovers the most recent RIB dump on routeviews, falling back
 // to the previous month near month boundaries.
 func latestRIBURL() (string, error) {
@@ -254,4 +314,25 @@ func writeFileAtomic(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+// streamFileAtomic is writeFileAtomic for payloads too large to hold in memory,
+// copying from r instead of taking a byte slice. It returns the bytes written.
+func streamFileAtomic(path string, r io.Reader) (int64, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return 0, err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	n, err := io.Copy(tmp, r)
+	if err != nil {
+		tmp.Close()
+		return n, err
+	}
+	if err := tmp.Close(); err != nil {
+		return n, err
+	}
+	return n, os.Rename(tmpName, path)
 }
