@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli/v2"
 )
 
 // buildTestNetblockDB writes a database holding ranges and returns its path.
@@ -273,6 +274,41 @@ NetName:        GOGL-8-8-8
 		return nil
 	}, "netrange", "netname", "orgid"))
 	require.Equal(t, []string{"8.8.8.0 - 8.8.8.255 GOGL-8-8-8 Google LLC"}, ranges)
+}
+
+// `asname -n update` reads as "update, including the netblock database", and
+// used to fall through to the presence check and silently skip it — leaving the
+// next lookup with no database and no explanation.
+func TestUpdateHonoursTheLookupOptInFlags(t *testing.T) {
+	for _, tc := range []struct{ name, flag, only string }{
+		{"netblock", "netblock", "netblock-only"},
+		{"city", "city", "city-only"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, args := range [][]string{
+				{"asname", "-" + tc.flag[:1], "update"},
+				{"asname", "--" + tc.flag, "update"},
+				{"asname", "update", "--" + tc.only},
+			} {
+				asked := false
+				app := &cli.App{
+					Flags: []cli.Flag{
+						&cli.BoolFlag{Name: tc.flag, Aliases: []string{tc.flag[:1]}},
+					},
+					Commands: []*cli.Command{{
+						Name:  "update",
+						Flags: []cli.Flag{&cli.BoolFlag{Name: tc.only}},
+						Action: func(ctx *cli.Context) error {
+							asked = ctx.Bool(tc.only) || ctx.Bool(tc.flag)
+							return nil
+						},
+					}},
+				}
+				require.NoError(t, app.Run(args))
+				require.True(t, asked, "%v should ask for the %s database", args, tc.name)
+			}
+		})
+	}
 }
 
 func TestIsPlaceholderRange(t *testing.T) {

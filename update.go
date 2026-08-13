@@ -97,15 +97,17 @@ func updateAction(ctx *cli.Context) error {
 		}
 	}
 	// The city database is opt-in: a plain `asname update` refreshes it only
-	// once the user already has it, so nobody pays for it unasked.
-	if cityOnly || (all && cityDBPresent(cfg.cityPath)) {
+	// once the user already has it, so nobody pays for it unasked. Asking for
+	// it with the lookup flag counts as opting in, so `asname -c update` builds
+	// it rather than quietly doing nothing.
+	if cityOnly || ctx.Bool("city") || (all && cityDBPresent(cfg.cityPath)) {
 		if err := updateCityDB(cfg); err != nil {
 			return fmt.Errorf("updating city database: %v", err)
 		}
 	}
 	// The netblock database is opt-in for the same reason, and costs more
 	// again: several hundred megabytes of registry dumps to build it.
-	if netblockOnly || (all && netblockDBPresent(cfg.netblockPath)) {
+	if netblockOnly || ctx.Bool("netblock") || (all && netblockDBPresent(cfg.netblockPath)) {
 		if err := updateNetblockDB(cfg); err != nil {
 			return fmt.Errorf("updating netblock database: %v", err)
 		}
