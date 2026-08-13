@@ -52,6 +52,10 @@ var updateCommand = &cli.Command{
 			Name:  "city-only",
 			Usage: "only refresh the IP->city database (large; downloads it if absent)",
 		},
+		&cli.BoolFlag{
+			Name:  "netblock-only",
+			Usage: "only refresh the IP->netblock database (large; builds it if absent)",
+		},
 		&cli.StringFlag{
 			Name:  "rib-url",
 			Usage: "download the RIB MRT dump from this `URL` instead of routeviews",
@@ -62,7 +66,7 @@ var updateCommand = &cli.Command{
 
 func updateAction(ctx *cli.Context) error {
 	cfg := newConfig(ctx)
-	for _, dir := range []string{cfg.dbPath, cfg.namesPath, cfg.countryPath, cfg.cityPath} {
+	for _, dir := range []string{cfg.dbPath, cfg.namesPath, cfg.countryPath, cfg.cityPath, cfg.netblockPath} {
 		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 			return err
 		}
@@ -74,7 +78,8 @@ func updateAction(ctx *cli.Context) error {
 	namesOnly := ctx.Bool("names-only")
 	countryOnly := ctx.Bool("country-only")
 	cityOnly := ctx.Bool("city-only")
-	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly
+	netblockOnly := ctx.Bool("netblock-only")
+	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly && !netblockOnly
 
 	if all || dbOnly {
 		if err := updateDatabase(cfg, ctx.String("rib-url")); err != nil {
@@ -98,13 +103,21 @@ func updateAction(ctx *cli.Context) error {
 			return fmt.Errorf("updating city database: %v", err)
 		}
 	}
+	// The netblock database is opt-in for the same reason, and costs more
+	// again: several hundred megabytes of registry dumps to build it.
+	if netblockOnly || (all && netblockDBPresent(cfg.netblockPath)) {
+		if err := updateNetblockDB(cfg); err != nil {
+			return fmt.Errorf("updating netblock database: %v", err)
+		}
+	}
 	return nil
 }
 
 // autoUpdate refreshes any data file that is missing or older than maxAge.
-// A maxAge of 0 only fills in missing files. The city database is only
-// considered when city is true, so it is never fetched behind the user's back.
-func autoUpdate(cfg config, maxAge time.Duration, city bool) error {
+// A maxAge of 0 only fills in missing files. The city and netblock databases
+// are only considered when their flags are true, so neither is ever fetched
+// behind the user's back.
+func autoUpdate(cfg config, maxAge time.Duration, city, netblock bool) error {
 	if stale(cfg.dbPath, maxAge) {
 		fmt.Fprintln(os.Stderr, "asname: refreshing ASN database...")
 		if err := os.MkdirAll(filepath.Dir(cfg.dbPath), 0o755); err != nil {
@@ -138,6 +151,15 @@ func autoUpdate(cfg config, maxAge time.Duration, city bool) error {
 			return err
 		}
 		if err := updateCityDB(cfg); err != nil {
+			return err
+		}
+	}
+	if netblock && stale(cfg.netblockPath, maxAge) {
+		fmt.Fprintln(os.Stderr, "asname: refreshing netblock database...")
+		if err := os.MkdirAll(filepath.Dir(cfg.netblockPath), 0o755); err != nil {
+			return err
+		}
+		if err := updateNetblockDB(cfg); err != nil {
 			return err
 		}
 	}

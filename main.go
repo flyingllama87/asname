@@ -9,7 +9,12 @@
 // lookups auto-refresh stale data unless disabled.
 //
 // City lookups are optional and add a fourth, much larger file, so they are
-// only enabled once the user asks with --city. See city.go.
+// only enabled once the user asks with --city. See city.go. Registry netblock
+// lookups are optional for the same reason and add a fifth; see netblock.go.
+//
+// The one exception to answering offline is the whois fallback, for the
+// addresses no offline netblock database can cover. It is asked about before
+// any query is made; see whois.go.
 package main
 
 import (
@@ -41,12 +46,13 @@ const (
 	rdnsTimeout    = 5 * time.Second
 	dnsTimeout     = 5 * time.Second
 
-	uniformHostWidth    = 40
-	uniformIPWidth      = 39
-	uniformASNWidth     = 12
-	uniformNameWidth    = 60
-	uniformCountryWidth = 24
-	uniformCityWidth    = 34
+	uniformHostWidth     = 40
+	uniformIPWidth       = 39
+	uniformASNWidth      = 12
+	uniformNameWidth     = 60
+	uniformCountryWidth  = 24
+	uniformCityWidth     = 34
+	uniformNetblockWidth = 48
 )
 
 func main() {
@@ -110,6 +116,28 @@ func main() {
 				Name:  "no-city",
 				Usage: "omit the city even when the city database is present",
 			},
+			&cli.StringFlag{
+				Name:    "netblock-db",
+				EnvVars: []string{netblockEnvVar},
+				Usage:   "IP->netblock database `file` (default: <dir>/" + netblockFilename + ")",
+			},
+			&cli.BoolFlag{
+				Name:    "netblock",
+				Aliases: []string{"n"},
+				Usage:   "include the registry netblock and its owner, building the database (~300MB of downloads) if absent; once present it is used without this flag",
+			},
+			&cli.BoolFlag{
+				Name:  "no-netblock",
+				Usage: "omit the netblock even when the netblock database is present",
+			},
+			&cli.BoolFlag{
+				Name:  "whois",
+				Usage: "look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking",
+			},
+			&cli.BoolFlag{
+				Name:  "no-whois",
+				Usage: "never query whois, and do not ask",
+			},
 		},
 		Commands: []*cli.Command{
 			updateCommand,
@@ -126,19 +154,22 @@ func main() {
 
 // config bundles the resolved file locations for a run.
 type config struct {
-	dbPath      string
-	namesPath   string
-	countryPath string
-	cityPath    string
+	dbPath       string
+	namesPath    string
+	countryPath  string
+	cityPath     string
+	netblockPath string
+	consentPath  string
 }
 
 func newConfig(ctx *cli.Context) config {
 	dir := ctx.String("dir")
 	c := config{
-		dbPath:      ctx.String("db"),
-		namesPath:   ctx.String("names"),
-		countryPath: ctx.String("country"),
-		cityPath:    ctx.String("city-db"),
+		dbPath:       ctx.String("db"),
+		namesPath:    ctx.String("names"),
+		countryPath:  ctx.String("country"),
+		cityPath:     ctx.String("city-db"),
+		netblockPath: ctx.String("netblock-db"),
 	}
 	if c.dbPath == "" {
 		c.dbPath = filepath.Join(dir, dbFilename)
@@ -152,6 +183,10 @@ func newConfig(ctx *cli.Context) config {
 	if c.cityPath == "" {
 		c.cityPath = filepath.Join(dir, cityFilename)
 	}
+	if c.netblockPath == "" {
+		c.netblockPath = filepath.Join(dir, netblockFilename)
+	}
+	c.consentPath = filepath.Join(dir, whoisConsentFilename)
 	return c
 }
 
@@ -179,15 +214,27 @@ func lookupAction(ctx *cli.Context) error {
 	// --city opts in once, by fetching the database; from then on its presence
 	// on disk is enough to keep the city in the output.
 	wantCity := !ctx.Bool("no-city") && (ctx.Bool("city") || cityDBPresent(cfg.cityPath))
+	wantNetblock := !ctx.Bool("no-netblock") && (ctx.Bool("netblock") || netblockDBPresent(cfg.netblockPath))
+
+	// The whois fallback fills the holes the offline database has, so --whois
+	// on its own is enough to report netblocks without building it at all.
+	whois := whoisAsk
+	switch {
+	case ctx.Bool("no-whois") || ctx.Bool("no-netblock"):
+		whois = whoisNever
+	case ctx.Bool("whois"):
+		whois = whoisAlways
+	}
+	showNetblock := wantNetblock || whois == whoisAlways
 
 	// Auto-refresh stale or missing data unless the user opted out.
 	if !ctx.Bool("no-update") {
-		if err := autoUpdate(cfg, ctx.Duration("max-age"), wantCity); err != nil {
+		if err := autoUpdate(cfg, ctx.Duration("max-age"), wantCity, wantNetblock); err != nil {
 			fmt.Fprintln(os.Stderr, "asname: auto-update failed:", err)
 		}
 	}
 
-	eng, err := newEngine(cfg, wantCity)
+	eng, err := newEngine(cfg, wantCity, wantNetblock, showNetblock, whois)
 	if err != nil {
 		return err
 	}
@@ -239,13 +286,18 @@ func lookupAction(ctx *cli.Context) error {
 // engine holds the databases for the run so that a batch of lookups parses
 // them once.
 type engine struct {
-	db        database.Database
-	names     map[uint32]string
-	countryDB database.Database
-	cityDB    *maxminddb.Reader
+	db         database.Database
+	names      map[uint32]string
+	countryDB  database.Database
+	cityDB     *maxminddb.Reader
+	netblockDB *netblockDB
+	// showNetblock is separate from netblockDB being open, since --whois can
+	// report netblocks with no offline database at all.
+	showNetblock bool
+	whois        *whoisAsker
 }
 
-func newEngine(cfg config, wantCity bool) (*engine, error) {
+func newEngine(cfg config, wantCity, wantNetblock, showNetblock bool, whois whoisMode) (*engine, error) {
 	dbFile, err := os.Open(cfg.dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening ASN database (run `asname update`): %v", err)
@@ -276,14 +328,28 @@ func newEngine(cfg config, wantCity bool) (*engine, error) {
 		}
 	}
 
-	return &engine{db: db, names: names, countryDB: countryDB, cityDB: cityDB}, nil
+	var nbDB *netblockDB
+	if wantNetblock {
+		if nbDB, err = openNetblockDB(cfg.netblockPath); err != nil {
+			fmt.Fprintln(os.Stderr, "asname: netblock database unavailable (run `asname update --netblock-only`):", err)
+			nbDB = nil
+		}
+	}
+
+	return &engine{
+		db: db, names: names, countryDB: countryDB, cityDB: cityDB, netblockDB: nbDB,
+		showNetblock: showNetblock,
+		whois:        newWhoisAsker(cfg.consentPath, whois),
+	}, nil
 }
 
-// close releases the memory-mapped city database, if one was opened.
+// close releases the city and netblock databases, which unlike the tries are
+// read from disk rather than parsed up front.
 func (e *engine) close() {
 	if e.cityDB != nil {
 		e.cityDB.Close()
 	}
+	e.netblockDB.Close()
 }
 
 func (e *engine) lookupTarget(t target) ([]lookupResult, error) {
@@ -340,18 +406,48 @@ func (e *engine) lookup(ip net.IP) (lookupResult, error) {
 		}
 	}
 
+	if e.showNetblock {
+		res.netblock = "Unknown"
+		var nb netblockInfo
+		if e.netblockDB != nil {
+			var err error
+			if nb, err = e.netblockDB.Lookup(ip); err != nil {
+				return lookupResult{}, fmt.Errorf("netblock lookup failed: %v", err)
+			}
+		}
+		// Only an address some registry has actually delegated is worth asking
+		// a registry about, which keeps the question off reserved and
+		// unallocated space.
+		if nb.empty() && res.country != "Unknown" && e.whois.allowed(res.ip) {
+			online, err := lookupWhoisNetblock(res.ip)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "asname: whois lookup for %s failed: %v\n", res.ip, err)
+			} else if !online.empty() {
+				nb = online
+				res.netblockLive = true
+			}
+		}
+		if !nb.empty() {
+			res.netblock = nb.String()
+		}
+	}
+
 	return res, nil
 }
 
 // lookupResult is everything known about a single address.
 type lookupResult struct {
-	host    string // the hostname it came from, empty for a literal IP
-	ip      net.IP
-	asn     string
-	name    string
-	country string
-	city    string // empty when the city database is not in use
-	rdns    string
+	host     string // the hostname it came from, empty for a literal IP
+	ip       net.IP
+	asn      string
+	name     string
+	country  string
+	city     string // empty when the city database is not in use
+	netblock string // empty when netblocks are not being reported
+	// netblockLive marks a netblock that came from a live whois query rather
+	// than the offline database, since that answer is not reproducible offline.
+	netblockLive bool
+	rdns         string
 }
 
 type outputField struct {
@@ -380,6 +476,13 @@ func formatLookupOutput(res lookupResult, uniform, showHost bool) string {
 	)
 	if res.city != "" {
 		fields = append(fields, outputField{label: "City", value: res.city, width: uniformCityWidth})
+	}
+	if res.netblock != "" {
+		netblock := res.netblock
+		if res.netblockLive {
+			netblock += " [whois]"
+		}
+		fields = append(fields, outputField{label: "Netblock", value: netblock, width: uniformNetblockWidth})
 	}
 	if res.rdns != "" {
 		fields = append(fields, outputField{label: "Reverse DNS", value: res.rdns})
