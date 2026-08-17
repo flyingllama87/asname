@@ -24,9 +24,10 @@ var rirDelegatedURLs = []string{
 	"https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-latest",
 }
 
-// countryBuilder is the subset of database.NewBuilder()'s (unexported) return
-// type that we need, expressed as an interface so we can name it here.
-type countryBuilder interface {
+// trieBuilder is the subset of database.NewBuilder()'s (unexported) return
+// type that we need, expressed as an interface so we can name it here. The
+// country and category databases are both built through it.
+type trieBuilder interface {
 	InsertMapping(*net.IPNet, uint32) error
 	SetFillFactor(float32)
 	Build() (database.Database, error)
@@ -36,7 +37,7 @@ type countryBuilder interface {
 // LC-trie and atomically replaces cfg.countryPath.
 func updateCountryDB(cfg config) error {
 	fmt.Fprintln(os.Stderr, "asname: building IP->country database from RIR delegation stats")
-	var b countryBuilder = database.NewBuilder()
+	var b trieBuilder = database.NewBuilder()
 
 	total := 0
 	for _, url := range rirDelegatedURLs {
@@ -75,7 +76,7 @@ func updateCountryDB(cfg config) error {
 //	apnic|AU|ipv6|2001:200::|35|19990813|allocated
 //
 // For ipv4 the 5th field is an address count; for ipv6 it is a prefix length.
-func importDelegated(b countryBuilder, url string) (int, error) {
+func importDelegated(b trieBuilder, url string) (int, error) {
 	resp, err := httpGet(url)
 	if err != nil {
 		return 0, err

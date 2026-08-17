@@ -9,6 +9,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Blazing Fast**: Uses offline LC-trie databases for instantaneous IP lookups.
 - **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file listing any mix of them.
 - **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it.
+- **Says What It Is**: Another optional database classifies an address as cloud, CDN, hosting, residential ISP, mobile or Tor exit, from the providers' own published ranges and operator-declared network types.
 - **Auto-Updating**: Automatically fetches the latest RouteViews RIB dumps, RIPE ASN names, and RIR Delegation Statistics to build and maintain its own fresh databases when they get older than 30 days.
 - **Fully Standalone**: A single static binary — no Cgo, and no `geoiplookup` or other system tool to install alongside it.
 
@@ -212,6 +213,87 @@ two minutes and needs ~1.5 GB of memory while it runs. The result is around
 search rather than loaded into memory, so a lookup stays instant and costs a few
 kilobytes of RAM.
 
+### Network categories
+
+Who owns an address and what it is *for* are different questions. `--category`
+(or `-C`) answers the second: cloud, CDN, hosting, residential ISP, mobile,
+university, Tor exit and so on.
+
+```bash
+$ asname -C 13.32.0.1
+IP: 13.32.0.1 → ASN: AS16509 → Name: AMAZON-02 - Amazon.com, Inc., US → Country: US, United States → Category: cdn, cloud:aws
+
+$ asname 139.130.4.5
+IP: 139.130.4.5 → ASN: AS1221 → Name: ASN-TELSTRA Telstra Limited, AU → Country: AU, Australia → Category: isp, mobile
+```
+
+Like the other optional databases, the flag is needed once; after that its
+presence on disk is enough. `--no-category` suppresses it for a run. The
+database is small — under a megabyte — and builds in a few seconds.
+
+**The two halves of it are not equally trustworthy, and the difference matters.**
+
+*Prefixes* come from the providers themselves. AWS, Google, Oracle, Fastly,
+Cloudflare, DigitalOcean, Linode and Vultr all publish the exact ranges they
+use, and AWS goes further and names the service, which is how `13.32.0.1` is
+reported as a CDN while `52.95.110.1` is just a machine. The Tor Project
+publishes its exit list the same way. When one of these names an address, that
+is the provider speaking about its own network and it settles the question.
+
+*ASNs* come from bgp.tools' operator tags and PeeringDB's self-reported network
+type. These describe **the operator, not the address**: the tag means the AS is
+associated with that thing somewhere, not that every address in it is. So
+`asname -C 8.8.8.8` reports `cdn, hosting, vpn` — all true of Google, none of
+them specifically true of that resolver. Read AS-level answers as "this is the
+sort of network it is", not as a fact about the address.
+
+Because of that, a prefix match wins outright and the AS tags are not consulted;
+otherwise every EC2 address would inherit `vpn` from Amazon's AS, on the grounds
+that somebody, somewhere, runs a VPN on EC2.
+
+Three of bgp.tools' tags are left out entirely for the same reason. `tor` sits
+on a quarter of the eyeball ISPs in their data, because subscribers run relays.
+`anycast` sits on Telstra, Google and Amazon, because everyone large anycasts
+something. `biznet` means the network sells business connectivity, which
+describes an ISP rather than the business at the far end.
+
+**What is missing is VPN and proxy detection**, beyond operators who run their
+own AS. Most consumer VPN exits are rented from ordinary cloud providers and
+are, from routing data alone, indistinguishable from any other virtual machine.
+Telling them apart takes active measurement — connecting to the service and
+watching where it comes out — which is why that data is sold rather than
+published. The Tor exit list is the one exact, free piece of it.
+
+#### The bgp.tools contact address
+
+bgp.tools asks that clients identify themselves rather than arrive with a
+default user agent, so the first build asks for an address:
+
+```
+asname: some of the categories (hosting, ISP, VPN, CDN) come from bgp.tools,
+asname: which asks that clients identify themselves with a contact address so
+asname: they can get in touch if a client misbehaves. It is sent to bgp.tools
+asname: alone, in the User-Agent header, and to none of the other sources.
+asname: Contact email (blank to skip bgp.tools):
+```
+
+It is stored in `~/.asname/contact.json` and asked once. **It is sent to
+bgp.tools and nowhere else** — every other source is fetched with the plain user
+agent, since none of them asked, and handing a personal address to a dozen
+unrelated hosts is not a fair trade for a tag. Leaving it blank is remembered
+too, and simply builds without their tags.
+
+Set `ASNAME_CONTACT_EMAIL` or pass `--contact-email` to skip the question, which
+is what you want in a script; neither is written to disk. With no terminal to
+ask on, the build says so and leaves bgp.tools out.
+
+Their data carries no explicit licence and they ask for 24-hour caching on it,
+which a monthly rebuild comfortably satisfies. If you are going to redistribute
+anything built from it, talk to `admin@bgp.tools` first. PeeringDB rate-limits
+anonymous API access, so rebuilding repeatedly in quick succession will get a
+`429`; the build warns and carries on with the other sources, which leaves the
+database thinner than it should be — check the per-source counts if you care.
+
 Add `--uniform` (or `-u`) to print aligned fields:
 
 ```bash
@@ -227,7 +309,7 @@ You can manually trigger an update of the local databases using:
 asname update
 ```
 
-You can also update specific databases using the `--db-only`, `--names-only`, `--country-only`, `--city-only`, or `--netblock-only` flags.
+You can also update specific databases using the `--db-only`, `--names-only`, `--country-only`, `--city-only`, `--netblock-only`, or `--category-only` flags.
 
 ## Database Locations
 
@@ -238,9 +320,11 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/country.db`: The binary LC-trie database for IP to Country mapping.
 - `~/.asname/city.mmdb`: The DB-IP Lite city database, in MaxMind DB format. Only present if you have enabled city lookups; ~125 MB.
 - `~/.asname/netblock.db`: The IP to registry netblock index, built from the RIRs' bulk whois dumps. Only present if you have enabled netblock lookups.
+- `~/.asname/category.db`: The IP and ASN to category index. Only present if you have enabled category lookups; under 1 MB.
 - `~/.asname/whois-consent.json`: Whether you agreed to live whois lookups, and when you were asked. Delete it to be asked again; it expires after an hour anyway.
+- `~/.asname/contact.json`: The contact address sent to bgp.tools, or a note that you declined. Delete it to be asked again.
 
-You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, and `ASNAME_NETBLOCK` environment variables or their respective flags.
+You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, and `ASNAME_CATEGORY` environment variables or their respective flags.
 
 ## Credits
 
@@ -255,6 +339,13 @@ carries a notice to that effect.
 Data comes from [RouteViews](http://archive.routeviews.org/) (BGP RIB dumps),
 [RIPE NCC](https://ftp.ripe.net/ripe/asnames/) (ASN names), and the RIR
 delegation statistics files (IP to country).
+
+Category data comes from the providers' own published ranges ([AWS](https://ip-ranges.amazonaws.com/ip-ranges.json),
+[Google Cloud](https://www.gstatic.com/ipranges/cloud.json), [Oracle](https://docs.oracle.com/en-us/iaas/tools/public_ip_ranges.json),
+[Fastly](https://api.fastly.com/public-ip-list), [Cloudflare](https://www.cloudflare.com/ips-v4),
+DigitalOcean, Linode and Vultr), the [Tor Project](https://check.torproject.org/torbulkexitlist)
+exit list, [PeeringDB](https://www.peeringdb.com/) network types, and
+[bgp.tools](https://bgp.tools/) operator tags.
 
 Netblock data comes from the RIRs' bulk whois dumps — [APNIC](https://ftp.apnic.net/apnic/whois/),
 [RIPE NCC](https://ftp.ripe.net/ripe/dbase/split/) and [AFRINIC](https://ftp.afrinic.net/dbase/),

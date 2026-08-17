@@ -53,6 +53,7 @@ const (
 	uniformCountryWidth  = 24
 	uniformCityWidth     = 34
 	uniformNetblockWidth = 48
+	uniformCategoryWidth = 30
 )
 
 func main() {
@@ -138,6 +139,25 @@ func main() {
 				Name:  "no-whois",
 				Usage: "never query whois, and do not ask",
 			},
+			&cli.StringFlag{
+				Name:    "category-db",
+				EnvVars: []string{categoryEnvVar},
+				Usage:   "IP->category database `file` (default: <dir>/" + categoryFilename + ")",
+			},
+			&cli.BoolFlag{
+				Name:    "category",
+				Aliases: []string{"C"},
+				Usage:   "include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag",
+			},
+			&cli.BoolFlag{
+				Name:  "no-category",
+				Usage: "omit the category even when the category database is present",
+			},
+			&cli.StringFlag{
+				Name:    "contact-email",
+				EnvVars: []string{contactEnvVar},
+				Usage:   "`address` to identify with when fetching bgp.tools' operator tags",
+			},
 		},
 		Commands: []*cli.Command{
 			updateCommand,
@@ -159,7 +179,9 @@ type config struct {
 	countryPath  string
 	cityPath     string
 	netblockPath string
+	categoryPath string
 	consentPath  string
+	contactPath  string
 }
 
 func newConfig(ctx *cli.Context) config {
@@ -170,6 +192,7 @@ func newConfig(ctx *cli.Context) config {
 		countryPath:  ctx.String("country"),
 		cityPath:     ctx.String("city-db"),
 		netblockPath: ctx.String("netblock-db"),
+		categoryPath: ctx.String("category-db"),
 	}
 	if c.dbPath == "" {
 		c.dbPath = filepath.Join(dir, dbFilename)
@@ -186,7 +209,11 @@ func newConfig(ctx *cli.Context) config {
 	if c.netblockPath == "" {
 		c.netblockPath = filepath.Join(dir, netblockFilename)
 	}
+	if c.categoryPath == "" {
+		c.categoryPath = filepath.Join(dir, categoryFilename)
+	}
 	c.consentPath = filepath.Join(dir, whoisConsentFilename)
+	c.contactPath = filepath.Join(dir, contactFilename)
 	return c
 }
 
@@ -226,15 +253,17 @@ func lookupAction(ctx *cli.Context) error {
 		whois = whoisAlways
 	}
 	showNetblock := wantNetblock || whois == whoisAlways
+	wantCategory := !ctx.Bool("no-category") && (ctx.Bool("category") || categoryDBPresent(cfg.categoryPath))
 
 	// Auto-refresh stale or missing data unless the user opted out.
 	if !ctx.Bool("no-update") {
-		if err := autoUpdate(cfg, ctx.Duration("max-age"), wantCity, wantNetblock); err != nil {
+		contact := newContactAsker(cfg.contactPath, ctx.String("contact-email"))
+		if err := autoUpdate(cfg, ctx.Duration("max-age"), wantCity, wantNetblock, wantCategory, contact); err != nil {
 			fmt.Fprintln(os.Stderr, "asname: auto-update failed:", err)
 		}
 	}
 
-	eng, err := newEngine(cfg, wantCity, wantNetblock, showNetblock, whois)
+	eng, err := newEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, whois)
 	if err != nil {
 		return err
 	}
@@ -295,9 +324,10 @@ type engine struct {
 	// report netblocks with no offline database at all.
 	showNetblock bool
 	whois        *whoisAsker
+	categoryDB   *categoryDB
 }
 
-func newEngine(cfg config, wantCity, wantNetblock, showNetblock bool, whois whoisMode) (*engine, error) {
+func newEngine(cfg config, wantCity, wantNetblock, showNetblock, wantCategory bool, whois whoisMode) (*engine, error) {
 	dbFile, err := os.Open(cfg.dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening ASN database (run `asname update`): %v", err)
@@ -336,10 +366,19 @@ func newEngine(cfg config, wantCity, wantNetblock, showNetblock bool, whois whoi
 		}
 	}
 
+	var catDB *categoryDB
+	if wantCategory {
+		if catDB, err = openCategoryDB(cfg.categoryPath); err != nil {
+			fmt.Fprintln(os.Stderr, "asname: category database unavailable (run `asname update --category-only`):", err)
+			catDB = nil
+		}
+	}
+
 	return &engine{
 		db: db, names: names, countryDB: countryDB, cityDB: cityDB, netblockDB: nbDB,
 		showNetblock: showNetblock,
 		whois:        newWhoisAsker(cfg.consentPath, whois),
+		categoryDB:   catDB,
 	}, nil
 }
 
@@ -380,9 +419,12 @@ func (e *engine) lookup(ip net.IP) (lookupResult, error) {
 		return lookupResult{}, fmt.Errorf("invalid IP address: %v", res.ip)
 	}
 
+	var asn uint32
+	haveASN := false
 	as, err := e.db.Lookup(ip)
 	switch err {
 	case nil:
+		asn, haveASN = as.Number, true
 		res.asn = fmt.Sprintf("AS%d", as.Number)
 		if n, ok := e.names[as.Number]; ok {
 			res.name = n
@@ -432,6 +474,13 @@ func (e *engine) lookup(ip net.IP) (lookupResult, error) {
 		}
 	}
 
+	if e.categoryDB != nil {
+		res.category = "Unknown"
+		if c := e.categoryDB.Lookup(ip, asn, haveASN); c != "" {
+			res.category = c
+		}
+	}
+
 	return res, nil
 }
 
@@ -447,6 +496,7 @@ type lookupResult struct {
 	// netblockLive marks a netblock that came from a live whois query rather
 	// than the offline database, since that answer is not reproducible offline.
 	netblockLive bool
+	category     string // empty when the category database is not in use
 	rdns         string
 }
 
@@ -483,6 +533,9 @@ func formatLookupOutput(res lookupResult, uniform, showHost bool) string {
 			netblock += " [whois]"
 		}
 		fields = append(fields, outputField{label: "Netblock", value: netblock, width: uniformNetblockWidth})
+	}
+	if res.category != "" {
+		fields = append(fields, outputField{label: "Category", value: res.category, width: uniformCategoryWidth})
 	}
 	if res.rdns != "" {
 		fields = append(fields, outputField{label: "Reverse DNS", value: res.rdns})
