@@ -17,7 +17,7 @@ deps:
 	go mod download
 
 $(BUILDDIR)/asname: deps
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '-extldflags "-static" -X main.version=$(VERSION)' -o $(BUILDDIR)/asname .
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '-extldflags "-static" -X main.version=$(VERSION)' -o $(BUILDDIR)/asname ./cmd/asname
 
 .PHONY: release
 release:

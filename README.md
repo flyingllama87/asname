@@ -19,7 +19,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 ## Installation
 
 ```bash
-go install github.com/flyingllama87/asname@latest
+go install github.com/flyingllama87/asname/cmd/asname@latest
 ```
 
 Or build and install from a clone using the provided Makefile, which stamps the
