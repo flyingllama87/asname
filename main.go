@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -107,6 +108,44 @@ func main() {
 				Name:    "uniform",
 				Aliases: []string{"u"},
 				Usage:   "print lookup output as aligned fields",
+			},
+			&cli.BoolFlag{
+				Name:    "pretty",
+				Aliases: []string{"p"},
+				Usage:   "display output in a multi-line formatted card layout with generous whitespace",
+			},
+			&cli.BoolFlag{
+				Name:  "color",
+				Usage: "force ANSI colored output even when stdout is piped",
+			},
+			&cli.BoolFlag{
+				Name:  "no-color",
+				Usage: "suppress ANSI colored output (also respects NO_COLOR env var)",
+			},
+			&cli.BoolFlag{
+				Name:    "json",
+				Aliases: []string{"j"},
+				Usage:   "output lookup results as JSON lines (JSONL)",
+			},
+			&cli.BoolFlag{
+				Name:    "stream",
+				Aliases: []string{"s"},
+				Usage:   "stream and resolve targets line-by-line from stdin in real-time",
+			},
+			&cli.BoolFlag{
+				Name:  "rest",
+				Usage: "run in foreground as an HTTP REST API server",
+			},
+			&cli.StringFlag{
+				Name:    "listen",
+				Aliases: []string{"l"},
+				EnvVars: []string{"ASNAME_LISTEN"},
+				Value:   "127.0.0.1:8086",
+				Usage:   "network address and port to bind for the REST API server",
+			},
+			&cli.BoolFlag{
+				Name:  "cors",
+				Usage: "enable permissive CORS headers on the REST API server",
 			},
 			&cli.BoolFlag{
 				Name:    "city",
@@ -226,14 +265,30 @@ func defaultDir() string {
 }
 
 func lookupAction(ctx *cli.Context) error {
-	if ctx.NArg() != 1 {
-		cli.ShowAppHelp(ctx)
-		return fmt.Errorf("exactly one IP address, hostname, URL or file argument is required")
+	outputFlags := 0
+	if ctx.Bool("pretty") {
+		outputFlags++
+	}
+	if ctx.Bool("json") {
+		outputFlags++
+	}
+	if ctx.Bool("uniform") {
+		outputFlags++
+	}
+	if outputFlags > 1 {
+		return fmt.Errorf("--pretty, --json and --uniform are mutually exclusive")
 	}
 
-	targets, err := parseTargets(ctx.Args().First())
-	if err != nil {
-		return err
+	if ctx.Bool("rest") && ctx.Bool("stream") {
+		return fmt.Errorf("--rest and --stream are mutually exclusive")
+	}
+
+	isStream := ctx.Bool("stream") || (ctx.NArg() == 1 && ctx.Args().First() == "-")
+	isREST := ctx.Bool("rest")
+
+	if !isStream && !isREST && ctx.NArg() != 1 {
+		cli.ShowAppHelp(ctx)
+		return fmt.Errorf("exactly one IP address, hostname, URL or file argument is required")
 	}
 
 	cfg := newConfig(ctx)
@@ -269,6 +324,47 @@ func lookupAction(ctx *cli.Context) error {
 	}
 	defer eng.close()
 
+	if isREST {
+		server := newRESTServer(eng, ctx.String("listen"), ctx.Bool("cors"), ctx.Bool("reverse-dns"))
+		return server.start(context.Background())
+	}
+
+	if isStream {
+		format := formatDefault
+		switch {
+		case ctx.Bool("json"):
+			format = formatJSON
+		case ctx.Bool("pretty"):
+			format = formatPretty
+		case ctx.Bool("uniform"):
+			format = formatUniform
+		}
+
+		useColor := shouldColorize(os.Stdout, ctx.Bool("color"), ctx.Bool("no-color"))
+		opts := streamOptions{
+			format:     format,
+			reverseDNS: ctx.Bool("reverse-dns"),
+			useColor:   useColor,
+		}
+
+		var r io.Reader = os.Stdin
+		if ctx.NArg() == 1 && ctx.Args().First() != "-" {
+			f, err := os.Open(ctx.Args().First())
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			r = f
+		}
+
+		return runStream(context.Background(), r, os.Stdout, eng, opts)
+	}
+
+	targets, err := parseTargets(ctx.Args().First())
+	if err != nil {
+		return err
+	}
+
 	resolveTargets(context.Background(), targets)
 
 	// A hostname can expand to several addresses, so one entry can produce
@@ -299,8 +395,22 @@ func lookupAction(ctx *cli.Context) error {
 
 	out := bufio.NewWriter(os.Stdout)
 	uniform := ctx.Bool("uniform")
-	for _, res := range results {
-		fmt.Fprint(out, formatLookupOutput(res, uniform, showHost))
+	isJSON := ctx.Bool("json")
+	isPretty := ctx.Bool("pretty")
+	useColor := shouldColorize(os.Stdout, ctx.Bool("color"), ctx.Bool("no-color"))
+
+	for i, res := range results {
+		if isJSON {
+			line, err := formatJSONLookupOutput(res)
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(out, line)
+		} else if isPretty {
+			fmt.Fprint(out, formatPrettyLookupOutput(res, i, len(results), useColor))
+		} else {
+			fmt.Fprint(out, formatLookupOutput(res, uniform, showHost))
+		}
 	}
 	if err := out.Flush(); err != nil {
 		return err
@@ -401,6 +511,7 @@ func (e *engine) lookupTarget(t target) ([]lookupResult, error) {
 		if err != nil {
 			return nil, err
 		}
+		res.target = t.raw
 		res.host = t.host
 		results = append(results, res)
 	}
@@ -486,6 +597,7 @@ func (e *engine) lookup(ip net.IP) (lookupResult, error) {
 
 // lookupResult is everything known about a single address.
 type lookupResult struct {
+	target   string // the original target input (e.g. "https://...", "8.8.8.8")
 	host     string // the hostname it came from, empty for a literal IP
 	ip       net.IP
 	asn      string
@@ -498,58 +610,6 @@ type lookupResult struct {
 	netblockLive bool
 	category     string // empty when the category database is not in use
 	rdns         string
-}
-
-type outputField struct {
-	label string
-	value string
-	width int // padding in uniform mode; ignored for the final field
-}
-
-// formatLookupOutput renders one result line. showHost adds the host column to
-// every line of a run in which any entry was a hostname, so that the columns
-// still line up in uniform mode.
-func formatLookupOutput(res lookupResult, uniform, showHost bool) string {
-	fields := make([]outputField, 0, 6)
-	if res.host != "" || (uniform && showHost) {
-		host := res.host
-		if host == "" {
-			host = "-"
-		}
-		fields = append(fields, outputField{label: "Host", value: host, width: uniformHostWidth})
-	}
-	fields = append(fields,
-		outputField{label: "IP", value: res.ip.String(), width: uniformIPWidth},
-		outputField{label: "ASN", value: res.asn, width: uniformASNWidth},
-		outputField{label: "Name", value: res.name, width: uniformNameWidth},
-		outputField{label: "Country", value: res.country, width: uniformCountryWidth},
-	)
-	if res.city != "" {
-		fields = append(fields, outputField{label: "City", value: res.city, width: uniformCityWidth})
-	}
-	if res.netblock != "" {
-		netblock := res.netblock
-		if res.netblockLive {
-			netblock += " [whois]"
-		}
-		fields = append(fields, outputField{label: "Netblock", value: netblock, width: uniformNetblockWidth})
-	}
-	if res.category != "" {
-		fields = append(fields, outputField{label: "Category", value: res.category, width: uniformCategoryWidth})
-	}
-	if res.rdns != "" {
-		fields = append(fields, outputField{label: "Reverse DNS", value: res.rdns})
-	}
-
-	parts := make([]string, 0, len(fields))
-	for i, field := range fields {
-		if !uniform || i == len(fields)-1 {
-			parts = append(parts, fmt.Sprintf("%s: %s", field.label, field.value))
-			continue
-		}
-		parts = append(parts, fmt.Sprintf("%s: %-*s", field.label, field.width, field.value))
-	}
-	return strings.Join(parts, " → ") + "\n"
 }
 
 // resolveReverseDNS annotates every result with its PTR names, in parallel

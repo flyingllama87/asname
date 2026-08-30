@@ -8,6 +8,9 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 
 - **Blazing Fast**: Uses offline LC-trie databases for instantaneous IP lookups.
 - **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file listing any mix of them.
+- **Pretty Cards & JSONL**: Format results as clean multi-line cards (`--pretty`) or streamable JSON objects (`--json`).
+- **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
+- **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
 - **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it.
 - **Says What It Is**: Another optional database classifies an address as cloud, CDN, hosting, residential ISP, mobile or Tor exit, from the providers' own published ranges and operator-declared network types.
 - **Auto-Updating**: Automatically fetches the latest RouteViews RIB dumps, RIPE ASN names, and RIR Delegation Statistics to build and maintain its own fresh databases when they get older than 30 days.
@@ -299,6 +302,89 @@ Add `--uniform` (or `-u`) to print aligned fields:
 ```bash
 $ asname -u -r 8.8.8.8
 IP: 8.8.8.8                                → ASN: AS15169      → Name: GOOGLE - Google LLC, US                                      → Country: US, United States         → Reverse DNS: dns.google
+```
+
+### Pretty mode
+
+Add `--pretty` (or `-p`) to display results in a structured, multi-line card layout with plenty of whitespace and terminal color highlights:
+
+```bash
+$ asname --pretty 8.8.8.8
+Target: 8.8.8.8
+────────────────────────────────────────────────────────────
+  Address Details:
+    IP Address:        8.8.8.8 (IPv4)
+
+  Autonomous System:
+    ASN:               AS15169
+    Organization:      GOOGLE - Google LLC, US
+
+  Location:
+    Country:           United States (US)
+    City:              Mountain View, California
+
+  Registry Netblock:
+    Netname / Org:     GOGL (Google LLC)
+    Source:            Live WHOIS
+
+  Network Classification:
+    Category:          cdn, content, hosting, vpn
+────────────────────────────────────────────────────────────
+```
+
+Colors are enabled automatically on interactive terminals and suppressed when piped, unless forced with `--color`. Use `--no-color` (or set the `NO_COLOR` environment variable) to disable colors explicitly.
+
+### JSON lines mode
+
+Add `--json` (or `-j`) to emit results in JSON Lines (`JSONL`) format, one JSON object per resolved IP:
+
+```bash
+$ asname --json 8.8.8.8
+{"target":"8.8.8.8","host":null,"ip":"8.8.8.8","version":4,"asn":{"number":15169,"asn_string":"AS15169","name":"GOOGLE - Google LLC, US","announced":true},"country":{"code":"US","name":"United States"},"city":{"name":"Mountain View, California","present":true},"category":{"tags":["cdn","content","hosting","vpn"],"raw":"cdn, content, hosting, vpn"}}
+```
+
+### Streaming mode
+
+Use `--stream` (or `-s`, or `-`) to read targets continuously from standard input in real time. Queries are resolved concurrently with a single retry on transient DNS failures and output is flushed immediately:
+
+```bash
+# Pipe network logs into asname with JSONL and filter with jq
+tail -f /var/log/nginx/access.log | awk '{print $1}' | asname --stream --json | jq -c '{ip, asn: .asn.asn_string, country: .country.code}'
+
+# Stream from network capture tools
+tshark -T fields -e ip.src | asname --stream --json
+```
+
+### REST API server
+
+Run `asname --rest` to host a fast HTTP REST API daemon in the foreground on port `8086` (or configure via `--listen` / `ASNAME_LISTEN`):
+
+```bash
+$ asname --rest --city --netblock -r
+asname REST API listening on http://127.0.0.1:8086
+Databases: ASN (yes), Names (yes), Country (true), City (true), Netblock (true), Category (true)
+Ready to handle requests. Press Ctrl+C to shut down.
+```
+
+The REST API supports querying URLs, hostnames, and IP addresses with zero manual sanitization:
+
+```bash
+# Health check
+curl -s http://127.0.0.1:8086/health
+
+# Query with URL / hostname / IP via query parameter
+curl -s "http://127.0.0.1:8086/v1/lookup?q=https://dns.google/resolve&reverse_dns=true"
+
+# Direct path lookup
+curl -s "http://127.0.0.1:8086/v1/lookup/1.1.1.1"
+
+# Base64URL-encoded target lookup
+curl -s "http://127.0.0.1:8086/v1/lookup/b64/aHR0cHM6Ly9leGFtcGxlLmNvbQ"
+
+# Bulk batch lookup (JSON or plain text)
+curl -s -X POST http://127.0.0.1:8086/v1/bulk \
+  -H "Content-Type: application/json" \
+  -d '{"targets": ["8.8.8.8", "1.1.1.1", "dns.google"], "reverse_dns": true}'
 ```
 
 ### Manual Updates
