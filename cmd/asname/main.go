@@ -22,11 +22,143 @@ var version = "dev"
 func main() {
 	sources.Version = version
 
+	cli.AppHelpTemplate = `NAME:
+   {{.Name}}{{if .Usage}} - {{.Usage}}{{end}}
+
+USAGE:
+   {{if .UsageText}}{{.UsageText}}{{else}}{{.HelpName}} {{if .VisibleFlags}}[options]{{end}} {{if .ArgsUsage}}{{.ArgsUsage}}{{else}}[arguments...]{{end}}{{end}}{{if .VisibleCommands}}
+
+COMMANDS:{{range .VisibleCategories}}{{if .Name}}
+   {{.Name}}:{{range .VisibleCommands}}
+     {{join .Names ", "}}{{"\t"}}{{.Usage}}{{end}}{{else}}{{range .VisibleCommands}}
+   {{join .Names ", "}}{{"\t"}}{{.Usage}}{{end}}{{end}}{{end}}{{end}}{{if .VisibleFlags}}
+
+OUTPUT FORMATTING:
+   --pretty, -p                   display output in a multi-line formatted card layout with generous whitespace
+   --json, -j                     output lookup results as JSON lines (JSONL)
+   --uniform, -u                  print lookup output as aligned fields
+   --color                        force ANSI colored output even when stdout is piped
+   --no-color                     suppress ANSI colored output (also respects NO_COLOR env var)
+
+EXECUTION MODES:
+   --stream, -s                   stream and resolve targets line-by-line from stdin in real-time
+   --rest                         run in foreground as an HTTP REST API server
+   --listen value, -l value       network address and port to bind for the REST API server (default: "127.0.0.1:8086") [$ASNAME_LISTEN]
+   --cors                         enable permissive CORS headers on the REST API server
+
+OPTIONAL LOOKUPS & METADATA:
+   --reverse-dns, -r              also query reverse DNS and include PTR names in the output
+   --city, -c                     include the city, downloading the city database (~125MB) if absent; once present it is used without this flag
+   --no-city                      omit the city even when the city database is present
+   --netblock, -n                 include the registry netblock and its owner, building the database (~300MB of downloads) if absent; once present it is used without this flag
+   --no-netblock                  omit the netblock even when the netblock database is present
+   --whois                        look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking
+   --no-whois                     never query whois, and do not ask
+   --category, -C                 include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag
+   --no-category                  omit the category even when the category database is present
+
+DATA FILES & AUTO-UPDATE:
+   --dir directory, -d directory  data directory holding the ASN database and name file (default: "/home/mj12/.asname") [$ASNAME_DIR]
+   --db file                      asnlookup database file (default: <dir>/asname.db) [$ASNAME_DB]
+   --names file                   ASN->name mapping file (default: <dir>/asn_db.txt) [$ASNAME_NAMES]
+   --country file                 IP->country database file (default: <dir>/country.db) [$ASNAME_COUNTRY]
+   --city-db file                 IP->city database file (default: <dir>/city.mmdb) [$ASNAME_CITY]
+   --netblock-db file             IP->netblock database file (default: <dir>/netblock.db) [$ASNAME_NETBLOCK]
+   --category-db file             IP->category database file (default: <dir>/category.db) [$ASNAME_CATEGORY]
+   --max-age duration             auto-refresh data older than this duration (0 disables) (default: 720h0m0s)
+   --no-update                    never auto-refresh data before a lookup
+   --contact-email address        address to identify with when fetching bgp.tools' operator tags [$ASNAME_CONTACT_EMAIL]
+   --help, -h                     show help{{end}}
+`
+
 	app := &cli.App{
 		Name:      "asname",
 		Usage:     "look up the ASN, AS name and country of an IP address, hostname or URL",
 		ArgsUsage: "<IP|hostname|URL|file>",
 		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "pretty",
+				Aliases: []string{"p"},
+				Usage:   "display output in a multi-line formatted card layout with generous whitespace",
+			},
+			&cli.BoolFlag{
+				Name:    "json",
+				Aliases: []string{"j"},
+				Usage:   "output lookup results as JSON lines (JSONL)",
+			},
+			&cli.BoolFlag{
+				Name:    "uniform",
+				Aliases: []string{"u"},
+				Usage:   "print lookup output as aligned fields",
+			},
+			&cli.BoolFlag{
+				Name:  "color",
+				Usage: "force ANSI colored output even when stdout is piped",
+			},
+			&cli.BoolFlag{
+				Name:  "no-color",
+				Usage: "suppress ANSI colored output (also respects NO_COLOR env var)",
+			},
+			&cli.BoolFlag{
+				Name:    "stream",
+				Aliases: []string{"s"},
+				Usage:   "stream and resolve targets line-by-line from stdin in real-time",
+			},
+			&cli.BoolFlag{
+				Name:  "rest",
+				Usage: "run in foreground as an HTTP REST API server",
+			},
+			&cli.StringFlag{
+				Name:    "listen",
+				Aliases: []string{"l"},
+				EnvVars: []string{"ASNAME_LISTEN"},
+				Value:   "127.0.0.1:8086",
+				Usage:   "network address and port to bind for the REST API server",
+			},
+			&cli.BoolFlag{
+				Name:  "cors",
+				Usage: "enable permissive CORS headers on the REST API server",
+			},
+			&cli.BoolFlag{
+				Name:    "reverse-dns",
+				Aliases: []string{"r"},
+				Usage:   "also query reverse DNS and include PTR names in the output",
+			},
+			&cli.BoolFlag{
+				Name:    "city",
+				Aliases: []string{"c"},
+				Usage:   "include the city, downloading the city database (~125MB) if absent; once present it is used without this flag",
+			},
+			&cli.BoolFlag{
+				Name:  "no-city",
+				Usage: "omit the city even when the city database is present",
+			},
+			&cli.BoolFlag{
+				Name:    "netblock",
+				Aliases: []string{"n"},
+				Usage:   "include the registry netblock and its owner, building the database (~300MB of downloads) if absent; once present it is used without this flag",
+			},
+			&cli.BoolFlag{
+				Name:  "no-netblock",
+				Usage: "omit the netblock even when the netblock database is present",
+			},
+			&cli.BoolFlag{
+				Name:  "whois",
+				Usage: "look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking",
+			},
+			&cli.BoolFlag{
+				Name:  "no-whois",
+				Usage: "never query whois, and do not ask",
+			},
+			&cli.BoolFlag{
+				Name:    "category",
+				Aliases: []string{"C"},
+				Usage:   "include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag",
+			},
+			&cli.BoolFlag{
+				Name:  "no-category",
+				Usage: "omit the category even when the category database is present",
+			},
 			&cli.StringFlag{
 				Name:    "dir",
 				Aliases: []string{"d"},
@@ -54,6 +186,16 @@ func main() {
 				EnvVars: []string{sources.CityEnvVar},
 				Usage:   "IP->city database `file` (default: <dir>/" + sources.CityFilename + ")",
 			},
+			&cli.StringFlag{
+				Name:    "netblock-db",
+				EnvVars: []string{sources.NetblockEnvVar},
+				Usage:   "IP->netblock database `file` (default: <dir>/" + sources.NetblockFilename + ")",
+			},
+			&cli.StringFlag{
+				Name:    "category-db",
+				EnvVars: []string{sources.CategoryEnvVar},
+				Usage:   "IP->category database `file` (default: <dir>/" + sources.CategoryFilename + ")",
+			},
 			&cli.DurationFlag{
 				Name:  "max-age",
 				Value: sources.DefaultMaxAge,
@@ -62,99 +204,6 @@ func main() {
 			&cli.BoolFlag{
 				Name:  "no-update",
 				Usage: "never auto-refresh data before a lookup",
-			},
-			&cli.BoolFlag{
-				Name:    "reverse-dns",
-				Aliases: []string{"r"},
-				Usage:   "also query reverse DNS and include PTR names in the output",
-			},
-			&cli.BoolFlag{
-				Name:    "uniform",
-				Aliases: []string{"u"},
-				Usage:   "print lookup output as aligned fields",
-			},
-			&cli.BoolFlag{
-				Name:    "pretty",
-				Aliases: []string{"p"},
-				Usage:   "display output in a multi-line formatted card layout with generous whitespace",
-			},
-			&cli.BoolFlag{
-				Name:  "color",
-				Usage: "force ANSI colored output even when stdout is piped",
-			},
-			&cli.BoolFlag{
-				Name:  "no-color",
-				Usage: "suppress ANSI colored output (also respects NO_COLOR env var)",
-			},
-			&cli.BoolFlag{
-				Name:    "json",
-				Aliases: []string{"j"},
-				Usage:   "output lookup results as JSON lines (JSONL)",
-			},
-			&cli.BoolFlag{
-				Name:    "stream",
-				Aliases: []string{"s"},
-				Usage:   "stream and resolve targets line-by-line from stdin in real-time",
-			},
-			&cli.BoolFlag{
-				Name:  "rest",
-				Usage: "run in foreground as an HTTP REST API server",
-			},
-			&cli.StringFlag{
-				Name:    "listen",
-				Aliases: []string{"l"},
-				EnvVars: []string{"ASNAME_LISTEN"},
-				Value:   "127.0.0.1:8086",
-				Usage:   "network address and port to bind for the REST API server",
-			},
-			&cli.BoolFlag{
-				Name:  "cors",
-				Usage: "enable permissive CORS headers on the REST API server",
-			},
-			&cli.BoolFlag{
-				Name:    "city",
-				Aliases: []string{"c"},
-				Usage:   "include the city, downloading the city database (~125MB) if absent; once present it is used without this flag",
-			},
-			&cli.BoolFlag{
-				Name:  "no-city",
-				Usage: "omit the city even when the city database is present",
-			},
-			&cli.StringFlag{
-				Name:    "netblock-db",
-				EnvVars: []string{sources.NetblockEnvVar},
-				Usage:   "IP->netblock database `file` (default: <dir>/" + sources.NetblockFilename + ")",
-			},
-			&cli.BoolFlag{
-				Name:    "netblock",
-				Aliases: []string{"n"},
-				Usage:   "include the registry netblock and its owner, building the database (~300MB of downloads) if absent; once present it is used without this flag",
-			},
-			&cli.BoolFlag{
-				Name:  "no-netblock",
-				Usage: "omit the netblock even when the netblock database is present",
-			},
-			&cli.BoolFlag{
-				Name:  "whois",
-				Usage: "look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking",
-			},
-			&cli.BoolFlag{
-				Name:  "no-whois",
-				Usage: "never query whois, and do not ask",
-			},
-			&cli.StringFlag{
-				Name:    "category-db",
-				EnvVars: []string{sources.CategoryEnvVar},
-				Usage:   "IP->category database `file` (default: <dir>/" + sources.CategoryFilename + ")",
-			},
-			&cli.BoolFlag{
-				Name:    "category",
-				Aliases: []string{"C"},
-				Usage:   "include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag",
-			},
-			&cli.BoolFlag{
-				Name:  "no-category",
-				Usage: "omit the category even when the category database is present",
 			},
 			&cli.StringFlag{
 				Name:    "contact-email",
