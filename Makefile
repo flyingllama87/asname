@@ -1,4 +1,4 @@
-VERSION = 0.5.2
+VERSION = 0.5.3
 BUILDDIR ?= build
 BINDIR ?= /usr/local/bin
 GOOS ?= $(shell go env GOOS)

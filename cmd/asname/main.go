@@ -52,7 +52,7 @@ OPTIONAL LOOKUPS & METADATA:
    --no-city                      omit the city even when the city database is present
    --netblock, -n                 include the registry netblock and its owner, building the database (~300MB of downloads) if absent; once present it is used without this flag
    --no-netblock                  omit the netblock even when the netblock database is present
-   --whois                        look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking
+   --whois                        look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking [$ASNAME_WHOIS]
    --no-whois                     never query whois, and do not ask
    --category, -C                 include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag
    --no-category                  omit the category even when the category database is present
@@ -143,8 +143,9 @@ DATA FILES & AUTO-UPDATE:
 				Usage: "omit the netblock even when the netblock database is present",
 			},
 			&cli.BoolFlag{
-				Name:  "whois",
-				Usage: "look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking",
+				Name:    "whois",
+				EnvVars: []string{"ASNAME_WHOIS"},
+				Usage:   "look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking",
 			},
 			&cli.BoolFlag{
 				Name:  "no-whois",
@@ -290,6 +291,11 @@ func lookupAction(ctx *cli.Context) error {
 	wantNetblock := !ctx.Bool("no-netblock") && (ctx.Bool("netblock") || sources.NetblockDBPresent(cfg.NetblockPath))
 
 	whois := sources.WhoisAsk
+	if isStream || isREST {
+		// In continuous stream or REST server modes, never ask interactively.
+		// Use whois only if explicitly opted in via --whois or ASNAME_WHOIS.
+		whois = sources.WhoisNever
+	}
 	switch {
 	case ctx.Bool("no-whois") || ctx.Bool("no-netblock"):
 		whois = sources.WhoisNever

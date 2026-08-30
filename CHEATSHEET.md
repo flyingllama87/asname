@@ -180,6 +180,7 @@ make release-all
 |---|---|---|
 | `ASNAME_DIR` | Directory holding all local databases | `~/.asname` |
 | `ASNAME_LISTEN` | REST API server bind host and port | `127.0.0.1:8086` |
+| `ASNAME_WHOIS` | Enable online whois lookups without asking | `false` |
 | `ASNAME_CONTACT_EMAIL` | Contact email for `bgp.tools` category queries | `""` |
 | `ASNAME_ARIN_APIKEY` | ARIN bulk whois download key | `""` |
 | `NO_COLOR` | Disables ANSI color output if set | `""` |
