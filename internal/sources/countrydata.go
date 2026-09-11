@@ -16,7 +16,7 @@ import (
 // rirDelegatedURLs are the five Regional Internet Registries' delegation
 // statistics files (RIR statistics exchange format).
 var rirDelegatedURLs = []string{
-	"https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest",
+	arinDelegatedURL,
 	"https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-latest",
 	"https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest",
 	"https://ftp.lacnic.net/pub/stats/lacnic/delegated-lacnic-latest",

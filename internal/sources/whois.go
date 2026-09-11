@@ -105,7 +105,7 @@ func (a *WhoisAsker) decide(ip net.IP) bool {
 }
 
 func (a *WhoisAsker) ask(ip net.IP) bool {
-	fmt.Fprintf(a.Out, "asname: %s has no offline netblock: ARIN and LACNIC do not publish theirs\n", ip)
+	fmt.Fprintf(a.Out, "asname: %s has no offline netblock: not every registry publishes owner data\n", ip)
 	fmt.Fprintf(a.Out, "asname: in a form that can be indexed offline. Query whois over the network for\n")
 	fmt.Fprintf(a.Out, "asname: addresses like it? Either answer is remembered for an hour. [y/N] ")
 

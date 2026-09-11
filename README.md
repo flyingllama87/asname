@@ -143,9 +143,9 @@ thing:**
 | RIPE NCC | Europe, Middle East | Published openly |
 | AFRINIC | Africa | Published openly |
 | LACNIC | Latin America | **Anonymised.** The public dump carries only status, city and country — no owner — so it is not used at all |
-| ARIN | North America | **Requires a signed agreement.** See below |
+| ARIN | North America | Organisation names only, derived from the openly published [delegated statistics](https://ftp.arin.net/pub/stats/arin/). The complete data requires a signed agreement. See below |
 
-Both gaps can be filled a query at a time over whois instead — see
+What is left over can be filled a query at a time over whois instead, see
 [Filling the gaps with whois](#filling-the-gaps-with-whois).
 
 ARIN does not publish its database openly. Access needs the [Bulk Whois Terms of
@@ -159,19 +159,34 @@ export ASNAME_ARIN_APIKEY=...
 asname update --netblock-only
 ```
 
-Without it, addresses in the ARIN region simply have no netblock and fall back to
-what the ASN says — which is most of North America, so it is worth having if you
-look at those addresses often.
+Without a key, asname falls back to ARIN's [delegated extended statistics](https://ftp.arin.net/pub/stats/arin/),
+which are published openly and need no agreement. That file lists every ARIN range
+but names none of them: each record carries only an opaque identifier shared by
+every resource one organisation holds. Joining a range's identifier to the ASNs
+registered under the same identifier yields an AS number, and the AS name database
+supplies the name.
+
+This names 72% of ARIN's IPv4 ranges, covering 87% of the addresses in them,
+and 89% of its IPv6 ranges.
+The remainder are held by organisations that hold no ASN of their own and stay
+unnamed. Two limits apply to what it does name. The name is the organisation
+holding the allocation, so an address inside a block reassigned to a downstream
+customer reports the organisation ARIN allocated it to, not that customer;
+reassignment records are carried only in bulk Whois. The name also comes from the
+AS name database rather than from ARIN, so it is the operator name seen in routing,
+which for an organisation holding several ASNs may differ in wording from its
+registered name.
 
 ### Filling the gaps with whois
 
-Neither registry publishes a dump asname can index, but both will happily answer
-a question about a single address over port 43. So when an address has no
-offline netblock, asname can ask the registry directly:
+LACNIC publishes no usable dump and ARIN's open data names only part of its
+space, but both registries will answer a question about a single address over
+port 43. So when an address has no offline netblock, asname can ask the registry
+directly:
 
 ```bash
 $ asname 8.8.8.8
-asname: 8.8.8.8 has no offline netblock: ARIN and LACNIC do not publish theirs
+asname: 8.8.8.8 has no offline netblock: not every registry publishes owner data
 asname: in a form that can be indexed offline. Query whois over the network for
 asname: addresses like it? Either answer is remembered for an hour. [y/N] y
 IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Netblock: GOGL (Google LLC) [whois]
@@ -455,11 +470,12 @@ DigitalOcean, Linode and Vultr), the [Tor Project](https://check.torproject.org/
 exit list, [PeeringDB](https://www.peeringdb.com/) network types, and
 [bgp.tools](https://bgp.tools/) operator tags.
 
-Netblock data comes from the RIRs' bulk whois dumps — [APNIC](https://ftp.apnic.net/apnic/whois/),
+Netblock data comes from the RIRs' bulk whois dumps, [APNIC](https://ftp.apnic.net/apnic/whois/),
 [RIPE NCC](https://ftp.ripe.net/ripe/dbase/split/) and [AFRINIC](https://ftp.afrinic.net/dbase/),
-plus [ARIN](https://www.arin.net/reference/research/bulkwhois/) if you supply
-your own API key. Each is downloaded on request and none is redistributed with
-this tool.
+together with ARIN's [delegated statistics](https://ftp.arin.net/pub/stats/arin/),
+or ARIN's [bulk whois](https://www.arin.net/reference/research/bulkwhois/) if you
+supply your own API key. Each is downloaded on request and none is redistributed
+with this tool.
 
 City data is the DB-IP Lite database — IP Geolocation by [DB-IP](https://db-ip.com),
 licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It is

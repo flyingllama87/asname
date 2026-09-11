@@ -143,7 +143,9 @@ asname update --city-only       # MaxMind DB-IP Lite city database
 asname update --netblock-only   # RIR inetnum whois dump index
 asname update --category-only   # Provider prefixes & ASN category tags
 
-# Build netblock database with your ARIN Bulk Whois API key (North America coverage)
+# Build netblock database with full ARIN coverage, using your ARIN Bulk Whois API key.
+# Without the key, ARIN ranges are named from ARIN's open delegated statistics instead,
+# which covers 87% of ARIN IPv4 address space.
 export ASNAME_ARIN_APIKEY="your-api-key"
 asname update --netblock-only
 ```
@@ -191,5 +193,5 @@ make release-all
 | `ASNAME_LISTEN` | REST API server bind host and port | `127.0.0.1:8086` |
 | `ASNAME_WHOIS` | Enable online whois lookups without asking | `false` |
 | `ASNAME_CONTACT_EMAIL` | Contact email for `bgp.tools` category queries | `""` |
-| `ASNAME_ARIN_APIKEY` | ARIN bulk whois download key | `""` |
+| `ASNAME_ARIN_APIKEY` | ARIN bulk whois download key, for complete ARIN netblock coverage | `""` |
 | `NO_COLOR` | Disables ANSI color output if set | `""` |

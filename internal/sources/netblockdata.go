@@ -97,12 +97,19 @@ func arinNetblockSource(apiKey string) netblockSource {
 func UpdateNetblockDB(cfg Config) error {
 	fmt.Fprintln(os.Stderr, "asname: building IP->netblock database from RIR whois dumps")
 
+	// Bulk Whois is the better ARIN source where a key is available: it names
+	// every range rather than only those an ASN holder registered, and it
+	// carries the netnames. The delegated statistics stand in when it is not.
 	sources := netblockSources
+	delegated := true
 	if key := os.Getenv(ArinKeyEnvVar); key != "" {
 		sources = append(append([]netblockSource{}, sources...), arinNetblockSource(key))
+		delegated = false
 	} else {
-		fmt.Fprintf(os.Stderr, "asname: note: no %s set, so ARIN ranges (most of North America) will be missing;\n"+
-			"asname:       see https://www.arin.net/reference/research/bulkwhois/\n", ArinKeyEnvVar)
+		fmt.Fprintf(os.Stderr, "asname: note: no %s set, so ARIN ranges are named from the delegated\n"+
+			"asname:       statistics file instead. Ranges held by an organisation that holds no\n"+
+			"asname:       ASN stay unnamed. For the complete ARIN data see\n"+
+			"asname:       https://www.arin.net/reference/research/bulkwhois/\n", ArinKeyEnvVar)
 	}
 
 	b := newNetblockBuilder()
@@ -116,6 +123,9 @@ func UpdateNetblockDB(cfg Config) error {
 		}
 		fmt.Fprintf(os.Stderr, "asname: %s: %d ranges\n", src.name, n)
 		imported += n
+	}
+	if delegated {
+		imported += importARINDelegatedInto(b, cfg, cache)
 	}
 	if imported == 0 {
 		return fmt.Errorf("no netblock ranges imported")
