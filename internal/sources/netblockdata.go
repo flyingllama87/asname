@@ -106,10 +106,10 @@ func UpdateNetblockDB(cfg Config) error {
 	}
 
 	b := newNetblockBuilder()
-	workDir := filepath.Dir(cfg.NetblockPath)
+	cache := cfg.CacheDir()
 	imported := 0
 	for _, src := range sources {
-		n, err := b.importSource(src, workDir)
+		n, err := b.importSource(src, cache)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "asname: warning: %s: %v\n", src.name, err)
 			continue
@@ -165,19 +165,14 @@ func (b *netblockBuilder) internString(s string) uint32 {
 	return off
 }
 
-func (b *netblockBuilder) importSource(src netblockSource, workDir string) (int, error) {
+func (b *netblockBuilder) importSource(src netblockSource, cache string) (int, error) {
 	local := make(map[string]string)
-	defer func() {
-		for _, path := range local {
-			os.Remove(path)
-		}
-	}()
 
 	fetch := func(url string) (string, error) {
 		if path, ok := local[url]; ok {
 			return path, nil
 		}
-		path, err := downloadTemp(url, workDir)
+		path, err := fetchCached(cache, url, "")
 		if err != nil {
 			return "", err
 		}
@@ -606,30 +601,6 @@ func ParseNetRange(s string) (net.IP, net.IP, bool) {
 		end[i] = start[i] | ^nw.Mask[i]
 	}
 	return start, end, true
-}
-
-func downloadTemp(url, dir string) (string, error) {
-	fmt.Fprintf(os.Stderr, "asname: downloading %s\n", redactURL(url))
-	resp, err := httpGet(url)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	f, err := os.CreateTemp(dir, ".netblock-dump.*.tmp")
-	if err != nil {
-		return "", err
-	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(f.Name())
-		return "", err
-	}
-	return f.Name(), nil
 }
 
 func redactURL(url string) string {

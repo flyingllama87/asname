@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"bufio"
 	"compress/bzip2"
 	"compress/gzip"
 	"fmt"
@@ -8,18 +9,60 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/flyingllama87/asname/pkg/database"
 )
 
 const (
-	routeViewsBase = "http://archive.routeviews.org/bgpdata"
-	ripeASNames    = "https://ftp.ripe.net/ripe/asnames/asn.txt"
-	dbipCityDump   = "https://download.db-ip.com/free/dbip-city-lite-%s.mmdb.gz"
+	ripeASNames  = "https://ftp.ripe.net/ripe/asnames/asn.txt"
+	dbipCityDump = "https://download.db-ip.com/free/dbip-city-lite-%s.mmdb.gz"
 )
 
-var ribFilenameRE = regexp.MustCompile(`rib\.[0-9]{8}\.[0-9]{4}\.bz2`)
+// ribSource is one archive of MRT RIB dumps. Each holds a monthly directory of
+// dated files, so the newest file is found by listing the directory for the
+// current month and falling back to the previous one.
+type ribSource struct {
+	name     string
+	listing  string         // directory URL, with the month as "2006.01"
+	filename *regexp.Regexp // dump filenames within that directory
+	size     string         // approximate download size, for the operator
+}
+
+// ribSources are tried in order until one yields a database. RouteViews is the
+// smallest download and is tried first; the RIPE RIS collectors are a separate
+// operator on separate infrastructure, so an outage at one does not stop the
+// other. rrc04 is comparable in size to RouteViews, and rrc00 is RIS' multi-hop
+// collector, the most complete and the largest.
+var ribSources = []ribSource{
+	{
+		name:     "RouteViews route-views2",
+		listing:  "http://archive.routeviews.org/bgpdata/%s/RIBS/",
+		filename: regexp.MustCompile(`rib\.[0-9]{8}\.[0-9]{4}\.bz2`),
+		size:     "~75MB",
+	},
+	{
+		name:     "RIPE RIS rrc04",
+		listing:  "https://data.ris.ripe.net/rrc04/%s/",
+		filename: regexp.MustCompile(`bview\.[0-9]{8}\.[0-9]{4}\.gz`),
+		size:     "~70MB",
+	},
+	{
+		name:     "RIPE RIS rrc00",
+		listing:  "https://data.ris.ripe.net/rrc00/%s/",
+		filename: regexp.MustCompile(`bview\.[0-9]{8}\.[0-9]{4}\.gz`),
+		size:     "~400MB",
+	},
+}
+
+// decompress wraps r according to the dump's file extension.
+func decompress(url string, r io.Reader) (io.Reader, error) {
+	if strings.HasSuffix(url, ".gz") {
+		return gzip.NewReader(r)
+	}
+	return bzip2.NewReader(r), nil
+}
 
 // AutoUpdate refreshes any data file that is missing or older than maxAge.
 func AutoUpdate(cfg Config, maxAge time.Duration, city, netblock, category bool, contact *ContactAsker) error {
@@ -91,26 +134,67 @@ func stale(path string, maxAge time.Duration) bool {
 	return time.Since(info.ModTime()) > maxAge
 }
 
-// UpdateDatabase downloads an MRT RIB dump, converts it to binary and replaces cfg.DBPath.
+// UpdateDatabase downloads an MRT RIB dump, converts it to binary and replaces
+// cfg.DBPath. With no ribURL given it works through ribSources in order, moving
+// on to the next archive whenever one cannot be listed, downloaded or parsed.
 func UpdateDatabase(cfg Config, ribURL string) error {
-	if ribURL == "" {
-		var err error
-		ribURL, err = latestRIBURL()
-		if err != nil {
-			return err
-		}
-	}
-	fmt.Fprintf(os.Stderr, "asname: downloading RIB %s\n", ribURL)
+	cache := cfg.CacheDir()
 
-	resp, err := httpGet(ribURL)
+	if ribURL != "" {
+		return buildFromRIB(cfg, cache, ribURL)
+	}
+
+	var failures []string
+	for i, src := range ribSources {
+		if i > 0 {
+			fmt.Fprintf(os.Stderr, "asname: falling back to %s%s\n", src.name, parenthesise(src.size))
+		}
+		url, err := latestRIBURL(cache, src)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "asname: %s: %v\n", src.name, err)
+			failures = append(failures, fmt.Sprintf("%s: %v", src.name, err))
+			continue
+		}
+		if err := buildFromRIB(cfg, cache, url); err != nil {
+			fmt.Fprintf(os.Stderr, "asname: %s: %v\n", src.name, err)
+			failures = append(failures, fmt.Sprintf("%s: %v", src.name, err))
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("every RIB archive failed: %s", strings.Join(failures, "; "))
+}
+
+func parenthesise(s string) string {
+	if s == "" {
+		return ""
+	}
+	return " (" + s + ")"
+}
+
+// buildFromRIB imports one MRT dump and replaces cfg.DBPath with the result.
+func buildFromRIB(cfg Config, cache, ribURL string) error {
+	f, err := openCached(cache, ribURL, "")
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer f.Close()
+
+	r, err := decompress(ribURL, bufio.NewReaderSize(f, 1<<20))
+	if err != nil {
+		dropCached(cache, ribURL)
+		return fmt.Errorf("decompressing %s: %v", ribURL, err)
+	}
 
 	builder := database.NewBuilder()
-	if err := builder.ImportMRT(bzip2.NewReader(resp.Body)); err != nil {
+	skipped, err := builder.ImportMRT(r)
+	if err != nil {
+		// The file downloaded in full but will not parse, so do not keep it.
+		dropCached(cache, ribURL)
 		return fmt.Errorf("importing MRT: %v", err)
+	}
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "asname: skipped %d MRT records this decoder does not understand\n", skipped)
 	}
 	builder.SetFillFactor(OptimizationFillFactor)
 	db, err := builder.Build()
@@ -130,12 +214,11 @@ func UpdateDatabase(cfg Config, ribURL string) error {
 
 // UpdateNames downloads the RIPE asn.txt list and writes it to cfg.NamesPath.
 func UpdateNames(cfg Config) error {
-	fmt.Fprintf(os.Stderr, "asname: downloading names %s\n", ripeASNames)
-	resp, err := httpGet(ripeASNames)
+	src, err := openCached(cfg.CacheDir(), ripeASNames, "")
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer src.Close()
 
 	tmp, err := os.CreateTemp(filepath.Dir(cfg.NamesPath), ".asn_db.*.tmp")
 	if err != nil {
@@ -144,7 +227,7 @@ func UpdateNames(cfg Config) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 
-	count, err := WriteNamesFromRIPE(resp.Body, tmp)
+	count, err := WriteNamesFromRIPE(src, tmp)
 	if err != nil {
 		tmp.Close()
 		return err
@@ -161,26 +244,28 @@ func UpdateNames(cfg Config) error {
 
 // UpdateCityDB downloads the DB-IP Lite city database and decompresses it into cfg.CityPath.
 func UpdateCityDB(cfg Config) error {
+	cache := cfg.CacheDir()
 	now := time.Now().UTC()
 	var lastErr error
 	for _, month := range []time.Time{now, now.AddDate(0, -1, 0)} {
 		url := fmt.Sprintf(dbipCityDump, month.Format("2006-01"))
-		resp, err := httpGet(url)
+		f, err := openCached(cache, url, "")
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "asname: downloading city database %s\n", url)
 
-		gz, err := gzip.NewReader(resp.Body)
+		gz, err := gzip.NewReader(bufio.NewReaderSize(f, 1<<20))
 		if err != nil {
-			resp.Body.Close()
+			f.Close()
+			dropCached(cache, url)
 			return fmt.Errorf("decompressing %s: %v", url, err)
 		}
 		n, err := StreamFileAtomic(cfg.CityPath, gz)
 		gz.Close()
-		resp.Body.Close()
+		f.Close()
 		if err != nil {
+			dropCached(cache, url)
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "asname: wrote %s (%d bytes)\n", cfg.CityPath, n)
@@ -189,24 +274,33 @@ func UpdateCityDB(cfg Config) error {
 	return fmt.Errorf("no city database found on db-ip.com: %v", lastErr)
 }
 
-func latestRIBURL() (string, error) {
+// latestRIBURL resolves the newest dump in src. The directory listing is cached
+// alongside the dumps, so a retry after a failed download resolves to the same
+// dump and reuses what was already fetched.
+func latestRIBURL(cache string, src ribSource) (string, error) {
 	now := time.Now().UTC()
+	var lastErr error
 	for _, month := range []time.Time{now, now.AddDate(0, -1, 0)} {
-		dir := fmt.Sprintf("%s/%s/RIBS/", routeViewsBase, month.Format("2006.01"))
-		resp, err := httpGet(dir)
+		dir := fmt.Sprintf(src.listing, month.Format("2006.01"))
+		path, err := fetchCached(cache, dir, "")
 		if err != nil {
+			lastErr = err
 			continue
 		}
-		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		body, err := os.ReadFile(path)
 		if err != nil {
+			lastErr = err
 			continue
 		}
-		matches := ribFilenameRE.FindAllString(string(body), -1)
+		matches := src.filename.FindAllString(string(body), -1)
 		if len(matches) == 0 {
+			lastErr = fmt.Errorf("no dump listed in %s", dir)
 			continue
 		}
 		return dir + matches[len(matches)-1], nil
 	}
-	return "", fmt.Errorf("no RIB dump found on routeviews")
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no dump found")
+	}
+	return "", lastErr
 }

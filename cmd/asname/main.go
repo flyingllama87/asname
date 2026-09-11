@@ -253,6 +253,7 @@ func newConfig(ctx *cli.Context) sources.Config {
 	if c.CategoryPath == "" {
 		c.CategoryPath = filepath.Join(dir, sources.CategoryFilename)
 	}
+	c.CachePath = filepath.Join(dir, sources.CacheDirName)
 	c.ConsentPath = filepath.Join(dir, sources.WhoisConsentFilename)
 	c.ContactPath = filepath.Join(dir, sources.ContactFilename)
 	return c
@@ -443,7 +444,7 @@ var updateCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:  "rib-url",
-			Usage: "download the RIB MRT dump from this `URL` instead of routeviews",
+			Usage: "download the RIB MRT dump from this `URL` (.bz2 or .gz) instead of trying RouteViews then RIPE RIS",
 		},
 	},
 	Action: updateAction,

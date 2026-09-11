@@ -13,7 +13,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
 - **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it.
 - **Says What It Is**: Another optional database classifies an address as cloud, CDN, hosting, residential ISP, mobile or Tor exit, from the providers' own published ranges and operator-declared network types.
-- **Auto-Updating**: Automatically fetches the latest RouteViews RIB dumps, RIPE ASN names, and RIR Delegation Statistics to build and maintain its own fresh databases when they get older than 30 days.
+- **Auto-Updating**: Automatically fetches the latest RouteViews or RIPE RIS RIB dumps, RIPE ASN names, and RIR Delegation Statistics to build and maintain its own fresh databases when they get older than 30 days.
 - **Fully Standalone**: A single static binary — no Cgo, and no `geoiplookup` or other system tool to install alongside it.
 
 ## Installation
@@ -397,6 +397,26 @@ asname update
 
 You can also update specific databases using the `--db-only`, `--names-only`, `--country-only`, `--city-only`, `--netblock-only`, or `--category-only` flags.
 
+### RIB Sources and Fallback
+
+The IP to ASN database is built from an MRT RIB dump. `asname` tries the following archives in order and stops at the first that yields a database, so an outage at one archive does not stop an update:
+
+| Order | Archive | Download | Compression |
+| --- | --- | --- | --- |
+| 1 | [RouteViews route-views2](http://archive.routeviews.org/bgpdata/) | ~75 MB | bzip2 |
+| 2 | [RIPE RIS rrc04](https://data.ris.ripe.net/rrc04/) (CIXP Geneva) | ~70 MB | gzip |
+| 3 | [RIPE RIS rrc00](https://data.ris.ripe.net/rrc00/) (multi-hop, most complete) | ~400 MB | gzip |
+
+RouteViews and RIPE RIS are run by different organisations on separate infrastructure, so the fallback is a genuine second opinion rather than a second address for the same server.
+
+To use a specific dump instead of the list above, pass its URL:
+
+```bash
+asname update --db-only --rib-url https://data.ris.ripe.net/rrc12/2026.09/bview.20260911.0000.gz
+```
+
+The dump is decompressed according to its file extension, so any `.bz2` or `.gz` MRT TABLE_DUMP_V2 file works. Records the decoder cannot read are skipped and counted rather than failing the import, and the count is printed; RIS dumps carry ADD_PATH RIB entries (RFC 8050) and path attribute type codes 20, 21 and 255, which account for roughly 250,000 skipped records out of an rrc04 dump. A dump that yields no usable records at all is treated as a failure, so the next archive is tried. Other RIS collectors are listed at [data.ris.ripe.net](https://data.ris.ripe.net/), and other RouteViews collectors under [archive.routeviews.org](http://archive.routeviews.org/); they vary considerably in size and in how many full-table peers they carry.
+
 ## Database Locations
 
 By default, `asname` stores its auto-updating databases in your home directory under `~/.asname/`. The following files will be created:
@@ -409,6 +429,7 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/category.db`: The IP and ASN to category index. Only present if you have enabled category lookups; under 1 MB.
 - `~/.asname/whois-consent.json`: Whether you agreed to live whois lookups, and when you were asked. Delete it to be asked again; it expires after an hour anyway.
 - `~/.asname/contact.json`: The contact address sent to bgp.tools, or a note that you declined. Delete it to be asked again.
+- `~/.asname/cache/`: The source files downloaded to build the databases above (BGP RIB dump, RIR delegation and whois dumps, and so on). Entries are reused for 24 hours and deleted once older than that, so an update that fails partway through does not download the same files again on the next attempt. An interrupted download is resumed where it stopped rather than restarted. The directory is safe to delete at any time.
 
 You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, and `ASNAME_CATEGORY` environment variables or their respective flags.
 
@@ -422,7 +443,8 @@ for use here — the database type was reworked into an interface, trie
 optimization was parallelised, and the marshalling header was changed. Each file
 carries a notice to that effect.
 
-Data comes from [RouteViews](http://archive.routeviews.org/) (BGP RIB dumps),
+Data comes from [RouteViews](http://archive.routeviews.org/) and
+[RIPE RIS](https://data.ris.ripe.net/) (BGP RIB dumps),
 [RIPE NCC](https://ftp.ripe.net/ripe/asnames/) (ASN names), and the RIR
 delegation statistics files (IP to country).
 

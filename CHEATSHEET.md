@@ -148,6 +148,15 @@ export ASNAME_ARIN_APIKEY="your-api-key"
 asname update --netblock-only
 ```
 
+The IP to ASN database is built from the first RIB archive that answers: RouteViews route-views2 (~75 MB), then RIPE RIS rrc04 (~70 MB), then RIPE RIS rrc00 (~400 MB). Override the list with a single dump of your own:
+
+```bash
+# Build the ASN database from a specific MRT dump (.bz2 or .gz)
+asname update --db-only --rib-url https://data.ris.ripe.net/rrc12/2026.09/bview.20260911.0000.gz
+```
+
+Downloaded source files are kept in `~/.asname/cache/` for 24 hours. An update that fails partway through reuses what it already fetched on the next attempt, and an interrupted download resumes where it stopped. Delete the directory to force a fresh download.
+
 ---
 
 ## 5. Development & Build Commands (`Makefile`)

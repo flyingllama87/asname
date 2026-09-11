@@ -31,6 +31,7 @@ type Config struct {
 	CategoryPath string
 	ConsentPath  string
 	ContactPath  string
+	CachePath    string
 }
 
 func DefaultDir() string {

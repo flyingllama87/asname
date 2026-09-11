@@ -36,9 +36,10 @@ func UpdateCountryDB(cfg Config) error {
 	fmt.Fprintln(os.Stderr, "asname: building IP->country database from RIR delegation stats")
 	var b trieBuilder = database.NewBuilder()
 
+	cache := cfg.CacheDir()
 	total := 0
 	for _, url := range rirDelegatedURLs {
-		n, err := importDelegated(b, url)
+		n, err := importDelegated(b, url, cache)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "asname: warning: %s: %v\n", url, err)
 			continue
@@ -68,14 +69,14 @@ func UpdateCountryDB(cfg Config) error {
 
 // importDelegated streams one RIR file and inserts its IPv4/IPv6 country ranges
 // into the builder.
-func importDelegated(b trieBuilder, url string) (int, error) {
-	resp, err := httpGet(url)
+func importDelegated(b trieBuilder, url, cache string) (int, error) {
+	f, err := openCached(cache, url, "")
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer f.Close()
 
-	sc := bufio.NewScanner(resp.Body)
+	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	count := 0
 	for sc.Scan() {

@@ -6,6 +6,8 @@
 package database
 
 import (
+	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -29,21 +31,97 @@ func (b *builder) InsertMapping(ipNet *net.IPNet, asn uint32) error {
 	return nil
 }
 
-// ImportMRT imports records from an MRT stream.
-func (b *builder) ImportMRT(input io.Reader) error {
-	r := mrt.NewReader(input)
+const (
+	// mrtHeaderLen is the MRT common header: timestamp, type, subtype, length.
+	mrtHeaderLen = 12
+	// mrtTypeTableDumpV2 is the only MRT record type that carries RIB entries.
+	mrtTypeTableDumpV2 = 13
+	// maxMRTRecordSize bounds a single record. Anything larger means the stream
+	// is not MRT, or framing has been lost, rather than a very large record.
+	maxMRTRecordSize = 16 << 20
+)
 
+// isRIBSubtype reports whether a TABLE_DUMP_V2 subtype holds RIB entries this
+// decoder can read. Subtype 1 is the peer index table, which carries no routes.
+// The ADD_PATH subtypes of RFC 8050 (8 to 11) prefix each RIB entry with a path
+// identifier the decoder does not expect, so they are skipped rather than
+// misread; RIPE RIS dumps contain them alongside the plain subtypes.
+func isRIBSubtype(subtype uint16) bool {
+	switch subtype {
+	case mrt.TABLE_DUMP_V2_SUBTYPE_RIB_IPv4_UNICAST,
+		mrt.TABLE_DUMP_V2_SUBTYPE_RIB_IPv4_MULTICAST,
+		mrt.TABLE_DUMP_V2_SUBTYPE_RIB_IPv6_UNICAST,
+		mrt.TABLE_DUMP_V2_SUBTYPE_RIB_IPv6_MULTICAST:
+		return true
+	}
+	return false
+}
+
+// ImportMRT imports records from an MRT stream. It returns the number of records
+// that were skipped because this decoder cannot read them.
+//
+// Framing is done here rather than by the MRT library's reader because that
+// reader abandons the stream on the first record type, subtype or path
+// attribute it does not recognise, and abandons it mid-record, so everything
+// after that point is misread. Collectors legitimately carry records this
+// decoder has no use for: RIPE RIS dumps mix ADD_PATH RIB entries in with the
+// plain ones and carry path attribute type codes 20, 21 and 255. Reading the
+// length from each header and skipping the body keeps the stream aligned, so an
+// unreadable record costs only that record.
+//
+// A header or body that cannot be read in full, a record larger than
+// maxMRTRecordSize, and a stream that yields no usable RIB entries at all are
+// all treated as failures, so a truncated or corrupt dump is not mistaken for a
+// complete one.
+func (b *builder) ImportMRT(input io.Reader) (int, error) {
+	r := bufio.NewReaderSize(input, 1<<20)
+	hdr := make([]byte, mrtHeaderLen)
+	body := make([]byte, 0, 4096)
+
+	imported, skipped := 0, 0
 	for {
-		record, err := r.Next()
-		if err == io.EOF {
-			break
+		if _, err := io.ReadFull(r, hdr); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return skipped, fmt.Errorf("reading MRT record header: %v", err)
 		}
-		if err != nil {
-			return fmt.Errorf("failed to parse MRT record: %v", err)
+		recordType := binary.BigEndian.Uint16(hdr[4:])
+		subtype := binary.BigEndian.Uint16(hdr[6:])
+		length := binary.BigEndian.Uint32(hdr[8:])
+
+		if length > maxMRTRecordSize {
+			return skipped, fmt.Errorf("MRT record claims %d bytes: the stream is corrupt or not MRT", length)
+		}
+		if cap(body) < int(length) {
+			body = make([]byte, length)
+		}
+		body = body[:length]
+		if _, err := io.ReadFull(r, body); err != nil {
+			return skipped, fmt.Errorf("reading MRT record body: %v", err)
 		}
 
-		rib, ok := record.(*mrt.TableDumpV2RIB)
-		if !ok || isNullMask(rib.Prefix.Mask) {
+		if recordType != mrtTypeTableDumpV2 || !isRIBSubtype(subtype) {
+			// The peer index table opens every TABLE_DUMP_V2 dump and carries no
+			// routes, so passing over it is not worth reporting.
+			if recordType != mrtTypeTableDumpV2 || subtype != mrt.TABLE_DUMP_V2_SUBTYPE_PEER_INDEX_TABLE {
+				skipped++
+			}
+			continue
+		}
+
+		// DecodeBytes keeps references into the slice it is given, so each
+		// decoded record needs its own copy.
+		record := make([]byte, mrtHeaderLen+len(body))
+		copy(record, hdr)
+		copy(record[mrtHeaderLen:], body)
+
+		rib := new(mrt.TableDumpV2RIB)
+		if err := rib.DecodeBytes(record); err != nil {
+			skipped++
+			continue
+		}
+		if isNullMask(rib.Prefix.Mask) {
 			continue
 		}
 
@@ -51,14 +129,16 @@ func (b *builder) ImportMRT(input io.Reader) error {
 		if err != nil {
 			continue
 		}
-
-		err = b.InsertMapping(prefix, asn)
-		if err != nil {
-			return err
+		if err := b.InsertMapping(prefix, asn); err != nil {
+			return skipped, err
 		}
+		imported++
 	}
 
-	return nil
+	if imported == 0 {
+		return skipped, fmt.Errorf("no usable RIB entries in MRT stream (%d records skipped)", skipped)
+	}
+	return skipped, nil
 }
 
 // SetFillFactor sets the fill factor parameter for the optimization phase.
