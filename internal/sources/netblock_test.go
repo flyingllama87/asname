@@ -308,3 +308,60 @@ func TestNetblockBuilderSkipsWholeAddressSpace(t *testing.T) {
 	require.Equal(t, "GOOGLE (Google LLC)", lookupNetblock(t, db, "8.8.8.8"))
 	require.Equal(t, "", lookupNetblock(t, db, "1.1.1.1"))
 }
+
+func TestSearchOrg(t *testing.T) {
+	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
+		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE-DNS", "Google LLC")
+		b.add(net.ParseIP("1.1.1.0"), net.ParseIP("1.1.1.255"), "CLOUDFLARE", "Cloudflare, Inc.")
+		start6, end6, _ := ParseNetRange("2001:4860::/32")
+		b.add(start6, end6, "GOOGLE-V6", "Google LLC")
+	})
+
+	db, err := OpenNetblockDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Search for "Google" (case-insensitive)
+	results, err := db.SearchOrg("google", NetblockSearchOptions{})
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	require.Equal(t, "GOOGLE-DNS", results[0].Netname)
+	require.Equal(t, "Google LLC", results[0].Org)
+	require.False(t, results[0].IsV6)
+	require.Contains(t, results[0].CIDRs, "8.8.8.0/24")
+
+	require.Equal(t, "GOOGLE-V6", results[1].Netname)
+	require.Equal(t, "Google LLC", results[1].Org)
+	require.True(t, results[1].IsV6)
+
+	// Search v4 only
+	resultsV4, err := db.SearchOrg("google", NetblockSearchOptions{V4Only: true})
+	require.NoError(t, err)
+	require.Len(t, resultsV4, 1)
+	require.False(t, resultsV4[0].IsV6)
+
+	// Search with limit
+	resultsLimit, err := db.SearchOrg("google", NetblockSearchOptions{Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, resultsLimit, 1)
+
+	// Search by netname
+	resultsNetname, err := db.SearchOrg("cloudflare", NetblockSearchOptions{})
+	require.NoError(t, err)
+	require.Len(t, resultsNetname, 1)
+	require.Equal(t, "CLOUDFLARE", resultsNetname[0].Netname)
+
+	// Search non-existent
+	resultsNone, err := db.SearchOrg("nonexistent_company_xyz", NetblockSearchOptions{})
+	require.NoError(t, err)
+	require.Empty(t, resultsNone)
+}
+
+func TestIPv4RangeToCIDRs(t *testing.T) {
+	cidrs := IPv4RangeToCIDRs(0x08080800, 0x080808ff) // 8.8.8.0 - 8.8.8.255
+	require.Equal(t, []string{"8.8.8.0/24"}, cidrs)
+
+	cidrs2 := IPv4RangeToCIDRs(0x08080800, 0x0808087f) // 8.8.8.0 - 8.8.8.127
+	require.Equal(t, []string{"8.8.8.0/25"}, cidrs2)
+}
+

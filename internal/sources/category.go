@@ -100,6 +100,25 @@ func (d *CategoryDB) Lookup(ip net.IP, asn uint32, haveASN bool) string {
 	return strings.Join(out, ", ")
 }
 
+// LookupASN returns the categories known for an ASN alone.
+func (d *CategoryDB) LookupASN(asn uint32) string {
+	if d == nil {
+		return ""
+	}
+	tags := make(map[string]bool)
+	d.collect(d.asns[asn], tags)
+	if len(tags) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(tags))
+	for tag := range tags {
+		out = append(out, tag)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
+}
+
+
 func (d *CategoryDB) collect(i uint32, tags map[string]bool) {
 	if i == 0 || int(i) >= len(d.sets) {
 		return

@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/flyingllama87/asname/internal/engine"
 	"github.com/flyingllama87/asname/internal/format"
+	"github.com/flyingllama87/asname/internal/sources"
 )
 
 type Server struct {
@@ -47,6 +49,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/ready", s.handleHealth)
 	mux.HandleFunc("/v1/lookup", s.handleLookupQueryOrPost)
 	mux.HandleFunc("/v1/lookup/", s.handleLookupPath)
+	mux.HandleFunc("/v1/search", s.handleSearch)
 	mux.HandleFunc("/v1/bulk", s.handleBulk)
 
 	handler := http.Handler(mux)
@@ -384,3 +387,69 @@ func decodeBase64Target(s string) (string, error) {
 	}
 	return "", fmt.Errorf("unable to decode base64 string")
 }
+
+type searchResponse struct {
+	Query   string                            `json:"query"`
+	Count   int                               `json:"count"`
+	Results []format.JSONNetblockSearchResult `json:"results"`
+}
+
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed, use GET")
+		return
+	}
+
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		query = r.URL.Query().Get("org")
+	}
+	if strings.TrimSpace(query) == "" {
+		writeJSONError(w, http.StatusBadRequest, "missing search query parameter (e.g. ?q=google or ?org=google)")
+		return
+	}
+
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsedLimit, err := strconv.Atoi(l); err == nil && parsedLimit >= 0 {
+			limit = parsedLimit
+		}
+	}
+
+	v4Only := r.URL.Query().Get("v4_only") == "true"
+	v6Only := r.URL.Query().Get("v6_only") == "true"
+
+	opts := sources.NetblockSearchOptions{
+		Limit:  limit,
+		V4Only: v4Only,
+		V6Only: v6Only,
+	}
+
+	results, err := s.eng.SearchNetblocks(query, opts)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResults := make([]format.JSONNetblockSearchResult, 0, len(results))
+	for _, res := range results {
+		jsonResults = append(jsonResults, format.JSONNetblockSearchResult{
+			RangeStart: res.RangeStart.String(),
+			RangeEnd:   res.RangeEnd.String(),
+			CIDRs:      res.CIDRs,
+			Netname:    res.Netname,
+			Org:        res.Org,
+			IsV6:       res.IsV6,
+			ASN:        res.ASN,
+			ASName:     res.ASName,
+			Country:    res.Country,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, searchResponse{
+		Query:   query,
+		Count:   len(jsonResults),
+		Results: jsonResults,
+	})
+}
+

@@ -1,9 +1,12 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/oschwald/maxminddb-golang/v2"
 
@@ -21,6 +24,7 @@ type Engine struct {
 	showNetblock bool
 	whois        *sources.WhoisAsker
 	categoryDB   *sources.CategoryDB
+	prefixDB     *sources.PrefixDB
 }
 
 func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCategory bool, whois sources.WhoisMode) (*Engine, error) {
@@ -69,6 +73,13 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		}
 	}
 
+	var prefixDB *sources.PrefixDB
+	if cfg.PrefixPath != "" && sources.PrefixDBPresent(cfg.PrefixPath) {
+		if prefixDB, err = sources.OpenPrefixDB(cfg.PrefixPath); err != nil {
+			prefixDB = nil
+		}
+	}
+
 	return &Engine{
 		db:           db,
 		names:        names,
@@ -78,6 +89,7 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		showNetblock: showNetblock,
 		whois:        sources.NewWhoisAsker(cfg.ConsentPath, whois),
 		categoryDB:   catDB,
+		prefixDB:     prefixDB,
 	}, nil
 }
 
@@ -88,14 +100,18 @@ func (e *Engine) Close() {
 	if e.netblockDB != nil {
 		e.netblockDB.Close()
 	}
+	if e.prefixDB != nil {
+		e.prefixDB.Close()
+	}
 }
 
 func (e *Engine) HasCountryDB() bool  { return e.countryDB != nil }
 func (e *Engine) HasCityDB() bool     { return e.cityDB != nil }
 func (e *Engine) HasNetblockDB() bool { return e.netblockDB != nil }
 func (e *Engine) HasCategoryDB() bool { return e.categoryDB != nil }
+func (e *Engine) HasPrefixDB() bool   { return e.prefixDB != nil }
 
-// LookupResult is everything known about a single address.
+// LookupResult is everything known about a single address or ASN.
 type LookupResult struct {
 	Target       string
 	Host         string
@@ -108,11 +124,24 @@ type LookupResult struct {
 	NetblockLive bool
 	Category     string
 	RDNS         string
+	IsASN        bool
+	Prefixes     []string
+	IPv4Prefixes []string
+	IPv6Prefixes []string
+	PrefixSource string
 }
 
 func (e *Engine) LookupTarget(t Target) ([]LookupResult, error) {
 	if t.Err != nil {
 		return nil, t.Err
+	}
+	if t.ASN > 0 {
+		res, err := e.LookupASN(t.ASN)
+		if err != nil {
+			return nil, err
+		}
+		res.Target = t.Raw
+		return []LookupResult{res}, nil
 	}
 	results := make([]LookupResult, 0, len(t.IPs))
 	for _, ip := range t.IPs {
@@ -125,6 +154,60 @@ func (e *Engine) LookupTarget(t Target) ([]LookupResult, error) {
 		results = append(results, res)
 	}
 	return results, nil
+}
+
+// LookupASN returns details about an ASN including its owner, classification, and announced prefixes.
+func (e *Engine) LookupASN(asn uint32) (LookupResult, error) {
+	asnStr := fmt.Sprintf("AS%d", asn)
+	res := LookupResult{
+		Target: asnStr,
+		ASN:    asnStr,
+		IsASN:  true,
+		Name:   "Unknown",
+	}
+
+	if name, ok := e.names[asn]; ok {
+		res.Name = name
+		if idx := strings.LastIndex(name, ", "); idx >= 0 && idx+2 < len(name) {
+			cc := strings.TrimSpace(name[idx+2:])
+			if len(cc) == 2 {
+				if countryName, ok := sources.CountryNames[cc]; ok {
+					res.Country = fmt.Sprintf("%s, %s", cc, countryName)
+				} else {
+					res.Country = cc
+				}
+			}
+		}
+	}
+	if res.Country == "" {
+		res.Country = "Unknown"
+	}
+
+	if e.categoryDB != nil {
+		res.Category = e.categoryDB.LookupASN(asn)
+	}
+
+	var prefixRes sources.ASNPrefixResult
+	if e.prefixDB != nil {
+		if pr, err := e.prefixDB.Lookup(asn); err == nil && pr.Total() > 0 {
+			prefixRes = pr
+		}
+	}
+
+	if prefixRes.Total() == 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+		defer cancel()
+		if pr, err := sources.FetchASNPrefixesOnline(ctx, asn); err == nil && pr.Total() > 0 {
+			prefixRes = pr
+		}
+	}
+
+	res.IPv4Prefixes = prefixRes.IPv4
+	res.IPv6Prefixes = prefixRes.IPv6
+	res.Prefixes = prefixRes.All()
+	res.PrefixSource = prefixRes.Source
+
+	return res, nil
 }
 
 func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
@@ -196,3 +279,50 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 
 	return res, nil
 }
+
+// NetblockEnrichedResult represents a netblock search result enriched with ASN and Country data.
+type NetblockEnrichedResult struct {
+	sources.NetblockSearchResult
+	ASN     string
+	ASName  string
+	Country string
+}
+
+func (e *Engine) SearchNetblocks(query string, opts sources.NetblockSearchOptions) ([]NetblockEnrichedResult, error) {
+	if e.netblockDB == nil {
+		return nil, fmt.Errorf("netblock database is not open (build with `asname update --netblock-only` or pass `--netblock`)")
+	}
+	rawResults, err := e.netblockDB.SearchOrg(query, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	enriched := make([]NetblockEnrichedResult, len(rawResults))
+	for i, r := range rawResults {
+		item := NetblockEnrichedResult{
+			NetblockSearchResult: r,
+			ASN:                  "N/A",
+			ASName:               "Unknown",
+			Country:              "Unknown",
+		}
+		if r.RangeStart != nil {
+			ip := r.RangeStart.To16()
+			if ip != nil && e.db != nil {
+				if as, err := e.db.Lookup(ip); err == nil {
+					item.ASN = fmt.Sprintf("AS%d", as.Number)
+					if name, ok := e.names[as.Number]; ok {
+						item.ASName = name
+					}
+				}
+			}
+			if ip != nil && e.countryDB != nil {
+				if c := sources.LookupCountry(e.countryDB, ip); c != "" {
+					item.Country = c
+				}
+			}
+		}
+		enriched[i] = item
+	}
+	return enriched, nil
+}
+

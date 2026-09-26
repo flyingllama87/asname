@@ -17,9 +17,17 @@ import (
 	"github.com/flyingllama87/asname/pkg/binarytrie"
 )
 
+type MappingHook func(prefix *net.IPNet, asn uint32)
+
 type builder struct {
-	prototype  *binarytrie.NaiveTrie
-	fillFactor float32
+	prototype   *binarytrie.NaiveTrie
+	fillFactor  float32
+	mappingHook MappingHook
+}
+
+// SetMappingHook registers a callback invoked for every imported prefix and ASN.
+func (b *builder) SetMappingHook(hook MappingHook) {
+	b.mappingHook = hook
 }
 
 // InsertMapping stores an IP prefix - AutonomousSystem mapping.
@@ -131,6 +139,9 @@ func (b *builder) ImportMRT(input io.Reader) (int, error) {
 		}
 		if err := b.InsertMapping(prefix, asn); err != nil {
 			return skipped, err
+		}
+		if b.mappingHook != nil {
+			b.mappingHook(prefix, asn)
 		}
 		imported++
 	}

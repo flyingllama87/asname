@@ -8,6 +8,8 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 
 - **Blazing Fast**: Uses offline LC-trie databases for instantaneous IP lookups.
 - **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file listing any mix of them.
+- **ASN & Prefix Lookups**: Query any ASN (`AS15169`) to see its owner, country, classification, and all announced IPv4/IPv6 prefixes.
+- **Netblock Organization Search**: Search millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching IP ranges, ASNs, and CIDRs.
 - **Pretty Cards & JSONL**: Format results as clean multi-line cards (`--pretty`) or streamable JSON objects (`--json`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
@@ -74,7 +76,7 @@ Host: github.com → IP: 4.237.22.38 → ASN: AS8075 → Name: MICROSOFT-CORP-MS
 
 Entries that cannot be resolved are reported on stderr and the rest of the file is still printed; `asname` then exits non-zero. Names are resolved concurrently, so a long file is not paced by DNS latency.
 
-An argument that parses as an IP address is always treated as one; otherwise an existing file is read as a list, and anything else is treated as a hostname or URL.
+An argument that parses as an IP address is always treated as one; an ASN formatted as `AS<number>` (or `asn<number>`) resolves the Autonomous System directly; otherwise an existing file is read as a list, and anything else is treated as a hostname or URL.
 
 Add `--reverse-dns` (or `-r`) to also send a reverse DNS query and include PTR names in the output:
 
@@ -82,6 +84,49 @@ Add `--reverse-dns` (or `-r`) to also send a reverse DNS query and include PTR n
 $ asname --reverse-dns 8.8.8.8
 IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Reverse DNS: dns.google
 ```
+
+### ASN lookups
+
+Pass an Autonomous System Number directly (`AS15169`, `asn13335`, or just `AS` followed by the number) to look up the organization, country, network classification, and all announced BGP IP prefixes:
+
+```bash
+$ asname AS15169
+ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Category: cdn, content, hosting, vpn → Prefixes: 1415 announced (1239 IPv4, 176 IPv6)
+Announced Prefixes:
+  8.8.4.0/24
+  8.8.8.0/24
+  34.0.0.0/20
+  ...
+```
+
+Add `--pretty` (or `-p`) for a structured card layout summarizing the prefix breakdown and sample list:
+
+```bash
+$ asname --pretty AS15169
+Target: AS15169
+────────────────────────────────────────────────────────────
+  Autonomous System:
+    ASN:               AS15169
+    Organization:      GOOGLE - Google LLC, US
+    Country:           United States (US)
+
+  Network Classification:
+    Category:          cdn, content, hosting, vpn
+
+  Announced Prefixes: (1415 total: 1239 IPv4, 176 IPv6)
+    • 8.8.4.0/24
+    • 8.8.8.0/24
+    • 34.0.0.0/20
+    • 34.0.0.0/15
+    • 34.0.16.0/20
+     ... and 1410 more prefixes
+────────────────────────────────────────────────────────────
+```
+
+Add `--json` (or `-j`) to emit structured JSON Lines containing prefix counts and the full array of announced CIDRs.
+
+Prefixes are answered instantly and offline via `~/.asname/prefixes.db`, which is built automatically from BGP RIB dumps during `asname update`. If the offline prefix database is not yet generated, `asname` automatically falls back to live queries via the RIPE Stat API.
+
 
 ### City lookups
 
@@ -230,6 +275,35 @@ two minutes and needs ~1.5 GB of memory while it runs. The result is around
 300 MB on disk holding some 6.7 million ranges. It is read from disk by binary
 search rather than loaded into memory, so a lookup stays instant and costs a few
 kilobytes of RAM.
+
+### Searching netblocks by organization name
+
+When you have the netblock database (`asname -n` or `asname update --netblock-only`), you can search through all 8+ million registry records by organization name or netname using `asname search` (or `--org` / `-O`):
+
+```bash
+$ asname search "Cloudflare"
+Netblock: 1.0.0.0/24 → Org: APNIC and Cloudflare DNS Resolver project (APNIC-LABS) → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US
+Netblock: 1.1.1.0/24 → Org: APNIC and Cloudflare DNS Resolver project (APNIC-LABS) → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US
+Netblock: 27.111.242.236/30 → Org: Equinix Customer - CLOUDFLARE US, INC (CLOUDFLARE_US_INC) → ASN: AS15830 → Name: Equinix Equinix (EMEA) Acquisition Enterprises B.V., NL
+...
+```
+
+Each result is automatically enriched with the announcing ASN, operator name, and country.
+
+You can customize the result limit and filter by IP version:
+
+```bash
+# Limit results (default 50)
+asname search --limit 10 "Google"
+
+# Search IPv4 only or IPv6 only
+asname search --v4-only "Fastly"
+asname search --v6-only "Amazon"
+
+# Output formats: pretty cards (--pretty) or JSON Lines (--json)
+asname search --pretty --limit 5 "Cloudflare"
+asname search --json "Valve" | jq -r '.cidr + " " + .name'
+```
 
 ### Network categories
 
@@ -387,11 +461,16 @@ The REST API supports querying URLs, hostnames, and IP addresses with zero manua
 # Health check
 curl -s http://127.0.0.1:8086/health
 
-# Query with URL / hostname / IP via query parameter
+# Query with URL / hostname / IP / ASN via query parameter
 curl -s "http://127.0.0.1:8086/v1/lookup?q=https://dns.google/resolve&reverse_dns=true"
+curl -s "http://127.0.0.1:8086/v1/lookup?q=AS15169"
 
-# Direct path lookup
+# Direct path lookup (IP, hostname, or ASN)
 curl -s "http://127.0.0.1:8086/v1/lookup/1.1.1.1"
+curl -s "http://127.0.0.1:8086/v1/lookup/AS13335"
+
+# Search netblocks by organization name or netname
+curl -s "http://127.0.0.1:8086/v1/search?q=Cloudflare&limit=10"
 
 # Base64URL-encoded target lookup
 curl -s "http://127.0.0.1:8086/v1/lookup/b64/aHR0cHM6Ly9leGFtcGxlLmNvbQ"
@@ -399,7 +478,7 @@ curl -s "http://127.0.0.1:8086/v1/lookup/b64/aHR0cHM6Ly9leGFtcGxlLmNvbQ"
 # Bulk batch lookup (JSON or plain text)
 curl -s -X POST http://127.0.0.1:8086/v1/bulk \
   -H "Content-Type: application/json" \
-  -d '{"targets": ["8.8.8.8", "1.1.1.1", "dns.google"], "reverse_dns": true}'
+  -d '{"targets": ["8.8.8.8", "AS15169", "dns.google"], "reverse_dns": true}'
 ```
 
 ### Manual Updates
@@ -438,6 +517,7 @@ By default, `asname` stores its auto-updating databases in your home directory u
 
 - `~/.asname/asname.db`: The binary LC-trie database for IP to ASN resolution.
 - `~/.asname/asn_db.txt`: The text file mapping ASNs to their respective names.
+- `~/.asname/prefixes.db`: The binary ASN-to-announced-prefixes database, built alongside `asname.db` during BGP RIB updates; ~15 MB.
 - `~/.asname/country.db`: The binary LC-trie database for IP to Country mapping.
 - `~/.asname/city.mmdb`: The DB-IP Lite city database, in MaxMind DB format. Only present if you have enabled city lookups; ~125 MB.
 - `~/.asname/netblock.db`: The IP to registry netblock index, built from the RIRs' bulk whois dumps. Only present if you have enabled netblock lookups.
@@ -446,7 +526,7 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/contact.json`: The contact address sent to bgp.tools, or a note that you declined. Delete it to be asked again.
 - `~/.asname/cache/`: The source files downloaded to build the databases above (BGP RIB dump, RIR delegation and whois dumps, and so on). Entries are reused for 24 hours and deleted once older than that, so an update that fails partway through does not download the same files again on the next attempt. An interrupted download is resumed where it stopped rather than restarted. The directory is safe to delete at any time.
 
-You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, and `ASNAME_CATEGORY` environment variables or their respective flags.
+You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_PREFIXES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, and `ASNAME_CATEGORY` environment variables or their respective flags.
 
 ## Credits
 

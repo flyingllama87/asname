@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ type Target struct {
 	Raw  string
 	Host string
 	IPs  []net.IP
+	ASN  uint32
 	Err  error
 }
 
@@ -58,14 +60,42 @@ func looksLikePath(s string) bool {
 }
 
 func NewTarget(raw string) Target {
+	trimmed := strings.TrimSpace(raw)
+	if asn, ok := ParseASNTarget(trimmed); ok {
+		return Target{Raw: raw, ASN: asn}
+	}
 	host := NormalizeTarget(raw)
 	if host == "" {
-		return Target{Raw: raw, Err: fmt.Errorf("not an IP address, hostname or URL")}
+		return Target{Raw: raw, Err: fmt.Errorf("not an IP address, hostname, URL or ASN")}
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		return Target{Raw: raw, IPs: []net.IP{ip}}
 	}
+	if asn, ok := ParseASNTarget(host); ok {
+		return Target{Raw: raw, ASN: asn}
+	}
 	return Target{Raw: raw, Host: host}
+}
+
+// ParseASNTarget parses a string like "AS15169", "asn15169", "AS-15169", or pure digits "15169".
+func ParseASNTarget(s string) (uint32, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	upper := strings.ToUpper(s)
+	if strings.HasPrefix(upper, "ASN:") {
+		upper = upper[4:]
+	} else if strings.HasPrefix(upper, "ASN") {
+		upper = strings.TrimPrefix(upper, "ASN")
+	} else if strings.HasPrefix(upper, "AS") {
+		upper = strings.TrimPrefix(upper, "AS")
+	}
+	upper = strings.TrimPrefix(upper, "-")
+	if num, err := strconv.ParseUint(upper, 10, 32); err == nil && num > 0 {
+		return uint32(num), true
+	}
+	return 0, false
 }
 
 func NormalizeTarget(s string) string {
@@ -129,7 +159,7 @@ func ResolveTargets(ctx context.Context, targets []Target) {
 	sem := make(chan struct{}, MaxResolveWorkers)
 	var wg sync.WaitGroup
 	for i := range targets {
-		if targets[i].Err != nil || targets[i].Host == "" {
+		if targets[i].Err != nil || targets[i].Host == "" || targets[i].ASN > 0 {
 			continue
 		}
 		wg.Add(1)
@@ -215,6 +245,9 @@ func ResolveReverseDNS(ctx context.Context, results []LookupResult) {
 	sem := make(chan struct{}, MaxResolveWorkers)
 	var wg sync.WaitGroup
 	for i := range results {
+		if results[i].IsASN || results[i].IP == nil {
+			continue
+		}
 		wg.Add(1)
 		go func(res *LookupResult) {
 			defer wg.Done()

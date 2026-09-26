@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/flyingllama87/asname/internal/engine"
+	"github.com/flyingllama87/asname/internal/sources"
 )
 
 func googleResult() engine.LookupResult {
@@ -96,3 +97,37 @@ func TestFormatLookupOutputCityUniform(t *testing.T) {
 	require.Contains(t, got, "→ Reverse DNS: dns.google\n")
 	require.Contains(t, got, "Mountain View, California          → Reverse DNS")
 }
+
+func TestFormatLookupOutputASN(t *testing.T) {
+	res := engine.LookupResult{
+		Target:       "AS15169",
+		ASN:          "AS15169",
+		IsASN:        true,
+		Name:         "GOOGLE - Google LLC, US",
+		Country:      "US, United States",
+		Category:     "cdn, content, hosting, vpn",
+		Prefixes:     []string{"8.8.8.0/24", "2001:4860::/32"},
+		IPv4Prefixes: []string{"8.8.8.0/24"},
+		IPv6Prefixes: []string{"2001:4860::/32"},
+	}
+	got := FormatLookupOutput(res, false, false)
+	require.Equal(t, "ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Category: cdn, content, hosting, vpn → Prefixes: 2 announced (1 IPv4, 1 IPv6)\n", got)
+}
+
+func TestFormatNetblockOutput(t *testing.T) {
+	res := engine.NetblockEnrichedResult{
+		NetblockSearchResult: sources.NetblockSearchResult{
+			RangeStart: net.ParseIP("8.8.8.0"),
+			RangeEnd:   net.ParseIP("8.8.8.255"),
+			CIDRs:      []string{"8.8.8.0/24"},
+			Netname:    "GOGL",
+			Org:        "Google LLC",
+		},
+		ASN:     "AS15169",
+		ASName:  "GOOGLE - Google LLC, US",
+		Country: "US, United States",
+	}
+	got := FormatNetblockOutput(res, false)
+	require.Equal(t, "Netblock: 8.8.8.0/24 → Org: Google LLC (GOGL) → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States\n", got)
+}
+

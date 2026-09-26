@@ -12,15 +12,24 @@ import (
 type JSONLookupResult struct {
 	Target     string          `json:"target,omitempty"`
 	Host       *string         `json:"host"`
-	IP         string          `json:"ip"`
-	Version    int             `json:"version"`
+	IP         string          `json:"ip,omitempty"`
+	Version    int             `json:"version,omitempty"`
 	ASN        *JSONASN        `json:"asn,omitempty"`
 	Country    *JSONCountry    `json:"country,omitempty"`
 	City       *JSONCity       `json:"city,omitempty"`
 	Netblock   *JSONNetblock   `json:"netblock,omitempty"`
 	Category   *JSONCategory   `json:"category,omitempty"`
 	ReverseDNS *JSONReverseDNS `json:"reverse_dns,omitempty"`
+	Prefixes   *JSONPrefixes   `json:"prefixes,omitempty"`
 	Error      string          `json:"error,omitempty"`
+}
+
+type JSONPrefixes struct {
+	Total     int      `json:"total"`
+	IPv4Count int      `json:"ipv4_count"`
+	IPv6Count int      `json:"ipv6_count"`
+	Source    string   `json:"source"`
+	List      []string `json:"list,omitempty"`
 }
 
 type JSONASN struct {
@@ -59,6 +68,42 @@ type JSONReverseDNS struct {
 }
 
 func ToJSONResult(res engine.LookupResult) JSONLookupResult {
+	if res.IsASN {
+		out := JSONLookupResult{
+			Target: res.Target,
+		}
+		numStr := strings.TrimPrefix(res.ASN, "AS")
+		num, _ := strconv.ParseUint(numStr, 10, 32)
+		out.ASN = &JSONASN{
+			Number:    uint32(num),
+			ASNString: res.ASN,
+			Name:      res.Name,
+			Announced: true,
+		}
+		if res.Country != "" && res.Country != "Unknown" {
+			parts := strings.SplitN(res.Country, ", ", 2)
+			if len(parts) == 2 {
+				out.Country = &JSONCountry{Code: parts[0], Name: parts[1]}
+			} else {
+				out.Country = &JSONCountry{Code: res.Country, Name: res.Country}
+			}
+		}
+		if res.Category != "" {
+			tags := strings.Split(res.Category, ", ")
+			out.Category = &JSONCategory{Tags: tags, Raw: res.Category}
+		}
+		if len(res.Prefixes) > 0 {
+			out.Prefixes = &JSONPrefixes{
+				Total:     len(res.Prefixes),
+				IPv4Count: len(res.IPv4Prefixes),
+				IPv6Count: len(res.IPv6Prefixes),
+				Source:    res.PrefixSource,
+				List:      res.Prefixes,
+			}
+		}
+		return out
+	}
+
 	out := JSONLookupResult{
 		Target: res.Target,
 		IP:     res.IP.String(),
@@ -184,3 +229,35 @@ func FormatJSONError(target, errStr string) (string, error) {
 	}
 	return string(b) + "\n", nil
 }
+
+type JSONNetblockSearchResult struct {
+	RangeStart string   `json:"range_start"`
+	RangeEnd   string   `json:"range_end"`
+	CIDRs      []string `json:"cidrs"`
+	Netname    string   `json:"netname,omitempty"`
+	Org        string   `json:"org,omitempty"`
+	IsV6       bool     `json:"is_v6"`
+	ASN        string   `json:"asn,omitempty"`
+	ASName     string   `json:"as_name,omitempty"`
+	Country    string   `json:"country,omitempty"`
+}
+
+func FormatJSONNetblockOutput(res engine.NetblockEnrichedResult) (string, error) {
+	out := JSONNetblockSearchResult{
+		RangeStart: res.RangeStart.String(),
+		RangeEnd:   res.RangeEnd.String(),
+		CIDRs:      res.CIDRs,
+		Netname:    res.Netname,
+		Org:        res.Org,
+		IsV6:       res.IsV6,
+		ASN:        res.ASN,
+		ASName:     res.ASName,
+		Country:    res.Country,
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+

@@ -35,6 +35,32 @@ type outputField struct {
 
 // FormatLookupOutput renders one result line for default and uniform modes.
 func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string {
+	if res.IsASN {
+		fields := []outputField{
+			{label: "ASN", value: res.ASN, width: UniformASNWidth},
+			{label: "Name", value: res.Name, width: UniformNameWidth},
+			{label: "Country", value: res.Country, width: UniformCountryWidth},
+		}
+		if res.Category != "" {
+			fields = append(fields, outputField{label: "Category", value: res.Category, width: UniformCategoryWidth})
+		}
+		if len(res.Prefixes) > 0 {
+			fields = append(fields, outputField{
+				label: "Prefixes",
+				value: fmt.Sprintf("%d announced (%d IPv4, %d IPv6)", len(res.Prefixes), len(res.IPv4Prefixes), len(res.IPv6Prefixes)),
+			})
+		}
+		parts := make([]string, 0, len(fields))
+		for i, field := range fields {
+			if !uniform || i == len(fields)-1 {
+				parts = append(parts, fmt.Sprintf("%s: %s", field.label, field.value))
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s: %-*s", field.label, field.width, field.value))
+		}
+		return strings.Join(parts, " → ") + "\n"
+	}
+
 	fields := make([]outputField, 0, 6)
 	if res.Host != "" || (uniform && showHost) {
 		host := res.Host
@@ -76,3 +102,34 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 	}
 	return strings.Join(parts, " → ") + "\n"
 }
+
+// FormatNetblockOutput renders one netblock search result line.
+func FormatNetblockOutput(res engine.NetblockEnrichedResult, uniform bool) string {
+	cidrStr := strings.Join(res.CIDRs, ", ")
+	if cidrStr == "" {
+		cidrStr = fmt.Sprintf("%s - %s", res.RangeStart, res.RangeEnd)
+	}
+
+	orgDisp := res.Org
+	if orgDisp == "" {
+		orgDisp = res.Netname
+	} else if res.Netname != "" && !strings.EqualFold(res.Netname, res.Org) {
+		orgDisp = fmt.Sprintf("%s (%s)", res.Org, res.Netname)
+	}
+
+	parts := []string{
+		fmt.Sprintf("Netblock: %s", cidrStr),
+		fmt.Sprintf("Org: %s", orgDisp),
+	}
+	if res.ASN != "" && res.ASN != "N/A" {
+		parts = append(parts, fmt.Sprintf("ASN: %s", res.ASN))
+	}
+	if res.ASName != "" && res.ASName != "Unknown" {
+		parts = append(parts, fmt.Sprintf("Name: %s", res.ASName))
+	}
+	if res.Country != "" && res.Country != "Unknown" {
+		parts = append(parts, fmt.Sprintf("Country: %s", res.Country))
+	}
+	return strings.Join(parts, " → ") + "\n"
+}
+

@@ -57,6 +57,12 @@ OPTIONAL LOOKUPS & METADATA:
    --category, -C                 include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag
    --no-category                  omit the category even when the category database is present
 
+NETBLOCK SEARCH:
+   --org query, -O query          search registry netblocks by organization name or netname
+   --limit value, -l value        maximum number of netblock search results to display (default: 50, 0 for unlimited)
+   --v4-only                      only display IPv4 netblocks in search
+   --v6-only                      only display IPv6 netblocks in search
+
 DATA FILES & AUTO-UPDATE:
    --dir directory, -d directory  data directory holding the ASN database and name file (default: "/home/mj12/.asname") [$ASNAME_DIR]
    --db file                      asnlookup database file (default: <dir>/asname.db) [$ASNAME_DB]
@@ -65,6 +71,7 @@ DATA FILES & AUTO-UPDATE:
    --city-db file                 IP->city database file (default: <dir>/city.mmdb) [$ASNAME_CITY]
    --netblock-db file             IP->netblock database file (default: <dir>/netblock.db) [$ASNAME_NETBLOCK]
    --category-db file             IP->category database file (default: <dir>/category.db) [$ASNAME_CATEGORY]
+   --prefix-db file               ASN->prefix database file (default: <dir>/prefixes.db) [$ASNAME_PREFIXES]
    --max-age duration             auto-refresh data older than this duration (0 disables) (default: 720h0m0s)
    --no-update                    never auto-refresh data before a lookup
    --contact-email address        address to identify with when fetching bgp.tools' operator tags [$ASNAME_CONTACT_EMAIL]
@@ -73,8 +80,8 @@ DATA FILES & AUTO-UPDATE:
 
 	app := &cli.App{
 		Name:      "asname",
-		Usage:     "look up the ASN, AS name and country of an IP address, hostname or URL",
-		ArgsUsage: "<IP|hostname|URL|file>",
+		Usage:     "look up the ASN, AS name, country and prefixes of an IP address, hostname, URL or ASN; or search netblocks by organization",
+		ArgsUsage: "<IP|hostname|URL|ASN|file>",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "pretty",
@@ -161,6 +168,24 @@ DATA FILES & AUTO-UPDATE:
 				Usage: "omit the category even when the category database is present",
 			},
 			&cli.StringFlag{
+				Name:    "org",
+				Aliases: []string{"O"},
+				Usage:   "search registry netblocks by organization name or netname",
+			},
+			&cli.IntFlag{
+				Name:    "limit",
+				Value:   50,
+				Usage:   "maximum number of netblock search results to display (0 for unlimited)",
+			},
+			&cli.BoolFlag{
+				Name:  "v4-only",
+				Usage: "only display IPv4 netblocks in search",
+			},
+			&cli.BoolFlag{
+				Name:  "v6-only",
+				Usage: "only display IPv6 netblocks in search",
+			},
+			&cli.StringFlag{
 				Name:    "dir",
 				Aliases: []string{"d"},
 				EnvVars: []string{sources.DirEnvVar},
@@ -197,6 +222,11 @@ DATA FILES & AUTO-UPDATE:
 				EnvVars: []string{sources.CategoryEnvVar},
 				Usage:   "IP->category database `file` (default: <dir>/" + sources.CategoryFilename + ")",
 			},
+			&cli.StringFlag{
+				Name:    "prefix-db",
+				EnvVars: []string{sources.PrefixEnvVar},
+				Usage:   "ASN->prefix database `file` (default: <dir>/" + sources.PrefixFilename + ")",
+			},
 			&cli.DurationFlag{
 				Name:  "max-age",
 				Value: sources.DefaultMaxAge,
@@ -213,6 +243,7 @@ DATA FILES & AUTO-UPDATE:
 			},
 		},
 		Commands: []*cli.Command{
+			searchCommand,
 			updateCommand,
 			versionCommand,
 		},
@@ -253,6 +284,10 @@ func newConfig(ctx *cli.Context) sources.Config {
 	if c.CategoryPath == "" {
 		c.CategoryPath = filepath.Join(dir, sources.CategoryFilename)
 	}
+	c.PrefixPath = ctx.String("prefix-db")
+	if c.PrefixPath == "" {
+		c.PrefixPath = filepath.Join(dir, sources.PrefixFilename)
+	}
 	c.CachePath = filepath.Join(dir, sources.CacheDirName)
 	c.ConsentPath = filepath.Join(dir, sources.WhoisConsentFilename)
 	c.ContactPath = filepath.Join(dir, sources.ContactFilename)
@@ -274,6 +309,10 @@ func lookupAction(ctx *cli.Context) error {
 		return fmt.Errorf("--pretty, --json and --uniform are mutually exclusive")
 	}
 
+	if ctx.String("org") != "" {
+		return runSearch(ctx, ctx.String("org"))
+	}
+
 	if ctx.Bool("rest") && ctx.Bool("stream") {
 		return fmt.Errorf("--rest and --stream are mutually exclusive")
 	}
@@ -283,7 +322,7 @@ func lookupAction(ctx *cli.Context) error {
 
 	if !isStream && !isREST && ctx.NArg() != 1 {
 		cli.ShowAppHelp(ctx)
-		return fmt.Errorf("exactly one IP address, hostname, URL or file argument is required")
+		return fmt.Errorf("exactly one IP address, hostname, URL, ASN or file argument is required")
 	}
 
 	cfg := newConfig(ctx)
@@ -402,6 +441,12 @@ func lookupAction(ctx *cli.Context) error {
 			fmt.Fprint(out, format.FormatPrettyLookupOutput(res, i, len(results), useColor))
 		} else {
 			fmt.Fprint(out, format.FormatLookupOutput(res, uniform, showHost))
+			if res.IsASN && len(results) == 1 && !uniform && len(res.Prefixes) > 0 {
+				fmt.Fprintln(out, "Announced Prefixes:")
+				for _, p := range res.Prefixes {
+					fmt.Fprintf(out, "  %s\n", p)
+				}
+			}
 		}
 	}
 	if err := out.Flush(); err != nil {
@@ -412,6 +457,156 @@ func lookupAction(ctx *cli.Context) error {
 		return fmt.Errorf("%d of %d entries could not be looked up", failures, len(targets))
 	}
 	return nil
+}
+
+var searchCommand = &cli.Command{
+	Name:      "search",
+	Usage:     "search registry netblocks by organization name or netname",
+	ArgsUsage: "<organization-name>",
+	Flags: []cli.Flag{
+		&cli.IntFlag{
+			Name:    "limit",
+			Aliases: []string{"l"},
+			Value:   50,
+			Usage:   "maximum number of results to display (0 for unlimited)",
+		},
+		&cli.BoolFlag{
+			Name:    "pretty",
+			Aliases: []string{"p"},
+			Usage:   "display results in a multi-line formatted card layout with generous whitespace",
+		},
+		&cli.BoolFlag{
+			Name:    "json",
+			Aliases: []string{"j"},
+			Usage:   "output results as JSON lines (JSONL)",
+		},
+		&cli.BoolFlag{
+			Name:    "uniform",
+			Aliases: []string{"u"},
+			Usage:   "print output as aligned fields",
+		},
+		&cli.BoolFlag{
+			Name:  "v4-only",
+			Usage: "only display IPv4 netblocks",
+		},
+		&cli.BoolFlag{
+			Name:  "v6-only",
+			Usage: "only display IPv6 netblocks",
+		},
+		&cli.BoolFlag{
+			Name:  "color",
+			Usage: "force ANSI colored output even when stdout is piped",
+		},
+		&cli.BoolFlag{
+			Name:  "no-color",
+			Usage: "suppress ANSI colored output (also respects NO_COLOR env var)",
+		},
+		&cli.StringFlag{
+			Name:    "dir",
+			Aliases: []string{"d"},
+			EnvVars: []string{sources.DirEnvVar},
+			Value:   sources.DefaultDir(),
+			Usage:   "data `directory` holding the netblock database",
+		},
+		&cli.StringFlag{
+			Name:    "netblock-db",
+			EnvVars: []string{sources.NetblockEnvVar},
+			Usage:   "IP->netblock database `file` (default: <dir>/" + sources.NetblockFilename + ")",
+		},
+	},
+	Action: func(c *cli.Context) error {
+		if c.NArg() != 1 {
+			cli.ShowSubcommandHelp(c)
+			return fmt.Errorf("search requires an organization or netname argument")
+		}
+		return runSearch(c, c.Args().First())
+	},
+}
+
+func searchBool(ctx *cli.Context, name string) bool {
+	if ctx.Bool(name) {
+		return true
+	}
+	for _, parent := range ctx.Lineage() {
+		if parent != nil && parent != ctx && parent.Bool(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func runSearch(ctx *cli.Context, query string) error {
+	outputFlags := 0
+	if searchBool(ctx, "pretty") {
+		outputFlags++
+	}
+	if searchBool(ctx, "json") {
+		outputFlags++
+	}
+	if searchBool(ctx, "uniform") {
+		outputFlags++
+	}
+	if outputFlags > 1 {
+		return fmt.Errorf("--pretty, --json and --uniform are mutually exclusive")
+	}
+
+	cfg := newConfig(ctx)
+
+	wantNetblock := sources.NetblockDBPresent(cfg.NetblockPath)
+	if !wantNetblock {
+		return fmt.Errorf("netblock database is not present; build it with `asname update --netblock-only` or pass `--netblock`")
+	}
+
+	eng, err := engine.NewEngine(cfg, false, true, true, false, sources.WhoisNever)
+	if err != nil {
+		return err
+	}
+	defer eng.Close()
+
+	limit := ctx.Int("limit")
+	if limit == 0 && !ctx.IsSet("limit") {
+		limit = 50
+	}
+
+	opts := sources.NetblockSearchOptions{
+		Limit:  limit,
+		V4Only: ctx.Bool("v4-only"),
+		V6Only: ctx.Bool("v6-only"),
+	}
+
+	results, err := eng.SearchNetblocks(query, opts)
+	if err != nil {
+		return err
+	}
+
+	if len(results) == 0 {
+		if ctx.Bool("json") {
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "asname: no netblocks found matching %q\n", query)
+		return nil
+	}
+
+	out := bufio.NewWriter(os.Stdout)
+	uniform := searchBool(ctx, "uniform")
+	isJSON := searchBool(ctx, "json")
+	isPretty := searchBool(ctx, "pretty")
+	useColor := format.ShouldColorize(os.Stdout, searchBool(ctx, "color"), searchBool(ctx, "no-color"))
+
+	for i, res := range results {
+		if isJSON {
+			line, err := format.FormatJSONNetblockOutput(res)
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(out, line)
+		} else if isPretty {
+			fmt.Fprint(out, format.FormatPrettyNetblockOutput(res, i, len(results), useColor))
+		} else {
+			fmt.Fprint(out, format.FormatNetblockOutput(res, uniform))
+		}
+	}
+	return out.Flush()
 }
 
 var updateCommand = &cli.Command{
@@ -452,9 +647,11 @@ var updateCommand = &cli.Command{
 
 func updateAction(ctx *cli.Context) error {
 	cfg := newConfig(ctx)
-	for _, dir := range []string{cfg.DBPath, cfg.NamesPath, cfg.CountryPath, cfg.CityPath, cfg.NetblockPath, cfg.CategoryPath} {
-		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-			return err
+	for _, dir := range []string{cfg.DBPath, cfg.NamesPath, cfg.CountryPath, cfg.CityPath, cfg.NetblockPath, cfg.CategoryPath, cfg.PrefixPath} {
+		if dir != "" {
+			if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+				return err
+			}
 		}
 	}
 

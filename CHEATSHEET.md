@@ -11,6 +11,10 @@ A quick-reference guide for everyday workflows, pipeline integration, REST daemo
 # Basic IP lookup
 asname 8.8.8.8
 
+# Autonomous System lookup (owner, country, classification, announced prefixes)
+asname AS15169
+asname asn13335
+
 # Hostname resolution (resolves all A/AAAA records)
 asname dns.google
 
@@ -20,7 +24,7 @@ asname "https://user:secret@dns.google:8443/resolve?name=example.com#frag"
 
 ### Batch File Lookups
 ```bash
-# Read a mixed list of IPs, hostnames, and URLs (comments/blanks ignored)
+# Read a mixed list of IPs, ASNs, hostnames, and URLs (comments/blanks ignored)
 asname hosts.txt
 ```
 
@@ -28,7 +32,7 @@ asname hosts.txt
 ```bash
 # Multi-line card layout with generous whitespace and colors
 asname -p 8.8.8.8
-asname --pretty 1.1.1.1
+asname --pretty AS15169
 
 # Force colors when piping pretty output to pagers
 asname -p --color 8.8.8.8 | less -R
@@ -38,7 +42,25 @@ asname -u 8.8.8.8
 
 # JSON Lines (one JSON object per line)
 asname -j 8.8.8.8
+asname --json AS15169
 asname --json dns.google
+```
+
+### Netblock Organization Search (`search` / `--org`)
+```bash
+# Search 8M+ registry netblock records by organization name or netname
+asname search "Cloudflare"
+
+# Search using --org / -O flag with custom result limit
+asname -O "Google" --limit 10
+
+# Search IPv4 only or IPv6 only
+asname search --v4-only "Fastly"
+asname search --v6-only "Amazon"
+
+# Formats: pretty cards or JSON Lines
+asname search -p --limit 5 "Cloudflare"
+asname search -j "Valve" | jq -r '.cidr + " " + .name'
 ```
 
 ### Enriching with Optional Databases
@@ -100,12 +122,17 @@ asname --rest --listen 0.0.0.0:9000 --cors
 # Health check & database availability status
 curl -s http://127.0.0.1:8086/health
 
-# Query with dirty/raw URLs or IPs (URL-query param)
+# Query with dirty/raw URLs, IPs, or ASNs (URL-query param)
 curl -s "http://127.0.0.1:8086/v1/lookup?q=https://phishing.site:8443/login?user=admin"
+curl -s "http://127.0.0.1:8086/v1/lookup?q=AS15169"
 
-# Direct path lookup
+# Direct path lookup (IP, hostname, or ASN)
 curl -s "http://127.0.0.1:8086/v1/lookup/8.8.8.8"
+curl -s "http://127.0.0.1:8086/v1/lookup/AS13335"
 curl -s "http://127.0.0.1:8086/v1/lookup/dns.google?reverse_dns=true"
+
+# Search netblocks by organization name or netname
+curl -s "http://127.0.0.1:8086/v1/search?q=Cloudflare&limit=10"
 
 # Safe Base64URL target lookup (useful for security scripts)
 # "https://evil.example.com" -> aHR0cHM6Ly9ldmlsLmV4YW1wbGUuY29t
@@ -115,7 +142,7 @@ curl -s "http://127.0.0.1:8086/v1/lookup/b64/aHR0cHM6Ly9ldmlsLmV4YW1wbGUuY29t"
 curl -s -X POST http://127.0.0.1:8086/v1/bulk \
   -H "Content-Type: application/json" \
   -d '{
-    "targets": ["8.8.8.8", "1.1.1.1", "dns.google"],
+    "targets": ["8.8.8.8", "AS15169", "dns.google"],
     "reverse_dns": true
   }'
 
@@ -136,7 +163,7 @@ curl -s -X POST http://127.0.0.1:8086/v1/bulk \
 asname update
 
 # Update specific databases only
-asname update --db-only         # IP->ASN RIB trie
+asname update --db-only         # IP->ASN RIB trie & ASN->Prefixes database
 asname update --names-only      # ASN->Name text file
 asname update --country-only    # IP->Country delegation stats
 asname update --city-only       # MaxMind DB-IP Lite city database
@@ -150,10 +177,10 @@ export ASNAME_ARIN_APIKEY="your-api-key"
 asname update --netblock-only
 ```
 
-The IP to ASN database is built from the first RIB archive that answers: RouteViews route-views2 (~75 MB), then RIPE RIS rrc04 (~70 MB), then RIPE RIS rrc00 (~400 MB). Override the list with a single dump of your own:
+The IP to ASN database and announced prefix index are built from the first RIB archive that answers: RouteViews route-views2 (~75 MB), then RIPE RIS rrc04 (~70 MB), then RIPE RIS rrc00 (~400 MB). Override the list with a single dump of your own:
 
 ```bash
-# Build the ASN database from a specific MRT dump (.bz2 or .gz)
+# Build the ASN database and prefix table from a specific MRT dump (.bz2 or .gz)
 asname update --db-only --rib-url https://data.ris.ripe.net/rrc12/2026.09/bview.20260911.0000.gz
 ```
 
@@ -190,6 +217,7 @@ make release-all
 | Variable | Description | Default |
 |---|---|---|
 | `ASNAME_DIR` | Directory holding all local databases | `~/.asname` |
+| `ASNAME_PREFIXES` | Custom path to ASN announced prefixes database | `~/.asname/prefixes.db` |
 | `ASNAME_LISTEN` | REST API server bind host and port | `127.0.0.1:8086` |
 | `ASNAME_WHOIS` | Enable online whois lookups without asking | `false` |
 | `ASNAME_CONTACT_EMAIL` | Contact email for `bgp.tools` category queries | `""` |

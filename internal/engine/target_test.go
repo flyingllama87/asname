@@ -162,3 +162,43 @@ func TestEntryFromLine(t *testing.T) {
 		require.Equal(t, tc.want, got, "input %q", tc.in)
 	}
 }
+
+func TestParseASNTarget(t *testing.T) {
+	cases := []struct {
+		in   string
+		want uint32
+		ok   bool
+	}{
+		{"AS15169", 15169, true},
+		{"as15169", 15169, true},
+		{"ASN15169", 15169, true},
+		{"asn15169", 15169, true},
+		{"AS-15169", 15169, true},
+		{"ASN:15169", 15169, true},
+		{"15169", 15169, true},
+		{"AS0", 0, false},
+		{"AS", 0, false},
+		{"example.com", 0, false},
+		{"8.8.8.8", 0, false},
+	}
+
+	for _, tc := range cases {
+		got, ok := ParseASNTarget(tc.in)
+		require.Equal(t, tc.ok, ok, "input %q", tc.in)
+		require.Equal(t, tc.want, got, "input %q", tc.in)
+	}
+}
+
+func TestNewTargetASN(t *testing.T) {
+	got := NewTarget("AS15169")
+	require.Equal(t, uint32(15169), got.ASN)
+	require.Empty(t, got.Host)
+	require.Empty(t, got.IPs)
+	require.NoError(t, got.Err)
+
+	gotNum := NewTarget("13335")
+	require.Equal(t, uint32(13335), gotNum.ASN)
+	require.Empty(t, gotNum.Host)
+	require.Empty(t, gotNum.IPs)
+}
+

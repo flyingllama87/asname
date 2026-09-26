@@ -126,6 +126,51 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 
 	borderLine := st.border("────────────────────────────────────────────────────────────")
 
+	if res.IsASN {
+		if total > 1 {
+			b.WriteString(fmt.Sprintf("%s [%d/%d] %s\n", st.header("Target:"), index+1, total, st.asn(res.ASN)))
+		} else {
+			b.WriteString(fmt.Sprintf("%s %s\n", st.header("Target:"), st.asn(res.ASN)))
+		}
+		b.WriteString(borderLine + "\n")
+
+		b.WriteString(fmt.Sprintf("  %s\n", st.section("Autonomous System:")))
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("ASN:              "), st.asn(res.ASN)))
+		if res.Name != "" {
+			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Organization:     "), st.value(res.Name)))
+		}
+		formattedCountry := FormatCountryPretty(res.Country)
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Country:          "), st.location(formattedCountry)))
+
+		if res.Category != "" {
+			b.WriteString("\n")
+			b.WriteString(fmt.Sprintf("  %s\n", st.section("Network Classification:")))
+			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Category:         "), st.category(res.Category)))
+		}
+
+		if len(res.Prefixes) > 0 {
+			b.WriteString("\n")
+			srcNotice := "Offline Index"
+			if res.PrefixSource == "ripe-stat" {
+				srcNotice = "Live RIPE Stat"
+			}
+			b.WriteString(fmt.Sprintf("  %s (%d total: %d IPv4, %d IPv6) [%s]\n",
+				st.section("Announced Prefixes:"), len(res.Prefixes), len(res.IPv4Prefixes), len(res.IPv6Prefixes), st.notice(srcNotice)))
+
+			const maxShow = 20
+			for i, p := range res.Prefixes {
+				if i >= maxShow {
+					b.WriteString(fmt.Sprintf("    %s ... and %d more prefixes\n", st.label(""), len(res.Prefixes)-maxShow))
+					break
+				}
+				b.WriteString(fmt.Sprintf("    %s %s\n", st.label("•"), st.value(p)))
+			}
+		}
+
+		b.WriteString(borderLine + "\n\n")
+		return b.String()
+	}
+
 	targetName := res.Target
 	if targetName == "" {
 		if res.Host != "" {
@@ -203,3 +248,53 @@ func FormatCountryPretty(country string) string {
 	}
 	return country
 }
+
+// FormatPrettyNetblockOutput renders a netblock search result in card format.
+func FormatPrettyNetblockOutput(res engine.NetblockEnrichedResult, index, total int, colored bool) string {
+	st := newPrettyStyler(colored)
+	var b strings.Builder
+
+	borderLine := st.border("────────────────────────────────────────────────────────────")
+	cidrStr := strings.Join(res.CIDRs, ", ")
+	if cidrStr == "" {
+		cidrStr = fmt.Sprintf("%s - %s", res.RangeStart, res.RangeEnd)
+	}
+
+	if total > 1 {
+		b.WriteString(fmt.Sprintf("%s [%d/%d] %s\n", st.header("Netblock:"), index+1, total, st.value(cidrStr)))
+	} else {
+		b.WriteString(fmt.Sprintf("%s %s\n", st.header("Netblock:"), st.value(cidrStr)))
+	}
+	b.WriteString(borderLine + "\n")
+
+	b.WriteString(fmt.Sprintf("  %s\n", st.section("Registry Netblock Details:")))
+	b.WriteString(fmt.Sprintf("    %s %s - %s\n", st.label("Range:            "), st.value(res.RangeStart.String()), st.value(res.RangeEnd.String())))
+	if len(res.CIDRs) > 0 {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("CIDR(s):          "), st.value(strings.Join(res.CIDRs, ", "))))
+	}
+	if res.Netname != "" {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Netname:          "), st.netblock(res.Netname)))
+	}
+	if res.Org != "" {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Organization:     "), st.value(res.Org)))
+	}
+
+	if res.ASN != "" && res.ASN != "N/A" {
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  %s\n", st.section("Routing Details:")))
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("ASN:              "), st.asn(res.ASN)))
+		if res.ASName != "" && res.ASName != "Unknown" {
+			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("AS Name:          "), st.value(res.ASName)))
+		}
+	}
+
+	if res.Country != "" && res.Country != "Unknown" {
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  %s\n", st.section("Location:")))
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Country:          "), st.location(FormatCountryPretty(res.Country))))
+	}
+
+	b.WriteString(borderLine + "\n\n")
+	return b.String()
+}
+

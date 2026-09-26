@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
+	"math/big"
+	"math/bits"
 	"net"
 	"os"
 	"strings"
@@ -209,3 +212,327 @@ func (d *NetblockDB) str(off uint32) (string, error) {
 	}
 	return string(out), nil
 }
+
+// NetblockSearchResult represents one matched IP range.
+type NetblockSearchResult struct {
+	RangeStart net.IP
+	RangeEnd   net.IP
+	CIDRs      []string
+	Netname    string
+	Org        string
+	IsV6       bool
+}
+
+// NetblockSearchOptions controls search filters and limits.
+type NetblockSearchOptions struct {
+	Limit  int
+	V4Only bool
+	V6Only bool
+}
+
+// SearchOrg searches the netblock database for ranges matching query in either org name or netname.
+func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]NetblockSearchResult, error) {
+	if d == nil || d.f == nil {
+		return nil, fmt.Errorf("netblock database is not open")
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+
+	matchedOffsets, err := d.searchStrings(query)
+	if err != nil {
+		return nil, fmt.Errorf("searching netblock strings: %v", err)
+	}
+	if len(matchedOffsets) == 0 {
+		return nil, nil
+	}
+
+	var results []NetblockSearchResult
+
+	// 1. Search IPv4 segments
+	if !opts.V6Only && d.v4Count > 0 {
+		const recSize = netblockSeg4Size
+		recBuf := make([]byte, 1024*recSize*64) // 64K records per chunk
+		totalBytes := int64(d.v4Count) * recSize
+		var filePos int64 = 0
+
+		for filePos < totalBytes {
+			toRead := int64(len(recBuf))
+			if filePos+toRead > totalBytes {
+				toRead = totalBytes - filePos
+			}
+			n, err := d.f.ReadAt(recBuf[:toRead], netblockHeaderSize+filePos)
+			if n == 0 {
+				break
+			}
+			numRecs := n / recSize
+			for i := 0; i < numRecs; i++ {
+				globalIdx := int(filePos/recSize) + i
+				rec := recBuf[i*recSize : (i+1)*recSize]
+				netnameOff := binary.LittleEndian.Uint32(rec[4:8])
+				orgOff := binary.LittleEndian.Uint32(rec[8:12])
+
+				orgName, orgMatch := matchedOffsets[orgOff]
+				netName, netMatch := matchedOffsets[netnameOff]
+
+				if orgMatch || netMatch {
+					startInt := binary.LittleEndian.Uint32(rec[0:4])
+					var endInt uint32
+					if globalIdx+1 < d.v4Count {
+						if i+1 < numRecs {
+							endInt = binary.LittleEndian.Uint32(recBuf[(i+1)*recSize:(i+1)*recSize+4]) - 1
+						} else {
+							var nextStartBuf [4]byte
+							if _, err := d.f.ReadAt(nextStartBuf[:], netblockHeaderSize+int64(globalIdx+1)*recSize); err == nil {
+								endInt = binary.LittleEndian.Uint32(nextStartBuf[:]) - 1
+							} else {
+								endInt = 0xffffffff
+							}
+						}
+					} else {
+						endInt = 0xffffffff
+					}
+
+					if orgName == "" && orgOff != 0 {
+						orgName, _ = d.str(orgOff)
+					}
+					if netName == "" && netnameOff != 0 {
+						netName, _ = d.str(netnameOff)
+					}
+
+					var startIP, endIP [4]byte
+					binary.BigEndian.PutUint32(startIP[:], startInt)
+					binary.BigEndian.PutUint32(endIP[:], endInt)
+
+					results = append(results, NetblockSearchResult{
+						RangeStart: net.IP(startIP[:]),
+						RangeEnd:   net.IP(endIP[:]),
+						CIDRs:      IPv4RangeToCIDRs(startInt, endInt),
+						Netname:    netName,
+						Org:        orgName,
+						IsV6:       false,
+					})
+
+					if opts.Limit > 0 && len(results) >= opts.Limit {
+						return results, nil
+					}
+				}
+			}
+			filePos += int64(n)
+			if err != nil {
+				break
+			}
+		}
+	}
+
+	// 2. Search IPv6 segments
+	if !opts.V4Only && d.v6Count > 0 {
+		const recSize = netblockSeg6Size
+		recBuf := make([]byte, 1024*recSize*32) // 32K records per chunk
+		totalBytes := int64(d.v6Count) * recSize
+		var filePos int64 = 0
+
+		for filePos < totalBytes {
+			toRead := int64(len(recBuf))
+			if filePos+toRead > totalBytes {
+				toRead = totalBytes - filePos
+			}
+			n, err := d.f.ReadAt(recBuf[:toRead], d.v6Off+filePos)
+			if n == 0 {
+				break
+			}
+			numRecs := n / recSize
+			for i := 0; i < numRecs; i++ {
+				globalIdx := int(filePos/recSize) + i
+				rec := recBuf[i*recSize : (i+1)*recSize]
+				netnameOff := binary.LittleEndian.Uint32(rec[16:20])
+				orgOff := binary.LittleEndian.Uint32(rec[20:24])
+
+				orgName, orgMatch := matchedOffsets[orgOff]
+				netName, netMatch := matchedOffsets[netnameOff]
+
+				if orgMatch || netMatch {
+					var startBytes, endBytes [16]byte
+					copy(startBytes[:], rec[0:16])
+
+					if globalIdx+1 < d.v6Count {
+						var nextStart [16]byte
+						if i+1 < numRecs {
+							copy(nextStart[:], recBuf[(i+1)*recSize:(i+1)*recSize+16])
+							endBytes = decBytes16(nextStart)
+						} else {
+							if _, err := d.f.ReadAt(nextStart[:], d.v6Off+int64(globalIdx+1)*recSize); err == nil {
+								endBytes = decBytes16(nextStart)
+							} else {
+								for j := range endBytes {
+									endBytes[j] = 0xff
+								}
+							}
+						}
+					} else {
+						for j := range endBytes {
+							endBytes[j] = 0xff
+						}
+					}
+
+					if orgName == "" && orgOff != 0 {
+						orgName, _ = d.str(orgOff)
+					}
+					if netName == "" && netnameOff != 0 {
+						netName, _ = d.str(netnameOff)
+					}
+
+					results = append(results, NetblockSearchResult{
+						RangeStart: net.IP(append([]byte(nil), startBytes[:]...)),
+						RangeEnd:   net.IP(append([]byte(nil), endBytes[:]...)),
+						CIDRs:      IPv6RangeToCIDRs(startBytes, endBytes),
+						Netname:    netName,
+						Org:        orgName,
+						IsV6:       true,
+					})
+
+					if opts.Limit > 0 && len(results) >= opts.Limit {
+						return results, nil
+					}
+				}
+			}
+			filePos += int64(n)
+			if err != nil {
+				break
+			}
+		}
+	}
+
+	return results, nil
+}
+
+func (d *NetblockDB) searchStrings(query string) (map[uint32]string, error) {
+	queryLower := []byte(strings.ToLower(query))
+	matched := make(map[uint32]string)
+
+	buf := make([]byte, 1024*1024)
+	var curStr []byte
+	var strStartOff uint32 = 0
+	var filePos int64 = 0
+
+	for filePos < d.strLen {
+		toRead := int64(len(buf))
+		if filePos+toRead > d.strLen {
+			toRead = d.strLen - filePos
+		}
+		n, err := d.f.ReadAt(buf[:toRead], d.strOff+filePos)
+		if n == 0 {
+			break
+		}
+		chunk := buf[:n]
+		idx := 0
+		for {
+			nullIdx := bytes.IndexByte(chunk[idx:], 0)
+			if nullIdx < 0 {
+				curStr = append(curStr, chunk[idx:]...)
+				break
+			}
+			curStr = append(curStr, chunk[idx:idx+nullIdx]...)
+			if bytes.Contains(bytes.ToLower(curStr), queryLower) {
+				matched[strStartOff] = string(curStr)
+			}
+			idx += nullIdx + 1
+			strStartOff = uint32(filePos + int64(idx))
+			curStr = curStr[:0]
+		}
+		filePos += int64(n)
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+	}
+	return matched, nil
+}
+
+func decBytes16(b [16]byte) [16]byte {
+	for i := 15; i >= 0; i-- {
+		b[i]--
+		if b[i] != 0xff {
+			break
+		}
+	}
+	return b
+}
+
+// IPv4RangeToCIDRs converts an IPv4 [start, end] integer range into minimal CIDR notation prefixes.
+func IPv4RangeToCIDRs(start, end uint32) []string {
+	var cidrs []string
+	cur := uint64(start)
+	end64 := uint64(end)
+
+	for cur <= end64 {
+		tz := 32
+		if cur != 0 {
+			tz = bits.TrailingZeros32(uint32(cur))
+		}
+		diff := end64 - cur + 1
+		maxK := 63 - bits.LeadingZeros64(diff)
+		if maxK > tz {
+			maxK = tz
+		}
+		maskLen := 32 - maxK
+
+		var ip [4]byte
+		binary.BigEndian.PutUint32(ip[:], uint32(cur))
+		cidrs = append(cidrs, fmt.Sprintf("%d.%d.%d.%d/%d", ip[0], ip[1], ip[2], ip[3], maskLen))
+
+		cur += 1 << maxK
+		if len(cidrs) >= 32 {
+			break
+		}
+	}
+	return cidrs
+}
+
+// IPv6RangeToCIDRs converts an IPv6 [start, end] byte range into minimal CIDR notation prefixes.
+func IPv6RangeToCIDRs(start, end [16]byte) []string {
+	var startInt, endInt big.Int
+	startInt.SetBytes(start[:])
+	endInt.SetBytes(end[:])
+
+	var one big.Int
+	one.SetInt64(1)
+
+	var cidrs []string
+	cur := new(big.Int).Set(&startInt)
+
+	for cur.Cmp(&endInt) <= 0 {
+		diff := new(big.Int).Sub(&endInt, cur)
+		diff.Add(diff, &one)
+
+		tz := 128
+		if cur.Sign() != 0 {
+			for i := 0; i < 128; i++ {
+				if cur.Bit(i) != 0 {
+					tz = i
+					break
+				}
+			}
+		}
+
+		maxK := diff.BitLen() - 1
+		if maxK > tz {
+			maxK = tz
+		}
+		maskLen := 128 - maxK
+
+		ipBytes := cur.Bytes()
+		var fullIP [16]byte
+		copy(fullIP[16-len(ipBytes):], ipBytes)
+		ip := net.IP(fullIP[:])
+		cidrs = append(cidrs, fmt.Sprintf("%s/%d", ip.String(), maskLen))
+
+		step := new(big.Int).Lsh(&one, uint(maxK))
+		cur.Add(cur, step)
+		if len(cidrs) >= 32 {
+			break
+		}
+	}
+	return cidrs
+}
+

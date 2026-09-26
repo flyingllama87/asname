@@ -29,6 +29,7 @@ type Config struct {
 	CityPath     string
 	NetblockPath string
 	CategoryPath string
+	PrefixPath   string
 	ConsentPath  string
 	ContactPath  string
 	CachePath    string

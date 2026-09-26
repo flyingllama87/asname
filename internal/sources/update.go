@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -187,6 +188,10 @@ func buildFromRIB(cfg Config, cache, ribURL string) error {
 	}
 
 	builder := database.NewBuilder()
+	prefixBuilder := NewPrefixDBBuilder()
+	builder.SetMappingHook(func(prefix *net.IPNet, asn uint32) {
+		prefixBuilder.Add(asn, prefix)
+	})
 	skipped, err := builder.ImportMRT(r)
 	if err != nil {
 		// The file downloaded in full but will not parse, so do not keep it.
@@ -209,6 +214,14 @@ func buildFromRIB(cfg Config, cache, ribURL string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "asname: wrote %s (%d bytes)\n", cfg.DBPath, len(data))
+
+	if cfg.PrefixPath != "" {
+		if n, err := prefixBuilder.Write(cfg.PrefixPath); err != nil {
+			fmt.Fprintf(os.Stderr, "asname: warning: failed to write prefix database: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "asname: wrote %s (%d bytes)\n", cfg.PrefixPath, n)
+		}
+	}
 	return nil
 }
 
