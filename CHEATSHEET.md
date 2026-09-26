@@ -188,7 +188,32 @@ Downloaded source files are kept in `~/.asname/cache/` for 24 hours. An update t
 
 ---
 
-## 5. Development & Build Commands (`Makefile`)
+## 5. Using as a Go Library (`github.com/flyingllama87/asname`)
+
+```go
+import "github.com/flyingllama87/asname"
+
+// 1. Create client
+client, err := asname.New()
+defer client.Close()
+
+// 2. Fast in-memory IP lookup
+res, err := client.LookupIP(net.ParseIP("8.8.8.8"))
+// res.ASN, res.ASNNumber(), res.Name, res.Country, res.City, res.Netblock, res.Category
+
+// 3. String lookup (IP, hostname, URL, or ASN)
+results, err := client.Lookup("dns.google")
+
+// 4. Autonomous System lookup
+asnRes, err := client.LookupASN(15169)
+
+// 5. Netblock organization search
+matches, err := client.SearchNetblocks("Valve", asname.SearchOptions{Limit: 10})
+```
+
+---
+
+## 6. Development & Build Commands (`Makefile`)
 
 ```bash
 # Compile binary to build/asname
@@ -212,7 +237,7 @@ make release-all
 
 ---
 
-## 6. Environment Variables
+## 7. Environment Variables
 
 | Variable | Description | Default |
 |---|---|---|

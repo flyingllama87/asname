@@ -35,6 +35,73 @@ sudo make install
 This compiles the tool and places the `asname` binary into `/usr/local/bin/`.
 Run `make test` to run the test suite.
 
+## Go Package & Library Usage
+
+`asname` is designed as a first-class Go package and can be imported directly into your own Go applications:
+
+```bash
+go get github.com/flyingllama87/asname
+```
+
+### Basic Example
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"net"
+
+	"github.com/flyingllama87/asname"
+)
+
+func main() {
+	// Initialize client using ~/.asname local databases
+	client, err := asname.New()
+	if err != nil {
+		log.Fatalf("failed to initialize asname: %v", err)
+	}
+	defer client.Close()
+
+	// 1. Direct fast in-memory lookup for a net.IP (< 1µs)
+	res, err := client.LookupIP(net.ParseIP("8.8.8.8"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("IP: %s | ASN: %s (%d) | Name: %s | Country: %s\n",
+		res.IP, res.ASN, res.ASNNumber(), res.Name, res.Country)
+
+	// 2. Query any string target (IP, hostname, URL, or ASN like "AS15169")
+	results, err := client.Lookup("dns.google")
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, r := range results {
+		fmt.Printf("Resolved IP: %s -> %s\n", r.IP, r.Name)
+	}
+
+	// 3. Query an Autonomous System by number
+	asnRes, err := client.LookupASN(15169)
+	if err == nil {
+		fmt.Printf("ASN 15169 Name: %s, Announced Prefixes: %d\n", asnRes.Name, len(asnRes.Prefixes))
+	}
+}
+```
+
+### Client Configuration Options
+
+```go
+client, err := asname.New(
+	asname.WithDataDir("/custom/path"),           // Custom database directory
+	asname.WithCity(true),                        // Enable DB-IP Lite city lookup
+	asname.WithNetblock(true),                    // Enable registry netblock owner lookup
+	asname.WithCategory(true),                    // Enable network classification
+	asname.WithReverseDNS(true),                  // Enable PTR reverse DNS lookups
+	asname.WithAutoUpdate(720 * time.Hour),       // Refresh databases older than 30 days
+)
+```
+
 ## Usage
 
 Simply pass an IP address to resolve its information:

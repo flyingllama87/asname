@@ -7,3 +7,4 @@ rib.*.bz2
 # Release archives from `make release`, and a bare `go build` in the repo root.
 asname-*.tar.gz
 /asname
+telemetry/
