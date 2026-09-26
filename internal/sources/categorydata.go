@@ -2,12 +2,12 @@ package sources
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -58,9 +58,9 @@ var peeringDBTypes = map[string][]string{
 }
 
 // UpdateCategoryDB builds the category database and atomically replaces cfg.CategoryPath.
-func UpdateCategoryDB(cfg Config, contact *ContactAsker) error {
-	fmt.Fprintln(os.Stderr, "asname: building IP->category database")
-	b := newCategoryBuilder()
+func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) error {
+	logf(ctx, "asname: building IP->category database\n")
+	b := newCategoryBuilder(ctx)
 
 	type source struct {
 		name    string
@@ -86,10 +86,10 @@ func UpdateCategoryDB(cfg Config, contact *ContactAsker) error {
 	for _, src := range sources {
 		n, err := src.import_()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "asname: warning: %s: %v\n", src.name, err)
+			logf(ctx, "asname: warning: %s: %v\n", src.name, err)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "asname: %s: %d entries\n", src.name, n)
+		logf(ctx, "asname: %s: %d entries\n", src.name, n)
 		imported += n
 	}
 	if imported == 0 {
@@ -103,18 +103,22 @@ func UpdateCategoryDB(cfg Config, contact *ContactAsker) error {
 	if err := WriteFileAtomic(cfg.CategoryPath, data); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "asname: wrote %s (%d prefixes, %d ASNs, %d bytes)\n",
+	logf(ctx, "asname: wrote %s (%d prefixes, %d ASNs, %d bytes)\n",
 		cfg.CategoryPath, len(b.prefixes), len(b.asns), len(data))
 	return nil
 }
 
 type categoryBuilder struct {
+	// ctx bounds the builder's downloads and carries its log writer; the
+	// builder lives for one UpdateCategoryDB call.
+	ctx      context.Context
 	prefixes map[string]map[string]bool
 	asns     map[uint32]map[string]bool
 }
 
-func newCategoryBuilder() *categoryBuilder {
+func newCategoryBuilder(ctx context.Context) *categoryBuilder {
 	return &categoryBuilder{
+		ctx:      ctx,
 		prefixes: make(map[string]map[string]bool),
 		asns:     make(map[uint32]map[string]bool),
 	}
@@ -176,7 +180,7 @@ func (b *categoryBuilder) ImportAWSFrom(url string) (int, error) {
 			Service  string `json:"service"`
 		} `json:"ipv6_prefixes"`
 	}
-	if err := fetchJSON(url, "", &doc); err != nil {
+	if err := fetchJSON(b.ctx, url, "", &doc); err != nil {
 		return 0, err
 	}
 
@@ -208,7 +212,7 @@ func (b *categoryBuilder) importGCP() (int, error) {
 			IPv6 string `json:"ipv6Prefix"`
 		} `json:"prefixes"`
 	}
-	if err := fetchJSON(gcpRanges, "", &doc); err != nil {
+	if err := fetchJSON(b.ctx, gcpRanges, "", &doc); err != nil {
 		return 0, err
 	}
 	count := 0
@@ -231,7 +235,7 @@ func (b *categoryBuilder) importOracle() (int, error) {
 			} `json:"cidrs"`
 		} `json:"regions"`
 	}
-	if err := fetchJSON(oracleRanges, "", &doc); err != nil {
+	if err := fetchJSON(b.ctx, oracleRanges, "", &doc); err != nil {
 		return 0, err
 	}
 	count := 0
@@ -249,7 +253,7 @@ func (b *categoryBuilder) importFastly() (int, error) {
 		Addresses     []string `json:"addresses"`
 		IPv6Addresses []string `json:"ipv6_addresses"`
 	}
-	if err := fetchJSON(fastlyRanges, "", &doc); err != nil {
+	if err := fetchJSON(b.ctx, fastlyRanges, "", &doc); err != nil {
 		return 0, err
 	}
 	count := 0
@@ -273,7 +277,7 @@ func (b *categoryBuilder) importCloudflare() (int, error) {
 }
 
 func (b *categoryBuilder) ImportCIDRList(url, userAgent string, tags ...string) (int, error) {
-	resp, err := httpGetUA(url, userAgent)
+	resp, err := httpGetUA(b.ctx, url, userAgent)
 	if err != nil {
 		return 0, err
 	}
@@ -310,7 +314,7 @@ func (b *categoryBuilder) importBGPTools(email string) (int, error) {
 	for _, name := range names {
 		n, err := b.importBGPToolsTag(name, bgpToolsTagNames[name], agent)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "asname: warning: bgp.tools %s: %v\n", name, err)
+			logf(b.ctx, "asname: warning: bgp.tools %s: %v\n", name, err)
 			continue
 		}
 		total += n
@@ -326,7 +330,7 @@ func (b *categoryBuilder) importBGPToolsTag(name string, tags []string, agent st
 }
 
 func (b *categoryBuilder) ImportBGPToolsTagFrom(url string, tags []string, agent string) (int, error) {
-	resp, err := httpGetUA(url, agent)
+	resp, err := httpGetUA(b.ctx, url, agent)
 	if err != nil {
 		return 0, err
 	}
@@ -356,7 +360,7 @@ func (b *categoryBuilder) ImportPeeringDBFrom(url string) (int, error) {
 			InfoType string `json:"info_type"`
 		} `json:"data"`
 	}
-	if err := fetchJSON(url, "", &doc); err != nil {
+	if err := fetchJSON(b.ctx, url, "", &doc); err != nil {
 		return 0, err
 	}
 	count := 0
@@ -455,8 +459,8 @@ func ParseASN(s string) (uint32, bool) {
 	return uint32(n), true
 }
 
-func fetchJSON(url, userAgent string, into any) error {
-	resp, err := httpGetUA(url, userAgent)
+func fetchJSON(ctx context.Context, url, userAgent string, into any) error {
+	resp, err := httpGetUA(ctx, url, userAgent)
 	if err != nil {
 		return err
 	}
@@ -467,15 +471,16 @@ func fetchJSON(url, userAgent string, into any) error {
 	return nil
 }
 
-func httpGetUA(url, userAgent string) (*http.Response, error) {
-	if userAgent == "" {
-		return httpGet(url)
-	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+// httpGetUA issues a GET bound to ctx, sending userAgent when it is set, and
+// treats any status but 200 as an error.
+func httpGetUA(ctx context.Context, url, userAgent string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err

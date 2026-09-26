@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -25,9 +26,21 @@ type Engine struct {
 	whois        *sources.WhoisAsker
 	categoryDB   *sources.CategoryDB
 	prefixDB     *sources.PrefixDB
+	log          io.Writer
+
+	// OnlinePrefixes lets LookupASN ask an online service for an ASN's
+	// announced prefixes when the prefix database does not cover it. NewEngine
+	// turns it on, as the CLI expects; the library turns it off by default.
+	OnlinePrefixes bool
 }
 
-func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCategory bool, whois sources.WhoisMode) (*Engine, error) {
+// NewEngine opens the databases cfg names. Warnings about optional databases
+// that could not be opened, and about failed whois lookups, go to log; a nil
+// log discards them.
+func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCategory bool, whois sources.WhoisMode, log io.Writer) (*Engine, error) {
+	if log == nil {
+		log = io.Discard
+	}
 	dbFile, err := os.Open(cfg.DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening ASN database (run `asname update`): %v", err)
@@ -45,14 +58,14 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 
 	countryDB, err := sources.LoadCountryDB(cfg.CountryPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "asname: country database unavailable (run `asname update`):", err)
+		fmt.Fprintln(log, "asname: country database unavailable (run `asname update`):", err)
 		countryDB = nil
 	}
 
 	var cityDB *maxminddb.Reader
 	if wantCity {
 		if cityDB, err = sources.LoadCityDB(cfg.CityPath); err != nil {
-			fmt.Fprintln(os.Stderr, "asname: city database unavailable (run `asname update --city-only`):", err)
+			fmt.Fprintln(log, "asname: city database unavailable (run `asname update --city-only`):", err)
 			cityDB = nil
 		}
 	}
@@ -60,7 +73,7 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 	var nbDB *sources.NetblockDB
 	if wantNetblock {
 		if nbDB, err = sources.OpenNetblockDB(cfg.NetblockPath); err != nil {
-			fmt.Fprintln(os.Stderr, "asname: netblock database unavailable (run `asname update --netblock-only`):", err)
+			fmt.Fprintln(log, "asname: netblock database unavailable (run `asname update --netblock-only`):", err)
 			nbDB = nil
 		}
 	}
@@ -68,9 +81,16 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 	var catDB *sources.CategoryDB
 	if wantCategory {
 		if catDB, err = sources.OpenCategoryDB(cfg.CategoryPath); err != nil {
-			fmt.Fprintln(os.Stderr, "asname: category database unavailable (run `asname update --category-only`):", err)
+			fmt.Fprintln(log, "asname: category database unavailable (run `asname update --category-only`):", err)
 			catDB = nil
 		}
+	}
+
+	whoisAsker := sources.NewWhoisAsker(cfg.ConsentPath, whois)
+	if whois != sources.WhoisAsk {
+		// Only the interactive mode owns the terminal; the others report the
+		// rate-limit cutoff like any other warning.
+		whoisAsker.Out = log
 	}
 
 	var prefixDB *sources.PrefixDB
@@ -81,15 +101,17 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 	}
 
 	return &Engine{
-		db:           db,
-		names:        names,
-		countryDB:    countryDB,
-		cityDB:       cityDB,
-		netblockDB:   nbDB,
-		showNetblock: showNetblock,
-		whois:        sources.NewWhoisAsker(cfg.ConsentPath, whois),
-		categoryDB:   catDB,
-		prefixDB:     prefixDB,
+		db:             db,
+		names:          names,
+		countryDB:      countryDB,
+		cityDB:         cityDB,
+		netblockDB:     nbDB,
+		showNetblock:   showNetblock,
+		whois:          whoisAsker,
+		categoryDB:     catDB,
+		prefixDB:       prefixDB,
+		log:            log,
+		OnlinePrefixes: true,
 	}, nil
 }
 
@@ -132,11 +154,16 @@ type LookupResult struct {
 }
 
 func (e *Engine) LookupTarget(t Target) ([]LookupResult, error) {
+	return e.LookupTargetContext(context.Background(), t)
+}
+
+// LookupTargetContext is LookupTarget with ctx bounding any online prefix query.
+func (e *Engine) LookupTargetContext(ctx context.Context, t Target) ([]LookupResult, error) {
 	if t.Err != nil {
 		return nil, t.Err
 	}
 	if t.ASN > 0 {
-		res, err := e.LookupASN(t.ASN)
+		res, err := e.LookupASNContext(ctx, t.ASN)
 		if err != nil {
 			return nil, err
 		}
@@ -158,6 +185,12 @@ func (e *Engine) LookupTarget(t Target) ([]LookupResult, error) {
 
 // LookupASN returns details about an ASN including its owner, classification, and announced prefixes.
 func (e *Engine) LookupASN(asn uint32) (LookupResult, error) {
+	return e.LookupASNContext(context.Background(), asn)
+}
+
+// LookupASNContext is LookupASN with ctx bounding the online prefix query made
+// when the prefix database does not cover asn.
+func (e *Engine) LookupASNContext(ctx context.Context, asn uint32) (LookupResult, error) {
 	asnStr := fmt.Sprintf("AS%d", asn)
 	res := LookupResult{
 		Target: asnStr,
@@ -194,8 +227,8 @@ func (e *Engine) LookupASN(asn uint32) (LookupResult, error) {
 		}
 	}
 
-	if prefixRes.Total() == 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+	if prefixRes.Total() == 0 && e.OnlinePrefixes {
+		ctx, cancel := context.WithTimeout(ctx, 7*time.Second)
 		defer cancel()
 		if pr, err := sources.FetchASNPrefixesOnline(ctx, asn); err == nil && pr.Total() > 0 {
 			prefixRes = pr
@@ -259,7 +292,7 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		if nb.Empty() && res.Country != "Unknown" && e.whois.Allowed(res.IP) {
 			online, err := sources.LookupWhoisNetblock(res.IP)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "asname: whois lookup for %s failed: %v\n", res.IP, err)
+				fmt.Fprintf(e.log, "asname: whois lookup for %s failed: %v\n", res.IP, err)
 			} else if !online.Empty() {
 				nb = online
 				res.NetblockLive = true
@@ -325,4 +358,3 @@ func (e *Engine) SearchNetblocks(query string, opts sources.NetblockSearchOption
 	}
 	return enriched, nil
 }
-

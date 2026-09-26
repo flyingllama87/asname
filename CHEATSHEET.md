@@ -209,7 +209,12 @@ asnRes, err := client.LookupASN(15169)
 
 // 5. Netblock organization search
 matches, err := client.SearchNetblocks("Valve", asname.SearchOptions{Limit: 10})
+
+// 6. Refresh databases missing or older than 30 days; returns the paths rewritten
+refreshed, err := asname.UpdateStale(ctx, asname.UpdateOptions{}, 720*time.Hour)
 ```
+
+Unknown fields are empty strings (not `Unknown`/`N/A`), the `ASNAME_*` variables apply, and output goes only to `asname.WithLog(w)`.
 
 ---
 

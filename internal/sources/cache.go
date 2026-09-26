@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -66,7 +67,7 @@ func cacheName(url string) string {
 // copy younger than CacheTTL is reused without contacting the server, and a
 // download interrupted by a network failure is resumed where it stopped rather
 // than started again.
-func fetchCached(dir, url, userAgent string) (string, error) {
+func fetchCached(ctx context.Context, dir, url, userAgent string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -75,7 +76,7 @@ func fetchCached(dir, url, userAgent string) (string, error) {
 
 	if info, err := os.Stat(path); err == nil {
 		if age := time.Since(info.ModTime()); age < CacheTTL {
-			fmt.Fprintf(os.Stderr, "asname: using cached %s (%s old, %d bytes)\n",
+			logf(ctx, "asname: using cached %s (%s old, %d bytes)\n",
 				redactURL(url), age.Truncate(time.Second), info.Size())
 			return path, nil
 		}
@@ -92,7 +93,7 @@ func fetchCached(dir, url, userAgent string) (string, error) {
 		}
 	}
 
-	resp, err := httpGetFrom(url, userAgent, have)
+	resp, err := httpGetFrom(ctx, url, userAgent, have)
 	if err != nil {
 		return "", err
 	}
@@ -106,19 +107,19 @@ func fetchCached(dir, url, userAgent string) (string, error) {
 			os.Remove(part)
 			return "", fmt.Errorf("downloading %s: unusable Content-Range %q", redactURL(url), resp.Header.Get("Content-Range"))
 		}
-		fmt.Fprintf(os.Stderr, "asname: resuming %s at %d bytes\n", redactURL(url), have)
+		logf(ctx, "asname: resuming %s at %d bytes\n", redactURL(url), have)
 	case http.StatusRequestedRangeNotSatisfiable:
 		// The partial file already holds the whole object.
 		if err := os.Rename(part, path); err != nil {
 			return "", err
 		}
-		fmt.Fprintf(os.Stderr, "asname: using cached %s (%d bytes)\n", redactURL(url), have)
+		logf(ctx, "asname: using cached %s (%d bytes)\n", redactURL(url), have)
 		return path, nil
 	case http.StatusOK:
 		if have > 0 {
-			fmt.Fprintf(os.Stderr, "asname: %s does not support resuming, downloading in full\n", redactURL(url))
+			logf(ctx, "asname: %s does not support resuming, downloading in full\n", redactURL(url))
 		} else {
-			fmt.Fprintf(os.Stderr, "asname: downloading %s\n", redactURL(url))
+			logf(ctx, "asname: downloading %s\n", redactURL(url))
 		}
 		have = 0
 	default:
@@ -156,8 +157,8 @@ func fetchCached(dir, url, userAgent string) (string, error) {
 }
 
 // openCached is fetchCached followed by opening the result for reading.
-func openCached(dir, url, userAgent string) (*os.File, error) {
-	path, err := fetchCached(dir, url, userAgent)
+func openCached(ctx context.Context, dir, url, userAgent string) (*os.File, error) {
+	path, err := fetchCached(ctx, dir, url, userAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +202,8 @@ func rangeStart(header string) (int64, error) {
 }
 
 // httpGetFrom issues a GET, asking for the bytes from offset onwards when offset is positive.
-func httpGetFrom(url, userAgent string, offset int64) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+func httpGetFrom(ctx context.Context, url, userAgent string, offset int64) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}

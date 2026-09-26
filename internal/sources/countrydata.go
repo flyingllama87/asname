@@ -2,11 +2,11 @@ package sources
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math/bits"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 
@@ -32,19 +32,19 @@ type trieBuilder interface {
 
 // UpdateCountryDB downloads every RIR delegation file, builds an IP->country
 // LC-trie and atomically replaces cfg.CountryPath.
-func UpdateCountryDB(cfg Config) error {
-	fmt.Fprintln(os.Stderr, "asname: building IP->country database from RIR delegation stats")
+func UpdateCountryDB(ctx context.Context, cfg Config) error {
+	logf(ctx, "asname: building IP->country database from RIR delegation stats\n")
 	var b trieBuilder = database.NewBuilder()
 
 	cache := cfg.CacheDir()
 	total := 0
 	for _, url := range rirDelegatedURLs {
-		n, err := importDelegated(b, url, cache)
+		n, err := importDelegated(ctx, b, url, cache)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "asname: warning: %s: %v\n", url, err)
+			logf(ctx, "asname: warning: %s: %v\n", url, err)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "asname: %s: %d ranges\n", url, n)
+		logf(ctx, "asname: %s: %d ranges\n", url, n)
 		total += n
 	}
 	if total == 0 {
@@ -63,14 +63,14 @@ func UpdateCountryDB(cfg Config) error {
 	if err := WriteFileAtomic(cfg.CountryPath, data); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "asname: wrote %s (%d ranges, %d bytes)\n", cfg.CountryPath, total, len(data))
+	logf(ctx, "asname: wrote %s (%d ranges, %d bytes)\n", cfg.CountryPath, total, len(data))
 	return nil
 }
 
 // importDelegated streams one RIR file and inserts its IPv4/IPv6 country ranges
 // into the builder.
-func importDelegated(b trieBuilder, url, cache string) (int, error) {
-	f, err := openCached(cache, url, "")
+func importDelegated(ctx context.Context, b trieBuilder, url, cache string) (int, error) {
+	f, err := openCached(ctx, cache, url, "")
 	if err != nil {
 		return 0, err
 	}

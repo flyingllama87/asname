@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/bzip2"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -66,65 +67,67 @@ func decompress(url string, r io.Reader) (io.Reader, error) {
 }
 
 // AutoUpdate refreshes any data file that is missing or older than maxAge.
-func AutoUpdate(cfg Config, maxAge time.Duration, city, netblock, category bool, contact *ContactAsker) error {
-	if stale(cfg.DBPath, maxAge) {
-		fmt.Fprintln(os.Stderr, "asname: refreshing ASN database...")
+func AutoUpdate(ctx context.Context, cfg Config, maxAge time.Duration, city, netblock, category bool, contact *ContactAsker) error {
+	if Stale(cfg.DBPath, maxAge) {
+		logf(ctx, "asname: refreshing ASN database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
 			return err
 		}
-		if err := UpdateDatabase(cfg, ""); err != nil {
+		if err := UpdateDatabase(ctx, cfg, ""); err != nil {
 			return err
 		}
 	}
-	if stale(cfg.NamesPath, maxAge) {
-		fmt.Fprintln(os.Stderr, "asname: refreshing name database...")
+	if Stale(cfg.NamesPath, maxAge) {
+		logf(ctx, "asname: refreshing name database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.NamesPath), 0o755); err != nil {
 			return err
 		}
-		if err := UpdateNames(cfg); err != nil {
+		if err := UpdateNames(ctx, cfg); err != nil {
 			return err
 		}
 	}
-	if stale(cfg.CountryPath, maxAge) {
-		fmt.Fprintln(os.Stderr, "asname: refreshing country database...")
+	if Stale(cfg.CountryPath, maxAge) {
+		logf(ctx, "asname: refreshing country database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.CountryPath), 0o755); err != nil {
 			return err
 		}
-		if err := UpdateCountryDB(cfg); err != nil {
+		if err := UpdateCountryDB(ctx, cfg); err != nil {
 			return err
 		}
 	}
-	if city && stale(cfg.CityPath, maxAge) {
-		fmt.Fprintln(os.Stderr, "asname: refreshing city database...")
+	if city && Stale(cfg.CityPath, maxAge) {
+		logf(ctx, "asname: refreshing city database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.CityPath), 0o755); err != nil {
 			return err
 		}
-		if err := UpdateCityDB(cfg); err != nil {
+		if err := UpdateCityDB(ctx, cfg); err != nil {
 			return err
 		}
 	}
-	if netblock && stale(cfg.NetblockPath, maxAge) {
-		fmt.Fprintln(os.Stderr, "asname: refreshing netblock database...")
+	if netblock && Stale(cfg.NetblockPath, maxAge) {
+		logf(ctx, "asname: refreshing netblock database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.NetblockPath), 0o755); err != nil {
 			return err
 		}
-		if err := UpdateNetblockDB(cfg); err != nil {
+		if err := UpdateNetblockDB(ctx, cfg); err != nil {
 			return err
 		}
 	}
-	if category && stale(cfg.CategoryPath, maxAge) {
-		fmt.Fprintln(os.Stderr, "asname: refreshing category database...")
+	if category && Stale(cfg.CategoryPath, maxAge) {
+		logf(ctx, "asname: refreshing category database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.CategoryPath), 0o755); err != nil {
 			return err
 		}
-		if err := UpdateCategoryDB(cfg, contact); err != nil {
+		if err := UpdateCategoryDB(ctx, cfg, contact); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func stale(path string, maxAge time.Duration) bool {
+// Stale reports whether path is missing or, when maxAge is positive, older
+// than maxAge. A maxAge of zero or less only reports missing files.
+func Stale(path string, maxAge time.Duration) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return true
@@ -138,26 +141,26 @@ func stale(path string, maxAge time.Duration) bool {
 // UpdateDatabase downloads an MRT RIB dump, converts it to binary and replaces
 // cfg.DBPath. With no ribURL given it works through ribSources in order, moving
 // on to the next archive whenever one cannot be listed, downloaded or parsed.
-func UpdateDatabase(cfg Config, ribURL string) error {
+func UpdateDatabase(ctx context.Context, cfg Config, ribURL string) error {
 	cache := cfg.CacheDir()
 
 	if ribURL != "" {
-		return buildFromRIB(cfg, cache, ribURL)
+		return buildFromRIB(ctx, cfg, cache, ribURL)
 	}
 
 	var failures []string
 	for i, src := range ribSources {
 		if i > 0 {
-			fmt.Fprintf(os.Stderr, "asname: falling back to %s%s\n", src.name, parenthesise(src.size))
+			logf(ctx, "asname: falling back to %s%s\n", src.name, parenthesise(src.size))
 		}
-		url, err := latestRIBURL(cache, src)
+		url, err := latestRIBURL(ctx, cache, src)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "asname: %s: %v\n", src.name, err)
+			logf(ctx, "asname: %s: %v\n", src.name, err)
 			failures = append(failures, fmt.Sprintf("%s: %v", src.name, err))
 			continue
 		}
-		if err := buildFromRIB(cfg, cache, url); err != nil {
-			fmt.Fprintf(os.Stderr, "asname: %s: %v\n", src.name, err)
+		if err := buildFromRIB(ctx, cfg, cache, url); err != nil {
+			logf(ctx, "asname: %s: %v\n", src.name, err)
 			failures = append(failures, fmt.Sprintf("%s: %v", src.name, err))
 			continue
 		}
@@ -174,8 +177,8 @@ func parenthesise(s string) string {
 }
 
 // buildFromRIB imports one MRT dump and replaces cfg.DBPath with the result.
-func buildFromRIB(cfg Config, cache, ribURL string) error {
-	f, err := openCached(cache, ribURL, "")
+func buildFromRIB(ctx context.Context, cfg Config, cache, ribURL string) error {
+	f, err := openCached(ctx, cache, ribURL, "")
 	if err != nil {
 		return err
 	}
@@ -199,7 +202,7 @@ func buildFromRIB(cfg Config, cache, ribURL string) error {
 		return fmt.Errorf("importing MRT: %v", err)
 	}
 	if skipped > 0 {
-		fmt.Fprintf(os.Stderr, "asname: skipped %d MRT records this decoder does not understand\n", skipped)
+		logf(ctx, "asname: skipped %d MRT records this decoder does not understand\n", skipped)
 	}
 	builder.SetFillFactor(OptimizationFillFactor)
 	db, err := builder.Build()
@@ -213,21 +216,21 @@ func buildFromRIB(cfg Config, cache, ribURL string) error {
 	if err := WriteFileAtomic(cfg.DBPath, data); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "asname: wrote %s (%d bytes)\n", cfg.DBPath, len(data))
+	logf(ctx, "asname: wrote %s (%d bytes)\n", cfg.DBPath, len(data))
 
 	if cfg.PrefixPath != "" {
 		if n, err := prefixBuilder.Write(cfg.PrefixPath); err != nil {
-			fmt.Fprintf(os.Stderr, "asname: warning: failed to write prefix database: %v\n", err)
+			logf(ctx, "asname: warning: failed to write prefix database: %v\n", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "asname: wrote %s (%d bytes)\n", cfg.PrefixPath, n)
+			logf(ctx, "asname: wrote %s (%d bytes)\n", cfg.PrefixPath, n)
 		}
 	}
 	return nil
 }
 
 // UpdateNames downloads the RIPE asn.txt list and writes it to cfg.NamesPath.
-func UpdateNames(cfg Config) error {
-	src, err := openCached(cfg.CacheDir(), ripeASNames, "")
+func UpdateNames(ctx context.Context, cfg Config) error {
+	src, err := openCached(ctx, cfg.CacheDir(), ripeASNames, "")
 	if err != nil {
 		return err
 	}
@@ -251,18 +254,18 @@ func UpdateNames(cfg Config) error {
 	if err := os.Rename(tmpName, cfg.NamesPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "asname: wrote %s (%d AS names)\n", cfg.NamesPath, count)
+	logf(ctx, "asname: wrote %s (%d AS names)\n", cfg.NamesPath, count)
 	return nil
 }
 
 // UpdateCityDB downloads the DB-IP Lite city database and decompresses it into cfg.CityPath.
-func UpdateCityDB(cfg Config) error {
+func UpdateCityDB(ctx context.Context, cfg Config) error {
 	cache := cfg.CacheDir()
 	now := time.Now().UTC()
 	var lastErr error
 	for _, month := range []time.Time{now, now.AddDate(0, -1, 0)} {
 		url := fmt.Sprintf(dbipCityDump, month.Format("2006-01"))
-		f, err := openCached(cache, url, "")
+		f, err := openCached(ctx, cache, url, "")
 		if err != nil {
 			lastErr = err
 			continue
@@ -281,7 +284,7 @@ func UpdateCityDB(cfg Config) error {
 			dropCached(cache, url)
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "asname: wrote %s (%d bytes)\n", cfg.CityPath, n)
+		logf(ctx, "asname: wrote %s (%d bytes)\n", cfg.CityPath, n)
 		return nil
 	}
 	return fmt.Errorf("no city database found on db-ip.com: %v", lastErr)
@@ -290,12 +293,12 @@ func UpdateCityDB(cfg Config) error {
 // latestRIBURL resolves the newest dump in src. The directory listing is cached
 // alongside the dumps, so a retry after a failed download resolves to the same
 // dump and reuses what was already fetched.
-func latestRIBURL(cache string, src ribSource) (string, error) {
+func latestRIBURL(ctx context.Context, cache string, src ribSource) (string, error) {
 	now := time.Now().UTC()
 	var lastErr error
 	for _, month := range []time.Time{now, now.AddDate(0, -1, 0)} {
 		dir := fmt.Sprintf(src.listing, month.Format("2006.01"))
-		path, err := fetchCached(cache, dir, "")
+		path, err := fetchCached(ctx, cache, dir, "")
 		if err != nil {
 			lastErr = err
 			continue

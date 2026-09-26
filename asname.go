@@ -74,16 +74,22 @@ func NewWithOptions(opts Options) (*Client, error) {
 	showNetblock := wantNetblock || whoisMode == sources.WhoisAlways
 
 	if opts.AutoUpdate > 0 {
-		contact := sources.NewContactAsker(cfg.ContactPath, opts.ContactEmail)
-		if err := sources.AutoUpdate(cfg, opts.AutoUpdate, wantCity, wantNetblock, wantCategory, contact); err != nil {
+		_, err := UpdateStale(context.Background(), UpdateOptions{
+			ASN: true, Names: true, Country: true,
+			City: wantCity, Netblock: wantNetblock, Category: wantCategory,
+			DataDir: opts.DataDir, Paths: opts.Paths,
+			ContactEmail: opts.ContactEmail, Log: opts.Log,
+		}, opts.AutoUpdate)
+		if err != nil {
 			return nil, fmt.Errorf("asname: auto-update failed: %w", err)
 		}
 	}
 
-	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, whoisMode)
+	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, whoisMode, opts.Log)
 	if err != nil {
 		return nil, err
 	}
+	eng.OnlinePrefixes = opts.OnlinePrefixes
 
 	return &Client{
 		eng:        eng,
@@ -114,7 +120,7 @@ func (c *Client) LookupContext(ctx context.Context, target string) ([]Result, er
 
 	var allResults []Result
 	for _, t := range targets {
-		rawResults, err := c.eng.LookupTarget(t)
+		rawResults, err := c.eng.LookupTargetContext(ctx, t)
 		if err != nil {
 			return nil, err
 		}
@@ -130,6 +136,12 @@ func (c *Client) LookupContext(ctx context.Context, target string) ([]Result, er
 
 // LookupIP performs a fast in-memory lookup for a single net.IP address.
 func (c *Client) LookupIP(ip net.IP) (Result, error) {
+	return c.LookupIPContext(context.Background(), ip)
+}
+
+// LookupIPContext is like LookupIP but respects ctx for the reverse DNS lookup
+// made when WithReverseDNS is enabled.
+func (c *Client) LookupIPContext(ctx context.Context, ip net.IP) (Result, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.closed {
@@ -142,7 +154,7 @@ func (c *Client) LookupIP(ip net.IP) (Result, error) {
 	}
 	if c.reverseDNS {
 		results := []engine.LookupResult{raw}
-		engine.ResolveReverseDNS(context.Background(), results)
+		engine.ResolveReverseDNS(ctx, results)
 		raw = results[0]
 	}
 	return resultFromEngine(raw), nil
@@ -153,7 +165,9 @@ func (c *Client) LookupASN(asn uint32) (Result, error) {
 	return c.LookupASNContext(context.Background(), asn)
 }
 
-// LookupASNContext looks up an Autonomous System by number, respecting ctx for online prefix queries if not cached.
+// LookupASNContext looks up an Autonomous System by number. With
+// WithOnlinePrefixes enabled, ctx bounds the online prefix query made when the
+// local prefix database does not cover asn.
 func (c *Client) LookupASNContext(ctx context.Context, asn uint32) (Result, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -161,7 +175,7 @@ func (c *Client) LookupASNContext(ctx context.Context, asn uint32) (Result, erro
 		return Result{}, ErrClosed
 	}
 
-	raw, err := c.eng.LookupASN(asn)
+	raw, err := c.eng.LookupASNContext(ctx, asn)
 	if err != nil {
 		return Result{}, err
 	}

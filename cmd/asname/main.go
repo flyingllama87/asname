@@ -347,12 +347,12 @@ func lookupAction(ctx *cli.Context) error {
 
 	if !ctx.Bool("no-update") {
 		contact := sources.NewContactAsker(cfg.ContactPath, ctx.String("contact-email"))
-		if err := sources.AutoUpdate(cfg, ctx.Duration("max-age"), wantCity, wantNetblock, wantCategory, contact); err != nil {
+		if err := sources.AutoUpdate(sources.WithLog(ctx.Context, os.Stderr), cfg, ctx.Duration("max-age"), wantCity, wantNetblock, wantCategory, contact); err != nil {
 			fmt.Fprintln(os.Stderr, "asname: auto-update failed:", err)
 		}
 	}
 
-	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, whois)
+	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, whois, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -557,7 +557,7 @@ func runSearch(ctx *cli.Context, query string) error {
 		return fmt.Errorf("netblock database is not present; build it with `asname update --netblock-only` or pass `--netblock`")
 	}
 
-	eng, err := engine.NewEngine(cfg, false, true, true, false, sources.WhoisNever)
+	eng, err := engine.NewEngine(cfg, false, true, true, false, sources.WhoisNever, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -647,6 +647,7 @@ var updateCommand = &cli.Command{
 
 func updateAction(ctx *cli.Context) error {
 	cfg := newConfig(ctx)
+	rctx := sources.WithLog(ctx.Context, os.Stderr)
 	for _, dir := range []string{cfg.DBPath, cfg.NamesPath, cfg.CountryPath, cfg.CityPath, cfg.NetblockPath, cfg.CategoryPath, cfg.PrefixPath} {
 		if dir != "" {
 			if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
@@ -664,33 +665,33 @@ func updateAction(ctx *cli.Context) error {
 	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly && !netblockOnly && !categoryOnly
 
 	if all || dbOnly {
-		if err := sources.UpdateDatabase(cfg, ctx.String("rib-url")); err != nil {
+		if err := sources.UpdateDatabase(rctx, cfg, ctx.String("rib-url")); err != nil {
 			return fmt.Errorf("updating ASN database: %v", err)
 		}
 	}
 	if all || namesOnly {
-		if err := sources.UpdateNames(cfg); err != nil {
+		if err := sources.UpdateNames(rctx, cfg); err != nil {
 			return fmt.Errorf("updating name database: %v", err)
 		}
 	}
 	if all || countryOnly {
-		if err := sources.UpdateCountryDB(cfg); err != nil {
+		if err := sources.UpdateCountryDB(rctx, cfg); err != nil {
 			return fmt.Errorf("updating country database: %v", err)
 		}
 	}
 	if cityOnly || ctx.Bool("city") || (all && sources.CityDBPresent(cfg.CityPath)) {
-		if err := sources.UpdateCityDB(cfg); err != nil {
+		if err := sources.UpdateCityDB(rctx, cfg); err != nil {
 			return fmt.Errorf("updating city database: %v", err)
 		}
 	}
 	if netblockOnly || ctx.Bool("netblock") || (all && sources.NetblockDBPresent(cfg.NetblockPath)) {
-		if err := sources.UpdateNetblockDB(cfg); err != nil {
+		if err := sources.UpdateNetblockDB(rctx, cfg); err != nil {
 			return fmt.Errorf("updating netblock database: %v", err)
 		}
 	}
 	if categoryOnly || ctx.Bool("category") || (all && sources.CategoryDBPresent(cfg.CategoryPath)) {
 		contact := sources.NewContactAsker(cfg.ContactPath, ctx.String("contact-email"))
-		if err := sources.UpdateCategoryDB(cfg, contact); err != nil {
+		if err := sources.UpdateCategoryDB(rctx, cfg, contact); err != nil {
 			return fmt.Errorf("updating category database: %v", err)
 		}
 	}

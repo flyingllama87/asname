@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"context"
 	"net"
 	"os"
 	"path/filepath"
@@ -84,7 +85,7 @@ arin|US|ipv4|203.0.113.0|256|20200101|reserved|LVLT
 	}
 
 	b := newNetblockBuilder()
-	n, err := importARINDelegated(b, cache, names)
+	n, err := importARINDelegated(context.Background(), b, cache, names)
 	require.NoError(t, err)
 	// The reserved range and the range whose organisation holds no ASN are
 	// both skipped.

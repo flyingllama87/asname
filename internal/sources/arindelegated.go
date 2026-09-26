@@ -2,8 +2,8 @@ package sources
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"net"
 	"os"
@@ -23,8 +23,8 @@ const arinDelegatedURL = "https://ftp.arin.net/pub/stats/arin/delegated-arin-ext
 // identifier to the ASNs registered under the same identifier yields an AS
 // number, and names maps that number to a name. Ranges held by an organisation
 // that holds no ASN cannot be named this way and are skipped.
-func importARINDelegated(b *netblockBuilder, cache string, names map[uint32]string) (int, error) {
-	path, err := fetchCached(cache, arinDelegatedURL, "")
+func importARINDelegated(ctx context.Context, b *netblockBuilder, cache string, names map[uint32]string) (int, error) {
+	path, err := fetchCached(ctx, cache, arinDelegatedURL, "")
 	if err != nil {
 		return 0, err
 	}
@@ -175,17 +175,17 @@ func scanDelegated(path string, emit func(fields []string)) error {
 
 // importARINDelegatedInto adds the delegated-statistics ARIN layer to b,
 // reporting progress and failures the same way a whois dump source does.
-func importARINDelegatedInto(b *netblockBuilder, cfg Config, cache string) int {
+func importARINDelegatedInto(ctx context.Context, b *netblockBuilder, cfg Config, cache string) int {
 	names, err := LoadNames(cfg.NamesPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "asname: warning: ARIN: delegated statistics need the AS name database: %v\n", err)
+		logf(ctx, "asname: warning: ARIN: delegated statistics need the AS name database: %v\n", err)
 		return 0
 	}
-	n, err := importARINDelegated(b, cache, names)
+	n, err := importARINDelegated(ctx, b, cache, names)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "asname: warning: ARIN: %v\n", err)
+		logf(ctx, "asname: warning: ARIN: %v\n", err)
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "asname: ARIN (delegated statistics): %d ranges\n", n)
+	logf(ctx, "asname: ARIN (delegated statistics): %d ranges\n", n)
 	return n
 }

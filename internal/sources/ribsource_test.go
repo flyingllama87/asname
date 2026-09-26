@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ func TestLatestRIBURLPicksTheNewestDump(t *testing.T) {
 		listing:  srv.URL + "/%s/",
 		filename: regexp.MustCompile(`bview\.[0-9]{8}\.[0-9]{4}\.gz`),
 	}
-	url, err := latestRIBURL(t.TempDir(), src)
+	url, err := latestRIBURL(context.Background(), t.TempDir(), src)
 	require.NoError(t, err)
 	month := time.Now().UTC().Format("2006.01")
 	require.Equal(t, srv.URL+"/"+month+"/bview.20260911.0000.gz", url)
@@ -47,7 +48,7 @@ func TestLatestRIBURLReportsAnEmptyListing(t *testing.T) {
 		listing:  srv.URL + "/%s/",
 		filename: regexp.MustCompile(`bview\.[0-9]{8}\.[0-9]{4}\.gz`),
 	}
-	_, err := latestRIBURL(t.TempDir(), src)
+	_, err := latestRIBURL(context.Background(), t.TempDir(), src)
 	require.ErrorContains(t, err, "no dump listed")
 }
 
@@ -68,7 +69,7 @@ func TestUpdateDatabaseFallsBackToTheNextSource(t *testing.T) {
 
 	dir := t.TempDir()
 	cfg := Config{DBPath: filepath.Join(dir, "asname.db"), CachePath: filepath.Join(dir, "cache")}
-	err := UpdateDatabase(cfg, "")
+	err := UpdateDatabase(context.Background(), cfg, "")
 
 	// The second source is reached and its dump fetched; the body is not a real
 	// gzip stream, so the run still fails, but it fails at the live source.

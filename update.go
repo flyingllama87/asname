@@ -3,15 +3,17 @@ package asname
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/flyingllama87/asname/internal/sources"
 )
 
 // UpdateOptions specifies which databases to download or refresh.
 type UpdateOptions struct {
-	// DataDir is where files will be written. If empty, uses default ~/.asname or $ASNAME_DIR.
+	// DataDir is where files will be written. If empty, uses $ASNAME_DIR, else ~/.asname.
 	DataDir string
 
 	// Specific databases to update. If all flags are false, updates core databases: ASN, Names, and Country.
@@ -23,112 +25,112 @@ type UpdateOptions struct {
 	Netblock bool
 	Category bool
 
-	// Paths allows overriding specific database file locations.
+	// Paths allows overriding specific database file locations. A path left
+	// empty comes from its ASNAME_* environment variable, else from DataDir.
 	Paths CustomPaths
 
-	// ContactEmail is required when updating category operator tags from bgp.tools.
+	// ContactEmail identifies the caller to bgp.tools when updating the
+	// category database. If empty, $ASNAME_CONTACT_EMAIL is used, then any
+	// address saved by the CLI. With none, the bgp.tools operator tags are
+	// skipped; an update never prompts for one.
 	ContactEmail string
+
+	// Log receives download progress and warnings. Nil discards them.
+	Log io.Writer
 }
 
-// Update downloads or updates databases according to the provided options.
+// Update downloads every selected database, however recent the copy on disk.
+// ctx bounds the downloads: cancelling it abandons the one in progress (a
+// partial download is kept and resumed by the next update) and stops before
+// the next database.
 func Update(ctx context.Context, opts UpdateOptions) error {
-	dir := opts.DataDir
-	if dir == "" {
-		dir = sources.DefaultDir()
+	_, err := runUpdate(ctx, opts, func(string) bool { return true })
+	return err
+}
+
+// UpdateStale refreshes only the selected databases that are missing or, when
+// maxAge is positive, older than maxAge. A maxAge of zero or less only fills in
+// missing files. It returns the paths it rewrote, in update order; on error,
+// the paths rewritten before the failure.
+func UpdateStale(ctx context.Context, opts UpdateOptions, maxAge time.Duration) ([]string, error) {
+	return runUpdate(ctx, opts, func(path string) bool { return sources.Stale(path, maxAge) })
+}
+
+// updateStep is one database: where it lives and how to rebuild it.
+type updateStep struct {
+	name string
+	path string
+	run  func(context.Context, sources.Config) error
+}
+
+// runUpdate rebuilds each selected database for which want reports true.
+func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) bool) ([]string, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating data directory %s: %w", dir, err)
+	cfg := resolveConfig(opts.DataDir, opts.Paths)
+	ctx = sources.WithLog(ctx, opts.Log)
+
+	all := opts.All
+	asn, names, country := opts.ASN || all, opts.Names || all, opts.Country || all
+	if !all && !opts.ASN && !opts.Names && !opts.Country && !opts.City && !opts.Netblock && !opts.Category {
+		asn, names, country = true, true, true
 	}
 
-	cfg := sources.Config{
-		DBPath:       opts.Paths.DBPath,
-		NamesPath:    opts.Paths.NamesPath,
-		CountryPath:  opts.Paths.CountryPath,
-		CityPath:     opts.Paths.CityPath,
-		NetblockPath: opts.Paths.NetblockPath,
-		CategoryPath: opts.Paths.CategoryPath,
-		PrefixPath:   opts.Paths.PrefixPath,
-		ConsentPath:  opts.Paths.ConsentPath,
-		ContactPath:  opts.Paths.ContactPath,
-		CachePath:    opts.Paths.CachePath,
+	var steps []updateStep
+	if asn {
+		steps = append(steps, updateStep{"ASN", cfg.DBPath, func(ctx context.Context, cfg sources.Config) error {
+			return sources.UpdateDatabase(ctx, cfg, "")
+		}})
+	}
+	if names {
+		steps = append(steps, updateStep{"names", cfg.NamesPath, sources.UpdateNames})
+	}
+	if country {
+		steps = append(steps, updateStep{"country", cfg.CountryPath, sources.UpdateCountryDB})
+	}
+	if opts.City || all {
+		steps = append(steps, updateStep{"city", cfg.CityPath, sources.UpdateCityDB})
+	}
+	if opts.Netblock || all {
+		steps = append(steps, updateStep{"netblock", cfg.NetblockPath, sources.UpdateNetblockDB})
+	}
+	if opts.Category || all {
+		steps = append(steps, updateStep{"category", cfg.CategoryPath, func(ctx context.Context, cfg sources.Config) error {
+			return sources.UpdateCategoryDB(ctx, cfg, libraryContact(cfg, contactEmail(opts.ContactEmail), opts.Log))
+		}})
 	}
 
-	if cfg.DBPath == "" {
-		cfg.DBPath = filepath.Join(dir, sources.DBFilename)
+	var refreshed []string
+	for _, s := range steps {
+		if !want(s.path) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return refreshed, err
+		}
+		if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+			return refreshed, fmt.Errorf("creating data directory for %s: %w", s.path, err)
+		}
+		if err := s.run(ctx, cfg); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return refreshed, ctxErr
+			}
+			return refreshed, fmt.Errorf("updating %s database: %w", s.name, err)
+		}
+		refreshed = append(refreshed, s.path)
 	}
-	if cfg.NamesPath == "" {
-		cfg.NamesPath = filepath.Join(dir, sources.NamesFilename)
-	}
-	if cfg.CountryPath == "" {
-		cfg.CountryPath = filepath.Join(dir, sources.CountryFilename)
-	}
-	if cfg.CityPath == "" {
-		cfg.CityPath = filepath.Join(dir, sources.CityFilename)
-	}
-	if cfg.NetblockPath == "" {
-		cfg.NetblockPath = filepath.Join(dir, sources.NetblockFilename)
-	}
-	if cfg.CategoryPath == "" {
-		cfg.CategoryPath = filepath.Join(dir, sources.CategoryFilename)
-	}
-	if cfg.PrefixPath == "" {
-		cfg.PrefixPath = filepath.Join(dir, sources.PrefixFilename)
-	}
-	if cfg.ConsentPath == "" {
-		cfg.ConsentPath = filepath.Join(dir, sources.WhoisConsentFilename)
-	}
-	if cfg.ContactPath == "" {
-		cfg.ContactPath = filepath.Join(dir, sources.ContactFilename)
-	}
-	if cfg.CachePath == "" {
-		cfg.CachePath = filepath.Join(dir, sources.CacheDirName)
-	}
+	return refreshed, nil
+}
 
-	updateAll := opts.All
-	updateASN := opts.ASN || updateAll
-	updateNames := opts.Names || updateAll
-	updateCountry := opts.Country || updateAll
-	updateCity := opts.City || updateAll
-	updateNetblock := opts.Netblock || updateAll
-	updateCategory := opts.Category || updateAll
-
-	// If no specific flag was selected, update core: ASN, Names, Country
-	if !opts.All && !opts.ASN && !opts.Names && !opts.Country && !opts.City && !opts.Netblock && !opts.Category {
-		updateASN = true
-		updateNames = true
-		updateCountry = true
+// libraryContact returns a bgp.tools contact source that never prompts: a
+// library has no terminal of its own, so a missing address skips the tags.
+func libraryContact(cfg sources.Config, email string, log io.Writer) *sources.ContactAsker {
+	a := sources.NewContactAsker(cfg.ContactPath, email)
+	a.Terminal = false
+	a.Out = log
+	if a.Out == nil {
+		a.Out = io.Discard
 	}
-
-	if updateASN {
-		if err := sources.UpdateDatabase(cfg, ""); err != nil {
-			return fmt.Errorf("updating ASN database: %w", err)
-		}
-	}
-	if updateNames {
-		if err := sources.UpdateNames(cfg); err != nil {
-			return fmt.Errorf("updating names database: %w", err)
-		}
-	}
-	if updateCountry {
-		if err := sources.UpdateCountryDB(cfg); err != nil {
-			return fmt.Errorf("updating country database: %w", err)
-		}
-	}
-	if updateCity {
-		if err := sources.UpdateCityDB(cfg); err != nil {
-			return fmt.Errorf("updating city database: %w", err)
-		}
-	}
-	if updateNetblock {
-		if err := sources.UpdateNetblockDB(cfg); err != nil {
-			return fmt.Errorf("updating netblock database: %w", err)
-		}
-	}
-	if updateCategory {
-		contact := sources.NewContactAsker(cfg.ContactPath, opts.ContactEmail)
-		if err := sources.UpdateCategoryDB(cfg, contact); err != nil {
-			return fmt.Errorf("updating category database: %w", err)
-		}
-	}
-	return nil
+	return a
 }

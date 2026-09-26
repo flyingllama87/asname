@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func TestFetchCachedReusesADownloadedFile(t *testing.T) {
 
 	dir := t.TempDir()
 	for i := 0; i < 3; i++ {
-		path, err := fetchCached(dir, srv.URL+"/rib.bz2", "")
+		path, err := fetchCached(context.Background(), dir, srv.URL+"/rib.bz2", "")
 		require.NoError(t, err)
 		body, err := os.ReadFile(path)
 		require.NoError(t, err)
@@ -59,7 +60,7 @@ func TestFetchCachedResumesAnInterruptedDownload(t *testing.T) {
 	dir := t.TempDir()
 	url := srv.URL + "/dump.gz"
 
-	_, err := fetchCached(dir, url, "")
+	_, err := fetchCached(context.Background(), dir, url, "")
 	require.Error(t, err, "the interrupted download must be reported as a failure")
 
 	part := filepath.Join(dir, cacheName(url)+partSuffix)
@@ -67,7 +68,7 @@ func TestFetchCachedResumesAnInterruptedDownload(t *testing.T) {
 	require.NoError(t, err, "the bytes already received must be kept")
 	require.Equal(t, int64(8), info.Size())
 
-	path, err := fetchCached(dir, url, "")
+	path, err := fetchCached(context.Background(), dir, url, "")
 	require.NoError(t, err)
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -88,13 +89,13 @@ func TestFetchCachedRefetchesAfterTheTTL(t *testing.T) {
 
 	dir := t.TempDir()
 	url := srv.URL + "/asn.txt"
-	path, err := fetchCached(dir, url, "")
+	path, err := fetchCached(context.Background(), dir, url, "")
 	require.NoError(t, err)
 
 	stale := time.Now().Add(-CacheTTL - time.Minute)
 	require.NoError(t, os.Chtimes(path, stale, stale))
 
-	_, err = fetchCached(dir, url, "")
+	_, err = fetchCached(context.Background(), dir, url, "")
 	require.NoError(t, err)
 	require.Equal(t, 2, hits, "an entry older than the TTL must be downloaded again")
 }
@@ -132,7 +133,7 @@ func TestFetchCachedRejectsAWrongRange(t *testing.T) {
 	part := filepath.Join(dir, cacheName(url)+partSuffix)
 	require.NoError(t, os.WriteFile(part, []byte("01234567"), 0o644))
 
-	_, err := fetchCached(dir, url, "")
+	_, err := fetchCached(context.Background(), dir, url, "")
 	require.ErrorContains(t, err, "Content-Range")
 
 	_, err = os.Stat(part)

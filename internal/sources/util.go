@@ -1,9 +1,7 @@
 package sources
 
 import (
-	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 )
@@ -16,18 +14,6 @@ const (
 func isTerminal(f *os.File) bool {
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
-}
-
-func httpGet(url string) (*http.Response, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
-	}
-	return resp, nil
 }
 
 // WriteFileAtomic writes data to a temp file in the destination directory and renames it into place.

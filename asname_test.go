@@ -5,12 +5,15 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/flyingllama87/asname/internal/engine"
 	"github.com/flyingllama87/asname/internal/sources"
 	"github.com/flyingllama87/asname/pkg/database"
 )
@@ -92,9 +95,11 @@ func TestClient_Lookup(t *testing.T) {
 	// 3. Unknown IP
 	unknownRes, err := client.LookupIP(net.ParseIP("10.0.0.1"))
 	require.NoError(t, err)
-	assert.Equal(t, "N/A", unknownRes.ASN)
+	assert.Equal(t, "", unknownRes.ASN)
 	assert.Equal(t, uint32(0), unknownRes.ASNNumber())
-	assert.Equal(t, "Unknown", unknownRes.Name)
+	assert.Equal(t, "", unknownRes.Name)
+	assert.Equal(t, "", unknownRes.Country)
+	assert.Contains(t, unknownRes.String(), "ASN: N/A → Name: Unknown → Country: Unknown")
 
 	// 4. Lookup ASN
 	asnRes, err := client.LookupASN(15169)
@@ -180,7 +185,7 @@ func TestResult_Helpers(t *testing.T) {
 	assert.Equal(t, "United States", r.CountryName())
 	assert.Equal(t, uint32(15169), r.ASNNumber())
 
-	r2 := Result{Country: "Unknown", ASN: "N/A"}
+	r2 := Result{}
 	assert.Equal(t, "", r2.CountryCode())
 	assert.Equal(t, "", r2.CountryName())
 	assert.Equal(t, uint32(0), r2.ASNNumber())
@@ -188,4 +193,154 @@ func TestResult_Helpers(t *testing.T) {
 	r3 := Result{Country: "DE"}
 	assert.Equal(t, "DE", r3.CountryCode())
 	assert.Equal(t, "DE", r3.CountryName())
+}
+
+func TestResultFromEngine_PlaceholdersBecomeEmpty(t *testing.T) {
+	// The engine fills these in for the CLI's formatters when a loaded
+	// database has no answer; the public Result must not carry them.
+	r := resultFromEngine(engine.LookupResult{
+		ASN: "N/A", Name: "Unknown", Country: "Unknown", City: "Unknown",
+		Netblock: "Unknown", Category: "Unknown", RDNS: "N/A",
+	})
+	assert.Equal(t, Result{}, r)
+
+	nb := netblockResultFromEngine(engine.NetblockEnrichedResult{ASN: "N/A", ASName: "Unknown", Country: "Unknown"})
+	assert.Equal(t, NetblockResult{}, nb)
+
+	kept := resultFromEngine(engine.LookupResult{ASN: "AS15169", City: "Sydney, New South Wales"})
+	assert.Equal(t, "AS15169", kept.ASN)
+	assert.Equal(t, "Sydney, New South Wales", kept.City)
+}
+
+func TestResolveConfig_Precedence(t *testing.T) {
+	envDir := t.TempDir()
+	t.Setenv(sources.DirEnvVar, envDir)
+	t.Setenv(sources.DBEnvVar, "/env/asname.db")
+	t.Setenv(sources.CountryEnvVar, "")
+
+	// No directory given: $ASNAME_DIR supplies it, and a per-file variable
+	// overrides the file it names.
+	cfg := resolveConfig("", CustomPaths{})
+	assert.Equal(t, "/env/asname.db", cfg.DBPath)
+	assert.Equal(t, filepath.Join(envDir, sources.NamesFilename), cfg.NamesPath)
+	assert.Equal(t, filepath.Join(envDir, sources.CountryFilename), cfg.CountryPath)
+	assert.Equal(t, filepath.Join(envDir, sources.ContactFilename), cfg.ContactPath)
+
+	// An explicit directory beats $ASNAME_DIR; an explicit path beats everything.
+	cfg = resolveConfig("/explicit", CustomPaths{NamesPath: "/mine/names.txt"})
+	assert.Equal(t, "/env/asname.db", cfg.DBPath)
+	assert.Equal(t, "/mine/names.txt", cfg.NamesPath)
+	assert.Equal(t, filepath.Join("/explicit", sources.CityFilename), cfg.CityPath)
+
+	cfg = resolveConfig("", CustomPaths{DBPath: "/mine/asname.db"})
+	assert.Equal(t, "/mine/asname.db", cfg.DBPath)
+}
+
+func TestNew_HonoursASNAME_DIR(t *testing.T) {
+	t.Setenv(sources.DirEnvVar, createTestEnv(t))
+	for _, env := range []string{sources.DBEnvVar, sources.NamesEnvVar, sources.CountryEnvVar} {
+		t.Setenv(env, "")
+	}
+
+	assert.Equal(t, os.Getenv(sources.DirEnvVar), DefaultOptions().DataDir)
+	client, err := New()
+	require.NoError(t, err)
+	defer client.Close()
+
+	res, err := client.LookupIP(net.ParseIP("1.1.1.1"))
+	require.NoError(t, err)
+	assert.Equal(t, uint32(13335), res.ASNNumber())
+}
+
+func TestNew_WarningsGoToLog(t *testing.T) {
+	dir := createTestEnv(t)
+	var log strings.Builder
+
+	// City forced on with no city database: the engine warns and carries on.
+	client, err := New(WithDataDir(dir), WithCity(true), WithLog(&log))
+	require.NoError(t, err)
+	defer client.Close()
+	assert.Contains(t, log.String(), "city database unavailable")
+	assert.False(t, client.HasCityDB())
+}
+
+func TestUpdateStale_FreshFilesAreLeftAlone(t *testing.T) {
+	dir := createTestEnv(t)
+
+	for _, maxAge := range []time.Duration{0, time.Hour} {
+		refreshed, err := UpdateStale(context.Background(), UpdateOptions{DataDir: dir}, maxAge)
+		require.NoError(t, err)
+		assert.Empty(t, refreshed, "maxAge %v", maxAge)
+	}
+}
+
+func TestUpdateStale_OnlyStaleFilesAreSelected(t *testing.T) {
+	dir := createTestEnv(t)
+
+	// A cancelled context fails the first download UpdateStale attempts and
+	// nothing else, so it shows whether any file was selected without
+	// touching the network.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	refreshed, err := UpdateStale(ctx, UpdateOptions{DataDir: dir}, 24*time.Hour)
+	require.NoError(t, err, "every core file is fresh, so nothing should be attempted")
+	assert.Empty(t, refreshed)
+
+	old := time.Now().Add(-48 * time.Hour)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, sources.NamesFilename), old, old))
+	refreshed, err = UpdateStale(ctx, UpdateOptions{DataDir: dir}, 24*time.Hour)
+	assert.ErrorIs(t, err, context.Canceled, "the stale names file should have been attempted")
+	assert.Empty(t, refreshed)
+
+	// Opt-in databases are only considered when selected.
+	require.NoError(t, os.Chtimes(filepath.Join(dir, sources.NamesFilename), time.Now(), time.Now()))
+	_, err = UpdateStale(ctx, UpdateOptions{DataDir: dir, City: true}, 24*time.Hour)
+	assert.ErrorIs(t, err, context.Canceled, "the missing city database should have been attempted")
+}
+
+func TestUpdate_HonoursCancelledContext(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := Update(ctx, UpdateOptions{DataDir: dir, All: true})
+	assert.ErrorIs(t, err, context.Canceled)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "a cancelled update must not write anything")
+}
+
+func TestLibraryContact_NeverPrompts(t *testing.T) {
+	t.Setenv(sources.ContactEnvVar, "")
+	cfg := resolveConfig(t.TempDir(), CustomPaths{})
+	var log strings.Builder
+
+	a := libraryContact(cfg, contactEmail(""), &log)
+	email, ok := a.Contact()
+	assert.False(t, ok)
+	assert.Empty(t, email)
+	assert.Contains(t, log.String(), sources.ContactEnvVar)
+}
+
+func TestNew_OnlinePrefixesOffByDefault(t *testing.T) {
+	dir := createTestEnv(t)
+
+	client, err := New(WithDataDir(dir))
+	require.NoError(t, err)
+	defer client.Close()
+	assert.False(t, client.eng.OnlinePrefixes)
+
+	// With no prefix database and online queries off, an ASN lookup answers
+	// from the local names alone.
+	res, err := client.LookupASN(15169)
+	require.NoError(t, err)
+	assert.Equal(t, "GOOGLE - Google LLC, US", res.Name)
+	assert.Empty(t, res.Prefixes)
+	assert.Empty(t, res.PrefixSource)
+
+	online, err := New(WithDataDir(dir), WithOnlinePrefixes(true))
+	require.NoError(t, err)
+	defer online.Close()
+	assert.True(t, online.eng.OnlinePrefixes)
 }

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -94,8 +95,8 @@ func arinNetblockSource(apiKey string) netblockSource {
 
 // UpdateNetblockDB downloads every available registry dump, flattens ranges
 // into disjoint segments and atomically replaces cfg.NetblockPath.
-func UpdateNetblockDB(cfg Config) error {
-	fmt.Fprintln(os.Stderr, "asname: building IP->netblock database from RIR whois dumps")
+func UpdateNetblockDB(ctx context.Context, cfg Config) error {
+	logf(ctx, "asname: building IP->netblock database from RIR whois dumps\n")
 
 	// Bulk Whois is the better ARIN source where a key is available: it names
 	// every range rather than only those an ASN holder registered, and it
@@ -106,7 +107,7 @@ func UpdateNetblockDB(cfg Config) error {
 		sources = append(append([]netblockSource{}, sources...), arinNetblockSource(key))
 		delegated = false
 	} else {
-		fmt.Fprintf(os.Stderr, "asname: note: no %s set, so ARIN ranges are named from the delegated\n"+
+		logf(ctx, "asname: note: no %s set, so ARIN ranges are named from the delegated\n"+
 			"asname:       statistics file instead. Ranges held by an organisation that holds no\n"+
 			"asname:       ASN stay unnamed. For the complete ARIN data see\n"+
 			"asname:       https://www.arin.net/reference/research/bulkwhois/\n", ArinKeyEnvVar)
@@ -116,16 +117,16 @@ func UpdateNetblockDB(cfg Config) error {
 	cache := cfg.CacheDir()
 	imported := 0
 	for _, src := range sources {
-		n, err := b.importSource(src, cache)
+		n, err := b.importSource(ctx, src, cache)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "asname: warning: %s: %v\n", src.name, err)
+			logf(ctx, "asname: warning: %s: %v\n", src.name, err)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "asname: %s: %d ranges\n", src.name, n)
+		logf(ctx, "asname: %s: %d ranges\n", src.name, n)
 		imported += n
 	}
 	if delegated {
-		imported += importARINDelegatedInto(b, cfg, cache)
+		imported += importARINDelegatedInto(ctx, b, cfg, cache)
 	}
 	if imported == 0 {
 		return fmt.Errorf("no netblock ranges imported")
@@ -135,7 +136,7 @@ func UpdateNetblockDB(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "asname: wrote %s (%d ranges, %d bytes)\n", cfg.NetblockPath, imported, n)
+	logf(ctx, "asname: wrote %s (%d ranges, %d bytes)\n", cfg.NetblockPath, imported, n)
 	return nil
 }
 
@@ -175,14 +176,14 @@ func (b *netblockBuilder) internString(s string) uint32 {
 	return off
 }
 
-func (b *netblockBuilder) importSource(src netblockSource, cache string) (int, error) {
+func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, cache string) (int, error) {
 	local := make(map[string]string)
 
 	fetch := func(url string) (string, error) {
 		if path, ok := local[url]; ok {
 			return path, nil
 		}
-		path, err := fetchCached(cache, url, "")
+		path, err := fetchCached(ctx, cache, url, "")
 		if err != nil {
 			return "", err
 		}

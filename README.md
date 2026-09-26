@@ -57,7 +57,7 @@ import (
 )
 
 func main() {
-	// Initialize client using ~/.asname local databases
+	// Initialize client using $ASNAME_DIR, else ~/.asname
 	client, err := asname.New()
 	if err != nil {
 		log.Fatalf("failed to initialize asname: %v", err)
@@ -99,8 +99,28 @@ client, err := asname.New(
 	asname.WithCategory(true),                    // Enable network classification
 	asname.WithReverseDNS(true),                  // Enable PTR reverse DNS lookups
 	asname.WithAutoUpdate(720 * time.Hour),       // Refresh databases older than 30 days
+	asname.WithLog(os.Stderr),                    // Show warnings and update progress (silent by default)
+	asname.WithOnlinePrefixes(true),              // Let LookupASN fetch prefixes the local DB lacks (off by default)
 )
 ```
+
+The client reads the same environment variables as the CLI: `ASNAME_DIR` for the data directory, and `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, `ASNAME_CATEGORY` and `ASNAME_PREFIXES` for individual files. An explicit `WithDataDir` beats `ASNAME_DIR`, a per-file variable beats the directory, and `WithCustomPaths` beats both.
+
+A field the databases cannot answer is empty in a `Result`; the CLI's `Unknown` and `N/A` are display text only. `Result.String()` puts them back for printing.
+
+The library never writes to stderr and never prompts. Messages go to `WithLog` or nowhere. It also stays offline unless you opt in: whois with `WithWhois`, and online ASN prefix lookups with `WithOnlinePrefixes`.
+
+### Updating Databases
+
+```go
+// Download the core databases (ASN, names, country) unconditionally.
+err := asname.Update(ctx, asname.UpdateOptions{Log: os.Stderr})
+
+// Refresh only what is missing or older than 30 days, and see what changed.
+refreshed, err := asname.UpdateStale(ctx, asname.UpdateOptions{City: true, Netblock: true}, 720*time.Hour)
+```
+
+Cancelling `ctx` abandons the download in progress. The partial file is kept and resumed next time, and no further database is started. A category update identifies itself to bgp.tools with `UpdateOptions.ContactEmail`, then `$ASNAME_CONTACT_EMAIL`. With neither, it skips the bgp.tools tags rather than asking.
 
 ## Usage
 

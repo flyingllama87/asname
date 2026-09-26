@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ import (
 func buildTestCategoryDB(t *testing.T, add func(*categoryBuilder)) *CategoryDB {
 	t.Helper()
 
-	b := newCategoryBuilder()
+	b := newCategoryBuilder(context.Background())
 	add(b)
 	data, err := b.Marshal()
 	require.NoError(t, err)
@@ -91,7 +92,7 @@ func TestCategoryBuilderAcceptsBareAddresses(t *testing.T) {
 }
 
 func TestCategoryBuilderRejectsJunk(t *testing.T) {
-	b := newCategoryBuilder()
+	b := newCategoryBuilder(context.Background())
 	b.addPrefix("not a prefix", "cloud:aws")
 	b.addPrefix("999.1.1.1/24", "cloud:aws")
 	b.addPrefix("", "cloud:aws")
@@ -155,7 +156,7 @@ func TestImportCIDRList(t *testing.T) {
 192.0.2.0/24,US,US-CA,San Jose,
 not-a-prefix
 `)
-	b := newCategoryBuilder()
+	b := newCategoryBuilder(context.Background())
 	n, err := b.ImportCIDRList(srv.URL, "", "cloud:digitalocean")
 	require.NoError(t, err)
 	require.Equal(t, 2, n)
@@ -171,7 +172,7 @@ func TestImportAWSSeparatesCloudFront(t *testing.T) {
 		{"ip_prefix":"3.2.34.0/26","service":"GLOBALACCELERATOR"}
 	],"ipv6_prefixes":[{"ipv6_prefix":"2600:9000::/28","service":"CLOUDFRONT"}]}`)
 
-	b := newCategoryBuilder()
+	b := newCategoryBuilder(context.Background())
 	n, err := b.ImportAWSFrom(srv.URL)
 	require.NoError(t, err)
 	require.Equal(t, 5, n)
@@ -190,7 +191,7 @@ func TestImportBGPToolsTagSendsTheContactAddress(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b := newCategoryBuilder()
+	b := newCategoryBuilder(context.Background())
 	n, err := b.ImportBGPToolsTagFrom(srv.URL, []string{"vpn"}, BGPToolsUserAgent("me@example.com"))
 	require.NoError(t, err)
 	require.Equal(t, 2, n)
@@ -208,7 +209,7 @@ func TestImportPeeringDBMapsReportedTypes(t *testing.T) {
 		{"asn":64497,"info_type":""}
 	]}`)
 
-	b := newCategoryBuilder()
+	b := newCategoryBuilder(context.Background())
 	n, err := b.ImportPeeringDBFrom(srv.URL)
 	require.NoError(t, err)
 	require.Equal(t, 3, n)

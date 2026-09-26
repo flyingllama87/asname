@@ -1,6 +1,8 @@
 package asname
 
 import (
+	"io"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -51,7 +53,11 @@ type Options struct {
 	// If empty, defaults to $ASNAME_DIR or ~/.asname.
 	DataDir string
 
-	// Paths allows setting individual database file locations.
+	// Paths allows setting individual database file locations. A path left
+	// empty comes from its environment variable (ASNAME_DB, ASNAME_NAMES,
+	// ASNAME_COUNTRY, ASNAME_CITY, ASNAME_NETBLOCK, ASNAME_CATEGORY,
+	// ASNAME_PREFIXES), the same ones the asname CLI reads, and otherwise
+	// from DataDir.
 	Paths CustomPaths
 
 	// Feature states for optional databases.
@@ -67,23 +73,35 @@ type Options struct {
 	// Defaults to WhoisNever for library usage to avoid blocking network I/O.
 	Whois WhoisMode
 
+	// OnlinePrefixes lets LookupASN fetch an ASN's announced prefixes from an
+	// online service when the local prefix database (built by an ASN update)
+	// does not cover it. Defaults to false, so lookups stay offline.
+	OnlinePrefixes bool
+
 	// AutoUpdate refreshes data files older than this duration upon client initialization.
 	// Defaults to 0 (disabled), so New() returns quickly without network calls.
 	AutoUpdate time.Duration
 
 	// ContactEmail is used to identify queries when fetching bgp.tools operator tags.
+	// If empty, $ASNAME_CONTACT_EMAIL is used.
 	ContactEmail string
+
+	// Log receives warnings (an optional database that failed to open, a
+	// failed whois query) and AutoUpdate's download progress. Nil discards
+	// them; the library never writes to stderr on its own.
+	Log io.Writer
 }
 
 // DefaultOptions returns the standard options:
-// - DataDir: ~/.asname (or $ASNAME_DIR)
+// - DataDir: $ASNAME_DIR, else ~/.asname
 // - City/Netblock/Category: FeatureAuto (loaded if present on disk)
 // - EnableReverseDNS: false
 // - Whois: WhoisNever
+// - OnlinePrefixes: false
 // - AutoUpdate: 0 (disabled)
 func DefaultOptions() Options {
 	return Options{
-		DataDir: sources.DefaultDir(),
+		DataDir:  dataDir(""),
 		City:     FeatureAuto,
 		Netblock: FeatureAuto,
 		Category: FeatureAuto,
@@ -163,6 +181,21 @@ func WithContactEmail(email string) Option {
 	}
 }
 
+// WithOnlinePrefixes controls whether LookupASN may query an online service
+// for announced prefixes the local prefix database lacks. Off by default.
+func WithOnlinePrefixes(enable bool) Option {
+	return func(o *Options) {
+		o.OnlinePrefixes = enable
+	}
+}
+
+// WithLog sends warnings and AutoUpdate progress to w. Without it they are discarded.
+func WithLog(w io.Writer) Option {
+	return func(o *Options) {
+		o.Log = w
+	}
+}
+
 // WithCustomPaths configures explicit custom database paths.
 func WithCustomPaths(paths CustomPaths) Option {
 	return func(o *Options) {
@@ -171,53 +204,56 @@ func WithCustomPaths(paths CustomPaths) Option {
 }
 
 func (o *Options) toSourcesConfig() sources.Config {
-	dir := o.DataDir
-	if dir == "" {
-		dir = sources.DefaultDir()
-	}
+	return resolveConfig(o.DataDir, o.Paths)
+}
 
-	c := sources.Config{
-		DBPath:       o.Paths.DBPath,
-		NamesPath:    o.Paths.NamesPath,
-		CountryPath:  o.Paths.CountryPath,
-		CityPath:     o.Paths.CityPath,
-		NetblockPath: o.Paths.NetblockPath,
-		CategoryPath: o.Paths.CategoryPath,
-		PrefixPath:   o.Paths.PrefixPath,
-		ConsentPath:  o.Paths.ConsentPath,
-		ContactPath:  o.Paths.ContactPath,
-		CachePath:    o.Paths.CachePath,
+// dataDir returns dir, else $ASNAME_DIR, else ~/.asname.
+func dataDir(dir string) string {
+	if dir != "" {
+		return dir
 	}
+	if env := os.Getenv(sources.DirEnvVar); env != "" {
+		return env
+	}
+	return sources.DefaultDir()
+}
 
-	if c.DBPath == "" {
-		c.DBPath = filepath.Join(dir, sources.DBFilename)
+// contactEmail returns email, else $ASNAME_CONTACT_EMAIL.
+func contactEmail(email string) string {
+	if email != "" {
+		return email
 	}
-	if c.NamesPath == "" {
-		c.NamesPath = filepath.Join(dir, sources.NamesFilename)
+	return os.Getenv(sources.ContactEnvVar)
+}
+
+// resolveConfig picks each database's location: the explicit path, else its
+// ASNAME_* environment variable, else its standard filename under dir. This is
+// the precedence the CLI gives its flags, so a library caller and `asname` read
+// the same files. The consent, contact and cache files have no variable of
+// their own and always live under dir.
+func resolveConfig(dir string, p CustomPaths) sources.Config {
+	dir = dataDir(dir)
+	pick := func(explicit, env, name string) string {
+		if explicit != "" {
+			return explicit
+		}
+		if env != "" {
+			if v := os.Getenv(env); v != "" {
+				return v
+			}
+		}
+		return filepath.Join(dir, name)
 	}
-	if c.CountryPath == "" {
-		c.CountryPath = filepath.Join(dir, sources.CountryFilename)
+	return sources.Config{
+		DBPath:       pick(p.DBPath, sources.DBEnvVar, sources.DBFilename),
+		NamesPath:    pick(p.NamesPath, sources.NamesEnvVar, sources.NamesFilename),
+		CountryPath:  pick(p.CountryPath, sources.CountryEnvVar, sources.CountryFilename),
+		CityPath:     pick(p.CityPath, sources.CityEnvVar, sources.CityFilename),
+		NetblockPath: pick(p.NetblockPath, sources.NetblockEnvVar, sources.NetblockFilename),
+		CategoryPath: pick(p.CategoryPath, sources.CategoryEnvVar, sources.CategoryFilename),
+		PrefixPath:   pick(p.PrefixPath, sources.PrefixEnvVar, sources.PrefixFilename),
+		ConsentPath:  pick(p.ConsentPath, "", sources.WhoisConsentFilename),
+		ContactPath:  pick(p.ContactPath, "", sources.ContactFilename),
+		CachePath:    pick(p.CachePath, "", sources.CacheDirName),
 	}
-	if c.CityPath == "" {
-		c.CityPath = filepath.Join(dir, sources.CityFilename)
-	}
-	if c.NetblockPath == "" {
-		c.NetblockPath = filepath.Join(dir, sources.NetblockFilename)
-	}
-	if c.CategoryPath == "" {
-		c.CategoryPath = filepath.Join(dir, sources.CategoryFilename)
-	}
-	if c.PrefixPath == "" {
-		c.PrefixPath = filepath.Join(dir, sources.PrefixFilename)
-	}
-	if c.ConsentPath == "" {
-		c.ConsentPath = filepath.Join(dir, sources.WhoisConsentFilename)
-	}
-	if c.ContactPath == "" {
-		c.ContactPath = filepath.Join(dir, sources.ContactFilename)
-	}
-	if c.CachePath == "" {
-		c.CachePath = filepath.Join(dir, sources.CacheDirName)
-	}
-	return c
 }
