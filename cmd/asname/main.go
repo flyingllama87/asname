@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -664,38 +665,41 @@ func updateAction(ctx *cli.Context) error {
 	categoryOnly := ctx.Bool("category-only")
 	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly && !netblockOnly && !categoryOnly
 
+	// A database that fails keeps its existing file; the others are still
+	// rebuilt, since they come from different hosts.
+	var failed []error
 	if all || dbOnly {
 		if err := sources.UpdateDatabase(rctx, cfg, ctx.String("rib-url")); err != nil {
-			return fmt.Errorf("updating ASN database: %v", err)
+			failed = append(failed, fmt.Errorf("updating ASN database: %v", err))
 		}
 	}
 	if all || namesOnly {
 		if err := sources.UpdateNames(rctx, cfg); err != nil {
-			return fmt.Errorf("updating name database: %v", err)
+			failed = append(failed, fmt.Errorf("updating name database: %v", err))
 		}
 	}
 	if all || countryOnly {
 		if err := sources.UpdateCountryDB(rctx, cfg); err != nil {
-			return fmt.Errorf("updating country database: %v", err)
+			failed = append(failed, fmt.Errorf("updating country database: %v", err))
 		}
 	}
 	if cityOnly || ctx.Bool("city") || (all && sources.CityDBPresent(cfg.CityPath)) {
 		if err := sources.UpdateCityDB(rctx, cfg); err != nil {
-			return fmt.Errorf("updating city database: %v", err)
+			failed = append(failed, fmt.Errorf("updating city database: %v", err))
 		}
 	}
 	if netblockOnly || ctx.Bool("netblock") || (all && sources.NetblockDBPresent(cfg.NetblockPath)) {
 		if err := sources.UpdateNetblockDB(rctx, cfg); err != nil {
-			return fmt.Errorf("updating netblock database: %v", err)
+			failed = append(failed, fmt.Errorf("updating netblock database: %v", err))
 		}
 	}
 	if categoryOnly || ctx.Bool("category") || (all && sources.CategoryDBPresent(cfg.CategoryPath)) {
 		contact := sources.NewContactAsker(cfg.ContactPath, ctx.String("contact-email"))
 		if err := sources.UpdateCategoryDB(rctx, cfg, contact); err != nil {
-			return fmt.Errorf("updating category database: %v", err)
+			failed = append(failed, fmt.Errorf("updating category database: %v", err))
 		}
 	}
-	return nil
+	return errors.Join(failed...)
 }
 
 var versionCommand = &cli.Command{

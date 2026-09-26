@@ -202,16 +202,17 @@ func rangeStart(header string) (int64, error) {
 }
 
 // httpGetFrom issues a GET, asking for the bytes from offset onwards when offset is positive.
+// A throttled or failing server is retried (see doWithRetry).
 func httpGetFrom(ctx context.Context, url, userAgent string, offset int64) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	if userAgent != "" {
-		req.Header.Set("User-Agent", userAgent)
-	}
-	if offset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
-	}
-	return http.DefaultClient.Do(req)
+	return doWithRetry(ctx, url, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", orDefaultAgent(userAgent))
+		if offset > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		}
+		return req, nil
+	})
 }

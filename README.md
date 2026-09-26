@@ -120,7 +120,7 @@ err := asname.Update(ctx, asname.UpdateOptions{Log: os.Stderr})
 refreshed, err := asname.UpdateStale(ctx, asname.UpdateOptions{City: true, Netblock: true}, 720*time.Hour)
 ```
 
-Cancelling `ctx` abandons the download in progress. The partial file is kept and resumed next time, and no further database is started. A category update identifies itself to bgp.tools with `UpdateOptions.ContactEmail`, then `$ASNAME_CONTACT_EMAIL`. With neither, it skips the bgp.tools tags rather than asking.
+A throttled or failing download (HTTP 429 or 5xx) is retried with backoff, honouring `Retry-After`. A database that still cannot be rebuilt keeps its existing file, and the other databases are still updated; the returned error names each failure. The country database is only rewritten when every registry answered, because one missing registry would leave a whole region without countries. Cancelling `ctx` abandons the download in progress. The partial file is kept and resumed next time, and no further database is started. A category update identifies itself to bgp.tools with `UpdateOptions.ContactEmail`, then `$ASNAME_CONTACT_EMAIL`. With neither, it skips the bgp.tools tags rather than asking.
 
 ## Usage
 

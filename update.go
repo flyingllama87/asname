@@ -2,6 +2,7 @@ package asname
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -40,9 +41,10 @@ type UpdateOptions struct {
 }
 
 // Update downloads every selected database, however recent the copy on disk.
-// ctx bounds the downloads: cancelling it abandons the one in progress (a
-// partial download is kept and resumed by the next update) and stops before
-// the next database.
+// A database that cannot be rebuilt keeps its existing file and the rest are
+// still attempted; the error then names each failure. ctx bounds the
+// downloads: cancelling it abandons the one in progress (a partial download is
+// kept and resumed by the next update) and stops before the next database.
 func Update(ctx context.Context, opts UpdateOptions) error {
 	_, err := runUpdate(ctx, opts, func(string) bool { return true })
 	return err
@@ -50,8 +52,8 @@ func Update(ctx context.Context, opts UpdateOptions) error {
 
 // UpdateStale refreshes only the selected databases that are missing or, when
 // maxAge is positive, older than maxAge. A maxAge of zero or less only fills in
-// missing files. It returns the paths it rewrote, in update order; on error,
-// the paths rewritten before the failure.
+// missing files. It returns the paths it rewrote, in update order, including
+// when some other database failed.
 func UpdateStale(ctx context.Context, opts UpdateOptions, maxAge time.Duration) ([]string, error) {
 	return runUpdate(ctx, opts, func(path string) bool { return sources.Stale(path, maxAge) })
 }
@@ -101,7 +103,11 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) b
 		}})
 	}
 
+	// A database that fails keeps its previous file and does not stop the
+	// others: they come from different hosts, and one throttled registry is
+	// no reason to leave the rest stale. Cancellation stops everything.
 	var refreshed []string
+	var errs []error
 	for _, s := range steps {
 		if !want(s.path) {
 			continue
@@ -110,17 +116,19 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) b
 			return refreshed, err
 		}
 		if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-			return refreshed, fmt.Errorf("creating data directory for %s: %w", s.path, err)
+			errs = append(errs, fmt.Errorf("creating data directory for %s: %w", s.path, err))
+			continue
 		}
 		if err := s.run(ctx, cfg); err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return refreshed, ctxErr
 			}
-			return refreshed, fmt.Errorf("updating %s database: %w", s.name, err)
+			errs = append(errs, fmt.Errorf("updating %s database: %w", s.name, err))
+			continue
 		}
 		refreshed = append(refreshed, s.path)
 	}
-	return refreshed, nil
+	return refreshed, errors.Join(errs...)
 }
 
 // libraryContact returns a bgp.tools contact source that never prompts: a

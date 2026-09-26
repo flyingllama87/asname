@@ -36,19 +36,29 @@ func UpdateCountryDB(ctx context.Context, cfg Config) error {
 	logf(ctx, "asname: building IP->country database from RIR delegation stats\n")
 	var b trieBuilder = database.NewBuilder()
 
+	// Each registry covers its own region and no other, so a database built
+	// without one is not slightly smaller but blind to a whole region, and
+	// would replace a complete one. Any failure, after retries, abandons the
+	// build and leaves the existing file in place.
 	cache := cfg.CacheDir()
 	total := 0
+	var failed []string
 	for _, url := range rirDelegatedURLs {
 		n, err := importDelegated(ctx, b, url, cache)
 		if err != nil {
-			logf(ctx, "asname: warning: %s: %v\n", url, err)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			logf(ctx, "asname: %s: %v\n", url, err)
+			failed = append(failed, fmt.Sprintf("%s: %v", url, err))
 			continue
 		}
 		logf(ctx, "asname: %s: %d ranges\n", url, n)
 		total += n
 	}
-	if total == 0 {
-		return fmt.Errorf("no country ranges imported")
+	if len(failed) > 0 {
+		return fmt.Errorf("%d of %d registries failed, keeping the existing country database: %s",
+			len(failed), len(rirDelegatedURLs), strings.Join(failed, "; "))
 	}
 
 	b.SetFillFactor(OptimizationFillFactor)

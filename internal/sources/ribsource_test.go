@@ -53,6 +53,7 @@ func TestLatestRIBURLReportsAnEmptyListing(t *testing.T) {
 }
 
 func TestUpdateDatabaseFallsBackToTheNextSource(t *testing.T) {
+	fastRetries(t)
 	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "down", http.StatusServiceUnavailable)
 	}))

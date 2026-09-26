@@ -474,14 +474,14 @@ func fetchJSON(ctx context.Context, url, userAgent string, into any) error {
 // httpGetUA issues a GET bound to ctx, sending userAgent when it is set, and
 // treats any status but 200 as an error.
 func httpGetUA(ctx context.Context, url, userAgent string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	if userAgent != "" {
-		req.Header.Set("User-Agent", userAgent)
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doWithRetry(ctx, url, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", orDefaultAgent(userAgent))
+		return req, nil
+	})
 	if err != nil {
 		return nil, err
 	}
