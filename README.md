@@ -9,7 +9,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Blazing Fast**: Uses offline LC-trie databases for instantaneous IP lookups.
 - **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file listing any mix of them.
 - **ASN & Prefix Lookups**: Query any ASN (`AS15169`) to see its owner, country, classification, and all announced IPv4/IPv6 prefixes.
-- **Netblock Organization Search**: Search millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching IP ranges, ASNs, and CIDRs.
+- **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs, IP ranges and CIDRs.
 - **Pretty Cards & JSONL**: Format results as clean multi-line cards (`--pretty`) or streamable JSON objects (`--json`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
@@ -363,24 +363,39 @@ two minutes and needs ~1.5 GB of memory while it runs. The result is around
 search rather than loaded into memory, so a lookup stays instant and costs a few
 kilobytes of RAM.
 
-### Searching netblocks by organization name
+### Searching by organization name
 
-When you have the netblock database (`asname -n` or `asname update --netblock-only`), you can search through all 8+ million registry records by organization name or netname using `asname search` (or `--org` / `-O`):
+`asname search` (or `--org` / `-O`) finds an organization two ways: in the
+registered names of every Autonomous System, and, when you have the netblock
+database (`asname -n` or `asname update --netblock-only`), in the organization
+name or netname of all 8+ million registry records. Matching ASNs are listed
+first, so an organization that holds an ASN but no address space of its own
+is still found. Without the netblock database only the AS names are searched.
 
 ```bash
 $ asname search "Cloudflare"
+ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US → Country: US, United States
+ASN: AS14789 → Name: CLOUDFLARENET - Cloudflare, Inc., US → Country: US, United States
+...
 Netblock: 1.0.0.0/24 → Org: APNIC and Cloudflare DNS Resolver project (APNIC-LABS) → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US
 Netblock: 1.1.1.0/24 → Org: APNIC and Cloudflare DNS Resolver project (APNIC-LABS) → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US
 Netblock: 27.111.242.236/30 → Org: Equinix Customer - CLOUDFLARE US, INC (CLOUDFLARE_US_INC) → ASN: AS15830 → Name: Equinix Equinix (EMEA) Acquisition Enterprises B.V., NL
 ...
 ```
 
-Each result is automatically enriched with the announcing ASN, operator name, and country.
+Each netblock is enriched with the announcing ASN, operator name, and country.
+An AS name match is made against the name without its trailing country code,
+so searching `us` does not return every AS in the United States.
 
-You can customize the result limit and filter by IP version:
+You can restrict the search to one kind, customize the result limit and filter
+netblocks by IP version:
 
 ```bash
-# Limit results (default 50)
+# Only AS names, or only registry netblocks
+asname search --asns-only "Valve"
+asname search --netblocks-only "Valve"
+
+# Limit results (default 50 ASNs and 50 netblocks)
 asname search --limit 10 "Google"
 
 # Search IPv4 only or IPv6 only
@@ -389,7 +404,7 @@ asname search --v6-only "Amazon"
 
 # Output formats: pretty cards (--pretty) or JSON Lines (--json)
 asname search --pretty --limit 5 "Cloudflare"
-asname search --json "Valve" | jq -r '.cidr + " " + .name'
+asname search --json "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + " " + .org'
 ```
 
 ### Network categories
@@ -557,6 +572,8 @@ curl -s "http://127.0.0.1:8086/v1/lookup/1.1.1.1"
 curl -s "http://127.0.0.1:8086/v1/lookup/AS13335"
 
 # Search netblocks by organization name or netname
+# AS name matches come in "asns", netblocks in "results"; scope=asns or
+# scope=netblocks searches only one
 curl -s "http://127.0.0.1:8086/v1/search?q=Cloudflare&limit=10"
 
 # Base64URL-encoded target lookup

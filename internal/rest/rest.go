@@ -388,10 +388,14 @@ func decodeBase64Target(s string) (string, error) {
 	return "", fmt.Errorf("unable to decode base64 string")
 }
 
+// searchResponse keeps the netblocks in results, and their number in count,
+// as before AS names were searched; the AS name matches come in asns.
 type searchResponse struct {
-	Query   string                            `json:"query"`
-	Count   int                               `json:"count"`
-	Results []format.JSONNetblockSearchResult `json:"results"`
+	Query    string                            `json:"query"`
+	Count    int                               `json:"count"`
+	Results  []format.JSONNetblockSearchResult `json:"results"`
+	ASNCount int                               `json:"asn_count"`
+	ASNs     []format.JSONASNSearchResult      `json:"asns"`
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -419,37 +423,43 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	v4Only := r.URL.Query().Get("v4_only") == "true"
 	v6Only := r.URL.Query().Get("v6_only") == "true"
 
-	opts := sources.NetblockSearchOptions{
-		Limit:  limit,
-		V4Only: v4Only,
-		V6Only: v6Only,
-	}
-
-	results, err := s.eng.SearchNetblocks(query, opts)
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+	scope := r.URL.Query().Get("scope")
+	if scope != "" && scope != "all" && scope != "asns" && scope != "netblocks" {
+		writeJSONError(w, http.StatusBadRequest, "scope must be all, asns or netblocks")
 		return
 	}
 
-	jsonResults := make([]format.JSONNetblockSearchResult, 0, len(results))
-	for _, res := range results {
-		jsonResults = append(jsonResults, format.JSONNetblockSearchResult{
-			RangeStart: res.RangeStart.String(),
-			RangeEnd:   res.RangeEnd.String(),
-			CIDRs:      res.CIDRs,
-			Netname:    res.Netname,
-			Org:        res.Org,
-			IsV6:       res.IsV6,
-			ASN:        res.ASN,
-			ASName:     res.ASName,
-			Country:    res.Country,
+	asnResults := make([]format.JSONASNSearchResult, 0)
+	if scope != "netblocks" {
+		for _, res := range s.eng.SearchASNs(query, limit) {
+			asnResults = append(asnResults, format.NewJSONASNSearchResult(res))
+		}
+	}
+
+	// A combined search answers from the AS names alone when the server has
+	// no netblock database; asking for netblocks only still reports it.
+	jsonResults := make([]format.JSONNetblockSearchResult, 0)
+	if scope == "netblocks" || (scope != "asns" && s.eng.HasNetblockDB()) {
+		results, err := s.eng.SearchNetblocks(query, sources.NetblockSearchOptions{
+			Limit:  limit,
+			V4Only: v4Only,
+			V6Only: v6Only,
 		})
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, res := range results {
+			jsonResults = append(jsonResults, format.NewJSONNetblockSearchResult(res))
+		}
 	}
 
 	writeJSON(w, http.StatusOK, searchResponse{
-		Query:   query,
-		Count:   len(jsonResults),
-		Results: jsonResults,
+		Query:    query,
+		Count:    len(jsonResults),
+		Results:  jsonResults,
+		ASNCount: len(asnResults),
+		ASNs:     asnResults,
 	})
 }
 

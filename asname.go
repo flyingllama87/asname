@@ -182,6 +182,35 @@ func (c *Client) LookupASNContext(ctx context.Context, asn uint32) (Result, erro
 	return resultFromEngine(raw), nil
 }
 
+// Search looks for query, ignoring case, in the registered names of
+// Autonomous Systems and in the organization names and netnames of registry
+// netblocks, so an organization that holds an ASN but no address space is
+// still found. opts.Scope limits it to one of the two. With SearchAll and no
+// netblock database open (see HasNetblockDB) only the AS names are searched;
+// SearchNetblocksOnly returns an error instead.
+func (c *Client) Search(query string, opts SearchOptions) (SearchResults, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return SearchResults{}, ErrClosed
+	}
+
+	var out SearchResults
+	if opts.Scope != SearchNetblocksOnly {
+		for _, r := range c.eng.SearchASNs(query, opts.Limit) {
+			out.ASNs = append(out.ASNs, asnResultFromEngine(r))
+		}
+	}
+	if opts.Scope == SearchNetblocksOnly || (opts.Scope == SearchAll && c.eng.HasNetblockDB()) {
+		netblocks, err := c.searchNetblocks(query, opts)
+		if err != nil {
+			return SearchResults{}, err
+		}
+		out.Netblocks = netblocks
+	}
+	return out, nil
+}
+
 // SearchNetblocks searches the registry netblock database by organization name or netname.
 func (c *Client) SearchNetblocks(query string, opts SearchOptions) ([]NetblockResult, error) {
 	c.mu.RLock()
@@ -189,7 +218,10 @@ func (c *Client) SearchNetblocks(query string, opts SearchOptions) ([]NetblockRe
 	if c.closed {
 		return nil, ErrClosed
 	}
+	return c.searchNetblocks(query, opts)
+}
 
+func (c *Client) searchNetblocks(query string, opts SearchOptions) ([]NetblockResult, error) {
 	raw, err := c.eng.SearchNetblocks(query, sources.NetblockSearchOptions{
 		Limit:  opts.Limit,
 		V4Only: opts.V4Only,

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -201,16 +202,7 @@ func (e *Engine) LookupASNContext(ctx context.Context, asn uint32) (LookupResult
 
 	if name, ok := e.names[asn]; ok {
 		res.Name = name
-		if idx := strings.LastIndex(name, ", "); idx >= 0 && idx+2 < len(name) {
-			cc := strings.TrimSpace(name[idx+2:])
-			if len(cc) == 2 {
-				if countryName, ok := sources.CountryNames[cc]; ok {
-					res.Country = fmt.Sprintf("%s, %s", cc, countryName)
-				} else {
-					res.Country = cc
-				}
-			}
-		}
+		_, res.Country = splitNameCountry(name)
 	}
 	if res.Country == "" {
 		res.Country = "Unknown"
@@ -311,6 +303,65 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 	}
 
 	return res, nil
+}
+
+// splitNameCountry splits an AS name such as "GOOGLE - Google LLC, US" into
+// the organization part and its country, formatted "US, United States". A
+// name without a trailing two-letter code is returned whole with no country.
+func splitNameCountry(name string) (org, country string) {
+	idx := strings.LastIndex(name, ", ")
+	if idx < 0 {
+		return name, ""
+	}
+	cc := strings.TrimSpace(name[idx+2:])
+	if len(cc) != 2 {
+		return name, ""
+	}
+	if countryName, ok := sources.CountryNames[cc]; ok {
+		return name[:idx], fmt.Sprintf("%s, %s", cc, countryName)
+	}
+	return name[:idx], cc
+}
+
+// ASNSearchResult is an Autonomous System whose registered name matched a search.
+type ASNSearchResult struct {
+	Number  uint32
+	ASN     string
+	Name    string
+	Country string
+}
+
+// SearchASNs returns the ASNs whose name contains query, ignoring case, in
+// ascending ASN order, stopping after limit results when limit > 0. The
+// trailing country code of a name is not searched, so a query such as "us"
+// does not match every AS registered in the United States.
+func (e *Engine) SearchASNs(query string, limit int) []ASNSearchResult {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return nil
+	}
+	var matched []uint32
+	for asn, name := range e.names {
+		org, _ := splitNameCountry(name)
+		if strings.Contains(strings.ToLower(org), query) {
+			matched = append(matched, asn)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i] < matched[j] })
+	if limit > 0 && len(matched) > limit {
+		matched = matched[:limit]
+	}
+
+	results := make([]ASNSearchResult, len(matched))
+	for i, asn := range matched {
+		name := e.names[asn]
+		_, country := splitNameCountry(name)
+		if country == "" {
+			country = "Unknown"
+		}
+		results[i] = ASNSearchResult{Number: asn, ASN: fmt.Sprintf("AS%d", asn), Name: name, Country: country}
+	}
+	return results
 }
 
 // NetblockEnrichedResult represents a netblock search result enriched with ASN and Country data.

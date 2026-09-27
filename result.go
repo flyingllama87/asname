@@ -140,11 +140,53 @@ func resultFromEngine(r engine.LookupResult) Result {
 	}
 }
 
-// SearchOptions controls search filters and limits for Netblock searches.
+// SearchScope selects what Search looks through.
+type SearchScope int
+
+const (
+	// SearchAll searches AS names and registry netblocks.
+	SearchAll SearchScope = iota
+	// SearchASNsOnly searches AS names only.
+	SearchASNsOnly
+	// SearchNetblocksOnly searches registry netblocks only.
+	SearchNetblocksOnly
+)
+
+// SearchOptions controls search filters and limits. Limit caps the ASNs and
+// the netblocks separately (0 for unlimited); V4Only and V6Only filter
+// netblocks only. Scope is used by Search and ignored by SearchNetblocks.
 type SearchOptions struct {
 	Limit  int
 	V4Only bool
 	V6Only bool
+	Scope  SearchScope
+}
+
+// SearchResults holds the matches of Search: the Autonomous Systems whose
+// registered name matched, and the registry netblocks whose organization or
+// netname matched.
+type SearchResults struct {
+	ASNs      []ASNResult      `json:"asns,omitempty"`
+	Netblocks []NetblockResult `json:"netblocks,omitempty"`
+}
+
+// ASNResult is an Autonomous System whose registered name matched a search.
+// Name is the full AS name, such as "GOOGLE - Google LLC, US", and Country
+// reads "US, United States".
+type ASNResult struct {
+	ASN     string `json:"asn"`
+	Number  uint32 `json:"number"`
+	Name    string `json:"name,omitempty"`
+	Country string `json:"country,omitempty"`
+}
+
+func asnResultFromEngine(r engine.ASNSearchResult) ASNResult {
+	return ASNResult{
+		ASN:     r.ASN,
+		Number:  r.Number,
+		Name:    known(r.Name),
+		Country: known(r.Country),
+	}
 }
 
 // NetblockResult represents a matched IP range from registry netblocks.

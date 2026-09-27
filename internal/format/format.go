@@ -103,6 +103,18 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 	return strings.Join(parts, " → ") + "\n"
 }
 
+// FormatASNSearchOutput renders one AS name search result line.
+func FormatASNSearchOutput(res engine.ASNSearchResult) string {
+	parts := []string{
+		fmt.Sprintf("ASN: %s", res.ASN),
+		fmt.Sprintf("Name: %s", res.Name),
+	}
+	if res.Country != "" && res.Country != "Unknown" {
+		parts = append(parts, fmt.Sprintf("Country: %s", res.Country))
+	}
+	return strings.Join(parts, " → ") + "\n"
+}
+
 // FormatNetblockOutput renders one netblock search result line.
 func FormatNetblockOutput(res engine.NetblockEnrichedResult, uniform bool) string {
 	cidrStr := strings.Join(res.CIDRs, ", ")

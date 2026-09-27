@@ -46,10 +46,14 @@ asname --json AS15169
 asname --json dns.google
 ```
 
-### Netblock Organization Search (`search` / `--org`)
+### Organization Search (`search` / `--org`)
 ```bash
-# Search 8M+ registry netblock records by organization name or netname
+# Search AS names and 8M+ registry netblock records by organization name or netname
 asname search "Cloudflare"
+
+# Only AS names, or only netblocks
+asname search --asns-only "Valve"
+asname search --netblocks-only "Valve"
 
 # Search using --org / -O flag with custom result limit
 asname -O "Google" --limit 10
@@ -60,7 +64,7 @@ asname search --v6-only "Amazon"
 
 # Formats: pretty cards or JSON Lines
 asname search -p --limit 5 "Cloudflare"
-asname search -j "Valve" | jq -r '.cidr + " " + .name'
+asname search -j "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + " " + .org'
 ```
 
 ### Enriching with Optional Databases
@@ -131,7 +135,7 @@ curl -s "http://127.0.0.1:8086/v1/lookup/8.8.8.8"
 curl -s "http://127.0.0.1:8086/v1/lookup/AS13335"
 curl -s "http://127.0.0.1:8086/v1/lookup/dns.google?reverse_dns=true"
 
-# Search netblocks by organization name or netname
+# Search AS names ("asns") and netblocks ("results"); add scope=asns or scope=netblocks for one
 curl -s "http://127.0.0.1:8086/v1/search?q=Cloudflare&limit=10"
 
 # Safe Base64URL target lookup (useful for security scripts)
@@ -207,8 +211,9 @@ results, err := client.Lookup("dns.google")
 // 4. Autonomous System lookup
 asnRes, err := client.LookupASN(15169)
 
-// 5. Netblock organization search
-matches, err := client.SearchNetblocks("Valve", asname.SearchOptions{Limit: 10})
+// 5. Organization search: matches.ASNs and matches.Netblocks
+//    (Scope: asname.SearchASNsOnly or asname.SearchNetblocksOnly for one kind)
+matches, err := client.Search("Valve", asname.SearchOptions{Limit: 10})
 
 // 6. Refresh databases missing or older than 30 days; returns the paths rewritten
 refreshed, err := asname.UpdateStale(ctx, asname.UpdateOptions{}, 720*time.Hour)

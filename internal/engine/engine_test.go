@@ -63,3 +63,26 @@ func TestEngineLookupTargetPropagatesResolveError(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+func TestEngineSearchASNs(t *testing.T) {
+	eng := NewTestEngine(t)
+	eng.names = map[uint32]string{
+		15169:  "GOOGLE - Google LLC, US",
+		396982: "GOOGLE-CLOUD-PLATFORM - Google LLC, US",
+		13335:  "CLOUDFLARENET - Cloudflare, Inc., US",
+		64500:  "NO-COUNTRY",
+	}
+
+	got := eng.SearchASNs("google llc", 0)
+	require.Len(t, got, 2)
+	require.Equal(t, ASNSearchResult{Number: 15169, ASN: "AS15169", Name: "GOOGLE - Google LLC, US", Country: "US, United States"}, got[0])
+	require.Equal(t, uint32(396982), got[1].Number)
+
+	require.Len(t, eng.SearchASNs("Google", 1), 1)
+	require.Empty(t, eng.SearchASNs("us", 0), "the country code is not searched")
+	require.Empty(t, eng.SearchASNs("  ", 0))
+
+	nc := eng.SearchASNs("no-country", 0)
+	require.Len(t, nc, 1)
+	require.Equal(t, "Unknown", nc[0].Country)
+}

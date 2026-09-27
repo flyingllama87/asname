@@ -344,3 +344,23 @@ func TestNew_OnlinePrefixesOffByDefault(t *testing.T) {
 	defer online.Close()
 	assert.True(t, online.eng.OnlinePrefixes)
 }
+
+func TestClient_Search_ASNsWithoutNetblockDB(t *testing.T) {
+	dir := createTestEnv(t)
+	client, err := New(WithDataDir(dir))
+	require.NoError(t, err)
+	defer client.Close()
+
+	got, err := client.Search("cloudflare", SearchOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []ASNResult{{ASN: "AS13335", Number: 13335, Name: "CLOUDFLARENET - Cloudflare, Inc., US", Country: "US, United States"}}, got.ASNs)
+	assert.Empty(t, got.Netblocks)
+
+	got, err = client.Search("google", SearchOptions{Scope: SearchASNsOnly})
+	require.NoError(t, err)
+	require.Len(t, got.ASNs, 1)
+	assert.Equal(t, uint32(15169), got.ASNs[0].Number)
+
+	_, err = client.Search("google", SearchOptions{Scope: SearchNetblocksOnly})
+	assert.Error(t, err, "netblocks were asked for but the database is absent")
+}

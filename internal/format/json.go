@@ -230,7 +230,32 @@ func FormatJSONError(target, errStr string) (string, error) {
 	return string(b) + "\n", nil
 }
 
+// JSONASNSearchResult is one AS name search match. Type is always "asn", so
+// a JSON Lines consumer can tell it from a JSONNetblockSearchResult.
+type JSONASNSearchResult struct {
+	Type    string `json:"type"`
+	ASN     string `json:"asn"`
+	Name    string `json:"name"`
+	Country string `json:"country,omitempty"`
+}
+
+// NewJSONASNSearchResult converts an engine AS name match for JSON output.
+func NewJSONASNSearchResult(res engine.ASNSearchResult) JSONASNSearchResult {
+	return JSONASNSearchResult{Type: "asn", ASN: res.ASN, Name: res.Name, Country: res.Country}
+}
+
+func FormatJSONASNSearchOutput(res engine.ASNSearchResult) (string, error) {
+	data, err := json.Marshal(NewJSONASNSearchResult(res))
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
+// JSONNetblockSearchResult is one netblock search match. Type is always
+// "netblock".
 type JSONNetblockSearchResult struct {
+	Type       string   `json:"type"`
 	RangeStart string   `json:"range_start"`
 	RangeEnd   string   `json:"range_end"`
 	CIDRs      []string `json:"cidrs"`
@@ -242,8 +267,10 @@ type JSONNetblockSearchResult struct {
 	Country    string   `json:"country,omitempty"`
 }
 
-func FormatJSONNetblockOutput(res engine.NetblockEnrichedResult) (string, error) {
-	out := JSONNetblockSearchResult{
+// NewJSONNetblockSearchResult converts an engine netblock match for JSON output.
+func NewJSONNetblockSearchResult(res engine.NetblockEnrichedResult) JSONNetblockSearchResult {
+	return JSONNetblockSearchResult{
+		Type:       "netblock",
 		RangeStart: res.RangeStart.String(),
 		RangeEnd:   res.RangeEnd.String(),
 		CIDRs:      res.CIDRs,
@@ -254,7 +281,10 @@ func FormatJSONNetblockOutput(res engine.NetblockEnrichedResult) (string, error)
 		ASName:     res.ASName,
 		Country:    res.Country,
 	}
-	data, err := json.Marshal(out)
+}
+
+func FormatJSONNetblockOutput(res engine.NetblockEnrichedResult) (string, error) {
+	data, err := json.Marshal(NewJSONNetblockSearchResult(res))
 	if err != nil {
 		return "", err
 	}

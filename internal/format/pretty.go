@@ -249,6 +249,32 @@ func FormatCountryPretty(country string) string {
 	return country
 }
 
+// FormatPrettyASNSearchOutput renders an AS name search result in card format.
+func FormatPrettyASNSearchOutput(res engine.ASNSearchResult, index, total int, colored bool) string {
+	st := newPrettyStyler(colored)
+	var b strings.Builder
+
+	borderLine := st.border("────────────────────────────────────────────────────────────")
+	if total > 1 {
+		b.WriteString(fmt.Sprintf("%s [%d/%d] %s\n", st.header("ASN:"), index+1, total, st.asn(res.ASN)))
+	} else {
+		b.WriteString(fmt.Sprintf("%s %s\n", st.header("ASN:"), st.asn(res.ASN)))
+	}
+	b.WriteString(borderLine + "\n")
+
+	b.WriteString(fmt.Sprintf("  %s\n", st.section("Autonomous System Details:")))
+	b.WriteString(fmt.Sprintf("    %s %s\n", st.label("AS Name:          "), st.value(res.Name)))
+
+	if res.Country != "" && res.Country != "Unknown" {
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  %s\n", st.section("Location:")))
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Country:          "), st.location(FormatCountryPretty(res.Country))))
+	}
+
+	b.WriteString(borderLine + "\n\n")
+	return b.String()
+}
+
 // FormatPrettyNetblockOutput renders a netblock search result in card format.
 func FormatPrettyNetblockOutput(res engine.NetblockEnrichedResult, index, total int, colored bool) string {
 	st := newPrettyStyler(colored)

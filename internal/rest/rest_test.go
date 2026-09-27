@@ -150,3 +150,31 @@ func TestRESTBadRequest(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+func TestRESTSearchASNsWithoutNetblockDB(t *testing.T) {
+	eng := engine.NewTestEngine(t)
+	handler := NewServer(eng, "127.0.0.1:8086", false, false, "0.5.0").Routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/search?q=google", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp searchResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, 1, resp.ASNCount)
+	require.Equal(t, "AS15169", resp.ASNs[0].ASN)
+	require.Equal(t, "asn", resp.ASNs[0].Type)
+	require.Equal(t, 0, resp.Count)
+
+	// Asking for netblocks alone still reports the missing database.
+	req = httptest.NewRequest(http.MethodGet, "/v1/search?q=google&scope=netblocks", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/search?q=google&scope=bogus", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}

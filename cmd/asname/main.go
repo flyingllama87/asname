@@ -58,9 +58,11 @@ OPTIONAL LOOKUPS & METADATA:
    --category, -C                 include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag
    --no-category                  omit the category even when the category database is present
 
-NETBLOCK SEARCH:
-   --org query, -O query          search registry netblocks by organization name or netname
-   --limit value, -l value        maximum number of netblock search results to display (default: 50, 0 for unlimited)
+SEARCH:
+   --org query, -O query          search AS names and registry netblocks by organization name or netname
+   --limit value, -l value        maximum number of ASNs, and of netblocks, to display (default: 50, 0 for unlimited)
+   --asns-only                    only search AS names
+   --netblocks-only               only search registry netblocks
    --v4-only                      only display IPv4 netblocks in search
    --v6-only                      only display IPv6 netblocks in search
 
@@ -81,7 +83,7 @@ DATA FILES & AUTO-UPDATE:
 
 	app := &cli.App{
 		Name:      "asname",
-		Usage:     "look up the ASN, AS name, country and prefixes of an IP address, hostname, URL or ASN; or search netblocks by organization",
+		Usage:     "look up the ASN, AS name, country and prefixes of an IP address, hostname, URL or ASN; or search AS names and netblocks by organization",
 		ArgsUsage: "<IP|hostname|URL|ASN|file>",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
@@ -171,12 +173,20 @@ DATA FILES & AUTO-UPDATE:
 			&cli.StringFlag{
 				Name:    "org",
 				Aliases: []string{"O"},
-				Usage:   "search registry netblocks by organization name or netname",
+				Usage:   "search AS names and registry netblocks by organization name or netname",
 			},
 			&cli.IntFlag{
 				Name:    "limit",
 				Value:   50,
-				Usage:   "maximum number of netblock search results to display (0 for unlimited)",
+				Usage:   "maximum number of ASNs, and of netblocks, to display (0 for unlimited)",
+			},
+			&cli.BoolFlag{
+				Name:  "asns-only",
+				Usage: "only search AS names",
+			},
+			&cli.BoolFlag{
+				Name:  "netblocks-only",
+				Usage: "only search registry netblocks",
 			},
 			&cli.BoolFlag{
 				Name:  "v4-only",
@@ -462,14 +472,22 @@ func lookupAction(ctx *cli.Context) error {
 
 var searchCommand = &cli.Command{
 	Name:      "search",
-	Usage:     "search registry netblocks by organization name or netname",
+	Usage:     "search AS names and registry netblocks by organization name or netname",
 	ArgsUsage: "<organization-name>",
 	Flags: []cli.Flag{
 		&cli.IntFlag{
 			Name:    "limit",
 			Aliases: []string{"l"},
 			Value:   50,
-			Usage:   "maximum number of results to display (0 for unlimited)",
+			Usage:   "maximum number of ASNs, and of netblocks, to display (0 for unlimited)",
+		},
+		&cli.BoolFlag{
+			Name:  "asns-only",
+			Usage: "only search AS names",
+		},
+		&cli.BoolFlag{
+			Name:  "netblocks-only",
+			Usage: "only search registry netblocks",
 		},
 		&cli.BoolFlag{
 			Name:    "pretty",
@@ -551,14 +569,28 @@ func runSearch(ctx *cli.Context, query string) error {
 		return fmt.Errorf("--pretty, --json and --uniform are mutually exclusive")
 	}
 
-	cfg := newConfig(ctx)
-
-	wantNetblock := sources.NetblockDBPresent(cfg.NetblockPath)
-	if !wantNetblock {
-		return fmt.Errorf("netblock database is not present; build it with `asname update --netblock-only` or pass `--netblock`")
+	asnsOnly, netblocksOnly := ctx.Bool("asns-only"), ctx.Bool("netblocks-only")
+	if asnsOnly && netblocksOnly {
+		return fmt.Errorf("--asns-only and --netblocks-only are mutually exclusive")
+	}
+	if asnsOnly && (ctx.Bool("v4-only") || ctx.Bool("v6-only")) {
+		return fmt.Errorf("--v4-only and --v6-only filter netblocks and cannot be used with --asns-only")
 	}
 
-	eng, err := engine.NewEngine(cfg, false, true, true, false, sources.WhoisNever, os.Stderr)
+	cfg := newConfig(ctx)
+
+	// The AS names need no netblock database, so without one a combined
+	// search still answers from them.
+	wantNetblock := !asnsOnly
+	if wantNetblock && !sources.NetblockDBPresent(cfg.NetblockPath) {
+		if netblocksOnly {
+			return fmt.Errorf("netblock database is not present; build it with `asname update --netblock-only` or pass `--netblock`")
+		}
+		fmt.Fprintln(os.Stderr, "asname: netblock database is not present, so only AS names are searched; build it with `asname update --netblock-only`")
+		wantNetblock = false
+	}
+
+	eng, err := engine.NewEngine(cfg, false, wantNetblock, wantNetblock, false, sources.WhoisNever, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -569,32 +601,58 @@ func runSearch(ctx *cli.Context, query string) error {
 		limit = 50
 	}
 
-	opts := sources.NetblockSearchOptions{
-		Limit:  limit,
-		V4Only: ctx.Bool("v4-only"),
-		V6Only: ctx.Bool("v6-only"),
+	var asns []engine.ASNSearchResult
+	if !netblocksOnly {
+		asns = eng.SearchASNs(query, limit)
 	}
 
-	results, err := eng.SearchNetblocks(query, opts)
-	if err != nil {
-		return err
+	var netblocks []engine.NetblockEnrichedResult
+	if wantNetblock {
+		netblocks, err = eng.SearchNetblocks(query, sources.NetblockSearchOptions{
+			Limit:  limit,
+			V4Only: ctx.Bool("v4-only"),
+			V6Only: ctx.Bool("v6-only"),
+		})
+		if err != nil {
+			return err
+		}
 	}
 
-	if len(results) == 0 {
-		if ctx.Bool("json") {
+	isJSON := searchBool(ctx, "json")
+	total := len(asns) + len(netblocks)
+	if total == 0 {
+		if isJSON {
 			return nil
 		}
-		fmt.Fprintf(os.Stderr, "asname: no netblocks found matching %q\n", query)
+		what := "ASNs or netblocks"
+		if asnsOnly || !wantNetblock {
+			what = "ASNs"
+		} else if netblocksOnly {
+			what = "netblocks"
+		}
+		fmt.Fprintf(os.Stderr, "asname: no %s found matching %q\n", what, query)
 		return nil
 	}
 
 	out := bufio.NewWriter(os.Stdout)
 	uniform := searchBool(ctx, "uniform")
-	isJSON := searchBool(ctx, "json")
 	isPretty := searchBool(ctx, "pretty")
 	useColor := format.ShouldColorize(os.Stdout, searchBool(ctx, "color"), searchBool(ctx, "no-color"))
 
-	for i, res := range results {
+	for i, res := range asns {
+		if isJSON {
+			line, err := format.FormatJSONASNSearchOutput(res)
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(out, line)
+		} else if isPretty {
+			fmt.Fprint(out, format.FormatPrettyASNSearchOutput(res, i, total, useColor))
+		} else {
+			fmt.Fprint(out, format.FormatASNSearchOutput(res))
+		}
+	}
+	for i, res := range netblocks {
 		if isJSON {
 			line, err := format.FormatJSONNetblockOutput(res)
 			if err != nil {
@@ -602,7 +660,7 @@ func runSearch(ctx *cli.Context, query string) error {
 			}
 			fmt.Fprint(out, line)
 		} else if isPretty {
-			fmt.Fprint(out, format.FormatPrettyNetblockOutput(res, i, len(results), useColor))
+			fmt.Fprint(out, format.FormatPrettyNetblockOutput(res, len(asns)+i, total, useColor))
 		} else {
 			fmt.Fprint(out, format.FormatNetblockOutput(res, uniform))
 		}
