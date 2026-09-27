@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net"
 	"os"
@@ -90,7 +91,7 @@ func run(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	app := newApp()
 	app.Writer, app.ErrWriter = &out, &errOut
 	app.Reader = strings.NewReader("")
-	err = app.Run(append([]string{"asname"}, args...))
+	err = app.Run(context.Background(), append([]string{"asname"}, args...))
 	return out.String(), errOut.String(), err
 }
 
@@ -336,4 +337,58 @@ func TestCity(t *testing.T) {
 	require.NoError(t, os.Remove(filepath.Join(dir, sources.CityFilename)))
 	_, _, err = run(t, "city", "--dir", dir, "Brisbane")
 	assert.ErrorContains(t, err, "asname update --city-only")
+}
+
+// TestFlagPlacement checks that the flags every command shares work before the
+// subcommand, and that any flag works after the arguments.
+func TestFlagPlacement(t *testing.T) {
+	dir := writeFixtures(t)
+
+	for _, args := range [][]string{
+		{"--v4-only", "city", "--dir", dir, "Brisbane, AU"},
+		{"city", "--dir", dir, "Brisbane, AU", "--v4-only"},
+		{"--dir", dir, "city", "Brisbane, AU", "--v4-only"},
+	} {
+		out, _, err := run(t, args...)
+		require.NoError(t, err, args)
+		assert.Equal(t, []string{"1.0.0.0/23"}, lines(out), args)
+	}
+
+	out, _, err := run(t, "--v6-only", "country", "--dir", dir, "AU")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"2001:db8::/32"}, lines(out))
+
+	out, _, err = run(t, "country", "AU", "-j", "--dir", dir)
+	require.NoError(t, err)
+	assert.Len(t, lines(out), 3)
+	assert.True(t, strings.HasPrefix(out, "{"))
+
+	out, _, err = run(t, "--v4-only", "search", "--dir", dir, "google", "-l", "1", "--netblocks-only")
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(out, "Netblock: "))
+	assert.NotContains(t, out, "2001:4860")
+
+	out, _, err = run(t, "--asns-only", "search", "--dir", dir, "google")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "Netblock: ")
+
+	_, _, err = run(t, "--v4-only", "city", "--dir", dir, "Brisbane", "--v6-only")
+	assert.ErrorContains(t, err, "mutually exclusive")
+}
+
+func TestLookupAddressFamily(t *testing.T) {
+	dir := writeFixtures(t)
+
+	out, _, err := run(t, "--dir", dir, "--no-update", "--no-whois", "AS15169", "--v4-only")
+	require.NoError(t, err)
+	assert.Contains(t, out, "8.8.8.0/24")
+	assert.NotContains(t, out, "2001:4860::/32")
+
+	out, _, err = run(t, "--dir", dir, "--no-update", "--no-whois", "--v6-only", "AS15169")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "8.8.8.0/24")
+	assert.Contains(t, out, "2001:4860::/32")
+
+	_, _, err = run(t, "--dir", dir, "--no-update", "--no-whois", "--v6-only", "8.8.8.8")
+	assert.ErrorContains(t, err, "lookup 8.8.8.8: no IPv6 address")
 }

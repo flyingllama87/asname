@@ -1,13 +1,14 @@
 package sources
 
 import (
+	"context"
 	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func buildTestNetblockDB(t *testing.T, add func(*netblockBuilder)) string {
@@ -263,20 +264,20 @@ func TestUpdateHonoursTheLookupOptInFlags(t *testing.T) {
 				{"asname", "update", "--" + tc.only},
 			} {
 				asked := false
-				app := &cli.App{
+				app := &cli.Command{
 					Flags: []cli.Flag{
-						&cli.BoolFlag{Name: tc.flag, Aliases: []string{tc.flag[:1]}},
+						&cli.BoolFlag{Name: tc.flag, Aliases: []string{tc.flag[:1]}, Local: true},
 					},
 					Commands: []*cli.Command{{
 						Name:  "update",
 						Flags: []cli.Flag{&cli.BoolFlag{Name: tc.only}},
-						Action: func(ctx *cli.Context) error {
-							asked = ctx.Bool(tc.only) || ctx.Bool(tc.flag)
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							asked = cmd.Bool(tc.only) || cmd.Bool(tc.flag)
 							return nil
 						},
 					}},
 				}
-				require.NoError(t, app.Run(args))
+				require.NoError(t, app.Run(context.Background(), args))
 				require.True(t, asked, "%v should ask for the %s database", args, tc.name)
 			}
 		})

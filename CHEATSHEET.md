@@ -22,6 +22,17 @@ asname dns.google
 asname "https://user:secret@dns.google:8443/resolve?name=example.com#frag"
 ```
 
+### Flags
+```bash
+# Flags work before or after the arguments
+asname city Brisbane -p
+asname 8.8.8.8 -r
+
+# --v4-only / --v6-only apply to lookups, search, country and city alike
+asname --v4-only dns.google
+asname AS13335 --v6-only
+```
+
 ### Batch File Lookups
 ```bash
 # Read a mixed list of IPs, ASNs, hostnames, and URLs (comments/blanks ignored)

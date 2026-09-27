@@ -453,3 +453,20 @@ func (e *Engine) SearchNetblocks(query string, opts sources.NetblockSearchOption
 	}
 	return enriched, nil
 }
+
+// OnlyFamilyPrefixes keeps only the IPv4 prefixes of each ASN result when
+// v4Only is set, or only the IPv6 prefixes when v6Only is set.
+func OnlyFamilyPrefixes(results []LookupResult, v4Only, v6Only bool) {
+	for i := range results {
+		r := &results[i]
+		if v4Only {
+			r.IPv6Prefixes = nil
+		}
+		if v6Only {
+			r.IPv4Prefixes = nil
+		}
+		if (v4Only || v6Only) && r.IsASN {
+			r.Prefixes = append(append([]string(nil), r.IPv4Prefixes...), r.IPv6Prefixes...)
+		}
+	}
+}

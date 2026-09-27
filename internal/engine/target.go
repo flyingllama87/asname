@@ -288,3 +288,31 @@ func FormatReverseDNSNames(names []string) string {
 	sort.Strings(normalized)
 	return strings.Join(normalized, ", ")
 }
+
+// OnlyFamily returns t keeping only its IPv4 addresses when v4Only is set, or
+// only its IPv6 addresses when v6Only is set. A target left with no addresses
+// carries an error saying so; an ASN target is returned unchanged.
+func (t Target) OnlyFamily(v4Only, v6Only bool) Target {
+	if t.Err != nil || len(t.IPs) == 0 || (!v4Only && !v6Only) {
+		return t
+	}
+	kept := make([]net.IP, 0, len(t.IPs))
+	for _, ip := range t.IPs {
+		if (ip.To4() != nil) == v4Only {
+			kept = append(kept, ip)
+		}
+	}
+	if len(kept) == 0 {
+		family := "IPv4"
+		if v6Only {
+			family = "IPv6"
+		}
+		name := t.Host
+		if name == "" {
+			name = t.Raw
+		}
+		t.Err = fmt.Errorf("lookup %s: no %s address", name, family)
+	}
+	t.IPs = kept
+	return t
+}

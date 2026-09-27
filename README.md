@@ -174,6 +174,10 @@ $ asname --reverse-dns 8.8.8.8
 IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Reverse DNS: dns.google
 ```
 
+`--v4-only` and `--v6-only` keep one address family everywhere: a hostname's addresses, an ASN's prefixes, and the blocks `search`, `country` and `city` list.
+
+Flags can go before or after the arguments, so `asname 8.8.8.8 -r`, `asname city Brisbane -p` and `asname -p city Brisbane` all work. The output, address family and data file flags (`-p`, `-j`, `--color`, `--v4-only`, `--dir`, `--city-db`...) work with every command; the rest belong to lookups (`-r`, `--rest`...) or to `search` (`--limit`, `--asns-only`...) alone.
+
 ### ASN lookups
 
 Pass an Autonomous System Number directly (`AS15169`, `asn13335`, or just `AS` followed by the number) to look up the organization, country, network classification, and all announced BGP IP prefixes:

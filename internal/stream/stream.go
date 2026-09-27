@@ -20,6 +20,8 @@ type StreamOptions struct {
 	ReverseDNS bool
 	UseColor   bool
 	Workers    int
+	// V4Only and V6Only keep only the addresses and prefixes of one family.
+	V4Only, V6Only bool
 }
 
 // RunStream reads targets continuously from an io.Reader, resolves them
@@ -102,6 +104,7 @@ func processStreamTarget(ctx context.Context, t engine.Target, eng *engine.Engin
 			t.Err = err
 		}
 	}
+	t = t.OnlyFamily(opts.V4Only, opts.V6Only)
 
 	if t.Err != nil {
 		if opts.Format == format.FormatJSON {
@@ -121,6 +124,7 @@ func processStreamTarget(ctx context.Context, t engine.Target, eng *engine.Engin
 		fmt.Fprintf(os.Stderr, "asname: %s: %v\n", t.Raw, err)
 		return
 	}
+	engine.OnlyFamilyPrefixes(results, opts.V4Only, opts.V6Only)
 
 	if opts.ReverseDNS {
 		engine.ResolveReverseDNS(ctx, results)
