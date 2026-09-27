@@ -37,6 +37,10 @@ func RunStream(ctx context.Context, r io.Reader, w io.Writer, eng *engine.Engine
 	targetsCh := make(chan engine.Target, opts.Workers*4)
 	var outMu sync.Mutex
 	out := bufio.NewWriter(w)
+	if opts.Format == format.FormatCSV {
+		_, _ = out.WriteString(format.FormatCSVRow(format.LookupCSVHeader))
+		_ = out.Flush()
+	}
 
 	var wg sync.WaitGroup
 	for i := 0; i < opts.Workers; i++ {
@@ -107,9 +111,12 @@ func processStreamTarget(ctx context.Context, t engine.Target, eng *engine.Engin
 	t = t.OnlyFamily(opts.V4Only, opts.V6Only)
 
 	if t.Err != nil {
-		if opts.Format == format.FormatJSON {
+		if opts.Format == format.FormatJSON || opts.Format == format.FormatCSV {
 			outMu.Lock()
 			errLine, _ := format.FormatJSONError(t.Raw, t.Err.Error())
+			if opts.Format == format.FormatCSV {
+				errLine = format.FormatCSVError(t.Raw, t.Err.Error())
+			}
 			_, _ = out.WriteString(errLine)
 			_ = out.Flush()
 			outMu.Unlock()
@@ -138,6 +145,8 @@ func processStreamTarget(ctx context.Context, t engine.Target, eng *engine.Engin
 		switch opts.Format {
 		case format.FormatJSON:
 			formatted, _ = format.FormatJSONLookupOutput(res)
+		case format.FormatCSV:
+			formatted = format.FormatCSVLookupOutput(res)
 		case format.FormatPretty:
 			formatted = format.FormatPrettyLookupOutput(res, i, len(results), opts.UseColor)
 		case format.FormatUniform:

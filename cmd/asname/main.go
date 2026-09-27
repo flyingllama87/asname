@@ -37,6 +37,7 @@ COMMANDS:{{range .VisibleCategories}}{{if .Name}}
 OUTPUT FORMATTING:
    --pretty, -p                   display output in a multi-line formatted card layout with generous whitespace
    --json, -j                     output lookup results as JSON lines (JSONL)
+   --csv                          output results as CSV, with a header row
    --uniform, -u                  print lookup output as aligned fields
    --color                        force ANSI colored output even when stdout is piped
    --no-color                     suppress ANSI colored output (also respects NO_COLOR env var)
@@ -96,9 +97,10 @@ DATA FILES & AUTO-UPDATE:
 // its arguments.
 func newApp() *cli.Command {
 	return &cli.Command{
-		Name:      "asname",
-		Usage:     "look up the ASN, AS name, country and prefixes of an IP address, hostname, URL or ASN; or search AS names and netblocks by organization",
-		ArgsUsage: "<IP|hostname|URL|ASN|file>",
+		Name:            "asname",
+		HideHelpCommand: true,
+		Usage:           "look up the ASN, AS name, country and prefixes of an IP address, hostname, URL or ASN; or search AS names and netblocks by organization",
+		ArgsUsage:       "<IP|hostname|URL|ASN|file>",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "pretty",
@@ -109,6 +111,10 @@ func newApp() *cli.Command {
 				Name:    "json",
 				Aliases: []string{"j"},
 				Usage:   "output lookup results as JSON lines (JSONL)",
+			},
+			&cli.BoolFlag{
+				Name:  "csv",
+				Usage: "output results as CSV, with a header row",
 			},
 			&cli.BoolFlag{
 				Name:    "uniform",
@@ -351,11 +357,14 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 	if cmd.Bool("json") {
 		outputFlags++
 	}
+	if cmd.Bool("csv") {
+		outputFlags++
+	}
 	if cmd.Bool("uniform") {
 		outputFlags++
 	}
 	if outputFlags > 1 {
-		return fmt.Errorf("--pretty, --json and --uniform are mutually exclusive")
+		return fmt.Errorf("--pretty, --json, --csv and --uniform are mutually exclusive")
 	}
 
 	if cmd.String("org") != "" {
@@ -421,6 +430,8 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 		switch {
 		case cmd.Bool("json"):
 			fmtMode = format.FormatJSON
+		case cmd.Bool("csv"):
+			fmtMode = format.FormatCSV
 		case cmd.Bool("pretty"):
 			fmtMode = format.FormatPretty
 		case cmd.Bool("uniform"):
@@ -486,9 +497,13 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 	out := bufio.NewWriter(cmd.Root().Writer)
 	uniform := cmd.Bool("uniform")
 	isJSON := cmd.Bool("json")
+	isCSV := cmd.Bool("csv")
 	isPretty := cmd.Bool("pretty")
 	useColor := shouldColorize(cmd)
 
+	if isCSV {
+		fmt.Fprint(out, format.FormatCSVRow(format.LookupCSVHeader))
+	}
 	for i, res := range results {
 		if isJSON {
 			line, err := format.FormatJSONLookupOutput(res)
@@ -496,6 +511,8 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 				return err
 			}
 			fmt.Fprint(out, line)
+		} else if isCSV {
+			fmt.Fprint(out, format.FormatCSVLookupOutput(res))
 		} else if isPretty {
 			fmt.Fprint(out, format.FormatPrettyLookupOutput(res, i, len(results), useColor))
 		} else {
@@ -579,6 +596,13 @@ func nearestInt(cmd *cli.Command, name string) int {
 	return 0
 }
 
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // addressFamily returns --v4-only and --v6-only, which may not both be set.
 func addressFamily(cmd *cli.Command) (v4Only, v6Only bool, err error) {
 	v4Only, v6Only = cmd.Bool("v4-only"), cmd.Bool("v6-only")
@@ -596,11 +620,14 @@ func runSearch(cmd *cli.Command, query string) error {
 	if cmd.Bool("json") {
 		outputFlags++
 	}
+	if cmd.Bool("csv") {
+		outputFlags++
+	}
 	if anyBool(cmd, "uniform") {
 		outputFlags++
 	}
 	if outputFlags > 1 {
-		return fmt.Errorf("--pretty, --json and --uniform are mutually exclusive")
+		return fmt.Errorf("--pretty, --json, --csv and --uniform are mutually exclusive")
 	}
 
 	asnsOnly, netblocksOnly := anyBool(cmd, "asns-only"), anyBool(cmd, "netblocks-only")
@@ -650,11 +677,15 @@ func runSearch(cmd *cli.Command, query string) error {
 		}
 	}
 
-	isJSON := cmd.Bool("json")
+	isJSON, isCSV := cmd.Bool("json"), cmd.Bool("csv")
+	out := bufio.NewWriter(cmd.Root().Writer)
+	if isCSV {
+		fmt.Fprint(out, format.FormatCSVRow(format.SearchCSVHeader))
+	}
 	total := len(asns) + len(netblocks)
 	if total == 0 {
-		if isJSON {
-			return nil
+		if isJSON || isCSV {
+			return out.Flush()
 		}
 		what := "ASNs or netblocks"
 		if asnsOnly || !wantNetblock {
@@ -666,7 +697,6 @@ func runSearch(cmd *cli.Command, query string) error {
 		return nil
 	}
 
-	out := bufio.NewWriter(cmd.Root().Writer)
 	uniform := anyBool(cmd, "uniform")
 	isPretty := cmd.Bool("pretty")
 	useColor := shouldColorize(cmd)
@@ -678,6 +708,8 @@ func runSearch(cmd *cli.Command, query string) error {
 				return err
 			}
 			fmt.Fprint(out, line)
+		} else if isCSV {
+			fmt.Fprint(out, format.FormatCSVASNSearchOutput(res))
 		} else if isPretty {
 			fmt.Fprint(out, format.FormatPrettyASNSearchOutput(res, i, total, useColor))
 		} else {
@@ -691,6 +723,8 @@ func runSearch(cmd *cli.Command, query string) error {
 				return err
 			}
 			fmt.Fprint(out, line)
+		} else if isCSV {
+			fmt.Fprint(out, format.FormatCSVNetblockOutput(res))
 		} else if isPretty {
 			fmt.Fprint(out, format.FormatPrettyNetblockOutput(res, len(asns)+i, total, useColor))
 		} else {
@@ -718,9 +752,9 @@ func countryAction(ctx context.Context, cmd *cli.Command) error {
 		cli.ShowSubcommandHelp(cmd)
 		return fmt.Errorf("country requires a country code or name, such as AU or Australia")
 	}
-	isJSON, isPretty := cmd.Bool("json"), cmd.Bool("pretty")
-	if isJSON && isPretty {
-		return fmt.Errorf("--pretty and --json are mutually exclusive")
+	isJSON, isCSV, isPretty := cmd.Bool("json"), cmd.Bool("csv"), cmd.Bool("pretty")
+	if n := btoi(isJSON) + btoi(isCSV) + btoi(isPretty); n > 1 {
+		return fmt.Errorf("--pretty, --json and --csv are mutually exclusive")
 	}
 	v4Only, v6Only, err := addressFamily(cmd)
 	if err != nil {
@@ -736,6 +770,9 @@ func countryAction(ctx context.Context, cmd *cli.Command) error {
 
 	out := bufio.NewWriter(cmd.Root().Writer)
 	useColor := shouldColorize(cmd)
+	if isCSV {
+		fmt.Fprint(out, format.FormatCSVRow(format.CountryCSVHeader))
+	}
 	for i, arg := range cmd.Args().Slice() {
 		cc, v4, v6, err := eng.CountryPrefixes(arg)
 		if err != nil {
@@ -773,6 +810,13 @@ func countryAction(ctx context.Context, cmd *cli.Command) error {
 					fmt.Fprint(out, line)
 				}
 			}
+		case isCSV:
+			for _, c := range v4 {
+				fmt.Fprint(out, format.FormatCSVCountryPrefix(cc, c, false))
+			}
+			for _, c := range v6 {
+				fmt.Fprint(out, format.FormatCSVCountryPrefix(cc, c, true))
+			}
 		default:
 			for _, c := range v4 {
 				fmt.Fprintln(out, c)
@@ -805,9 +849,9 @@ func cityAction(ctx context.Context, cmd *cli.Command) error {
 		cli.ShowSubcommandHelp(cmd)
 		return fmt.Errorf("city requires a city name, such as Brisbane or \"Brisbane, AU\"")
 	}
-	isJSON, isPretty := cmd.Bool("json"), cmd.Bool("pretty")
-	if isJSON && isPretty {
-		return fmt.Errorf("--pretty and --json are mutually exclusive")
+	isJSON, isCSV, isPretty := cmd.Bool("json"), cmd.Bool("csv"), cmd.Bool("pretty")
+	if n := btoi(isJSON) + btoi(isCSV) + btoi(isPretty); n > 1 {
+		return fmt.Errorf("--pretty, --json and --csv are mutually exclusive")
 	}
 	v4Only, v6Only, err := addressFamily(cmd)
 	if err != nil {
@@ -859,6 +903,9 @@ func cityAction(ctx context.Context, cmd *cli.Command) error {
 
 	out := bufio.NewWriter(cmd.Root().Writer)
 	useColor := shouldColorize(cmd)
+	if isCSV {
+		fmt.Fprint(out, format.FormatCSVRow(format.CityCSVHeader))
+	}
 	for i, p := range places {
 		switch {
 		case isPretty:
@@ -875,6 +922,13 @@ func cityAction(ctx context.Context, cmd *cli.Command) error {
 					}
 					fmt.Fprint(out, line)
 				}
+			}
+		case isCSV:
+			for _, c := range p.IPv4 {
+				fmt.Fprint(out, format.FormatCSVCityPrefix(p, c, false))
+			}
+			for _, c := range p.IPv6 {
+				fmt.Fprint(out, format.FormatCSVCityPrefix(p, c, true))
 			}
 		default:
 			for _, c := range p.IPv4 {

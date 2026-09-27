@@ -55,6 +55,9 @@ asname -u 8.8.8.8
 asname -j 8.8.8.8
 asname --json AS15169
 asname --json dns.google
+
+# CSV with a header row (lookups, --stream, search, country and city)
+asname --csv hosts.txt > hosts.csv
 ```
 
 ### Organization Search (`search` / `--org`)
@@ -87,6 +90,7 @@ asname country --v4-only "New Zealand" > nz.txt
 # Formats: pretty card with counts, or JSON Lines
 asname country -p AU
 asname country -j AU NZ
+asname country --csv AU NZ > anz.csv
 ```
 
 ### City Listing (`city`)

@@ -12,7 +12,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs with their announced prefixes, IP ranges and CIDRs.
 - **Country Listings**: List every IP block registered to a country as CIDRs (`asname country AU`), ready for a firewall or allowlist.
 - **City Listings**: List every IP block the city database locates in a city (`asname city "Brisbane, AU"`).
-- **Pretty Cards & JSONL**: Format results as clean multi-line cards (`--pretty`) or streamable JSON objects (`--json`).
+- **Pretty Cards, JSONL & CSV**: Format results as clean multi-line cards (`--pretty`), streamable JSON objects (`--json`), or CSV for spreadsheets (`--csv`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
 - **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it.
@@ -176,7 +176,7 @@ IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United
 
 `--v4-only` and `--v6-only` keep one address family everywhere: a hostname's addresses, an ASN's prefixes, and the blocks `search`, `country` and `city` list.
 
-Flags can go before or after the arguments, so `asname 8.8.8.8 -r`, `asname city Brisbane -p` and `asname -p city Brisbane` all work. The output, address family and data file flags (`-p`, `-j`, `--color`, `--v4-only`, `--dir`, `--city-db`...) work with every command; the rest belong to lookups (`-r`, `--rest`...) or to `search` (`--limit`, `--asns-only`...) alone.
+Flags can go before or after the arguments, so `asname 8.8.8.8 -r`, `asname city Brisbane -p` and `asname -p city Brisbane` all work. The output, address family and data file flags (`-p`, `-j`, `--csv`, `--color`, `--v4-only`, `--dir`, `--city-db`...) work with every command; the rest belong to lookups (`-r`, `--rest`...) or to `search` (`--limit`, `--asns-only`...) alone.
 
 ### ASN lookups
 
@@ -409,7 +409,7 @@ asname search --limit 10 "Google"
 asname search --v4-only "Fastly"
 asname search --v6-only "Amazon"
 
-# Output formats: pretty cards (--pretty) or JSON Lines (--json)
+# Output formats: pretty cards (--pretty), JSON Lines (--json) or CSV (--csv)
 asname search --pretty --limit 5 "Cloudflare"
 asname search --json "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + " " + .org'
 asname search --json --asns-only "Valve" | jq -r '.ipv4_prefixes[]?'
@@ -595,6 +595,33 @@ Add `--json` (or `-j`) to emit results in JSON Lines (`JSONL`) format, one JSON 
 $ asname --json 8.8.8.8
 {"target":"8.8.8.8","host":null,"ip":"8.8.8.8","version":4,"asn":{"number":15169,"asn_string":"AS15169","name":"GOOGLE - Google LLC, US","announced":true},"country":{"code":"US","name":"United States"},"city":{"name":"Mountain View, California","present":true},"category":{"tags":["cdn","content","hosting","vpn"],"raw":"cdn, content, hosting, vpn"}}
 ```
+
+### CSV mode
+
+Add `--csv` to emit a header row and then one CSV row per result, ready for a spreadsheet or `csvkit`. It works for lookups, `--stream`, `search`, `country` and `city`, and carries the same fields as `--json`. A field with several values (an ASN's prefixes, a netblock's CIDRs, category tags) separates them with spaces, and an unknown value is left empty:
+
+```bash
+$ asname --csv --v4-only dns.google
+target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reverse_dns,prefixes,error
+dns.google,dns.google,8.8.4.4,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California",Google LLC,offline,cdn content hosting vpn,,,
+dns.google,dns.google,8.8.8.8,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California",Google LLC,offline,cdn content hosting vpn,,,
+
+$ asname country --csv NZ | head -3
+country,cidr,version
+NZ,14.1.32.0/19,4
+NZ,14.102.98.0/23,4
+```
+
+The columns are:
+
+| Command | Columns |
+|---|---|
+| lookup, `--stream` | `target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reverse_dns,prefixes,error` |
+| `search` | `type,asn,as_name,country,netname,org,range_start,range_end,version,cidrs,ipv4_prefixes,ipv6_prefixes`, where `type` is `asn` or `netblock` |
+| `country` | `country,cidr,version` |
+| `city` | `city,region,country,cidr,version` |
+
+In `--stream` mode a target that cannot be looked up is a row with only `target` and `error` filled, as in JSON mode.
 
 ### Streaming mode
 

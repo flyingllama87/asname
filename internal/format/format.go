@@ -14,6 +14,7 @@ const (
 	FormatUniform
 	FormatPretty
 	FormatJSON
+	FormatCSV
 )
 
 const (

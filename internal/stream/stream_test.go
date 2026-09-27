@@ -3,6 +3,7 @@ package stream
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"io"
 	"strings"
@@ -39,6 +40,26 @@ func TestRunStreamJSON(t *testing.T) {
 		require.Equal(t, "8.8.8.8", parsed.IP)
 		require.Equal(t, "AS15169", parsed.ASN.ASNString)
 	}
+}
+
+func TestRunStreamCSV(t *testing.T) {
+	eng := engine.NewTestEngine(t)
+	r := strings.NewReader("8.8.8.8\n2001:db8::1\n")
+	var w bytes.Buffer
+
+	err := RunStream(context.Background(), r, &w, eng, StreamOptions{Format: format.FormatCSV, Workers: 1, V4Only: true})
+	require.NoError(t, err)
+
+	rows, err := csv.NewReader(&w).ReadAll()
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	require.Equal(t, format.LookupCSVHeader, rows[0], "the header comes first")
+	byTarget := map[string][]string{}
+	for _, row := range rows[1:] {
+		byTarget[row[0]] = row
+	}
+	require.Equal(t, "AS15169", byTarget["8.8.8.8"][4])
+	require.Equal(t, "lookup 2001:db8::1: no IPv4 address", byTarget["2001:db8::1"][len(format.LookupCSVHeader)-1])
 }
 
 func TestRunStreamPretty(t *testing.T) {

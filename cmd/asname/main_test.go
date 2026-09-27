@@ -392,3 +392,45 @@ func TestLookupAddressFamily(t *testing.T) {
 	_, _, err = run(t, "--dir", dir, "--no-update", "--no-whois", "--v6-only", "8.8.8.8")
 	assert.ErrorContains(t, err, "lookup 8.8.8.8: no IPv6 address")
 }
+
+func TestCSV(t *testing.T) {
+	dir := writeFixtures(t)
+
+	out, _, err := run(t, "country", "--dir", dir, "AU", "--csv")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"country,cidr,version", "AU,1.0.0.0/23,4", "AU,1.1.1.0/24,4", "AU,2001:db8::/32,6"}, lines(out))
+
+	out, _, err = run(t, "--csv", "city", "--dir", dir, "Brisbane, AU")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"city,region,country,cidr,version", "Brisbane,Queensland,AU,1.0.0.0/23,4", "Brisbane,Queensland,AU,2400:1000::/32,6"}, lines(out))
+
+	out, _, err = run(t, "search", "--dir", dir, "google", "--csv", "--v4-only")
+	require.NoError(t, err)
+	got := lines(out)
+	require.Len(t, got, 4, out)
+	assert.Equal(t, "type,asn,as_name,country,netname,org,range_start,range_end,version,cidrs,ipv4_prefixes,ipv6_prefixes", got[0])
+	assert.Equal(t, "asn,AS15169,\"GOOGLE - Google LLC, US\",\"US, United States\",,,,,,,8.8.8.0/24,", got[1])
+	assert.True(t, strings.HasPrefix(got[2], "netblock,"), got[2])
+
+	out, stderr, err := run(t, "search", "--dir", dir, "nothing-matches", "--csv")
+	require.NoError(t, err)
+	assert.Equal(t, []string{got[0]}, lines(out), "no matches still prints the header")
+	assert.Empty(t, stderr)
+
+	out, _, err = run(t, "--dir", dir, "--no-update", "--no-whois", "8.8.8.8", "--csv")
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reverse_dns,prefixes,error",
+		"8.8.8.8,,8.8.8.8,4,AS15169,\"GOOGLE - Google LLC, US\",US,United States,,GOOGLE-DNS (Google LLC),offline,,,,",
+	}, lines(out))
+
+	for _, args := range [][]string{
+		{"country", "--dir", dir, "AU", "--csv", "-j"},
+		{"city", "--dir", dir, "Brisbane", "--csv", "-p"},
+		{"search", "--dir", dir, "google", "--csv", "-u"},
+		{"--dir", dir, "--no-update", "8.8.8.8", "--csv", "-j"},
+	} {
+		_, _, err := run(t, args...)
+		assert.ErrorContains(t, err, "mutually exclusive", args)
+	}
+}
