@@ -3,6 +3,7 @@ package format
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/flyingllama87/asname/internal/engine"
 )
@@ -150,4 +151,38 @@ func FormatNetblockOutput(res engine.NetblockEnrichedResult, uniform bool) strin
 		parts = append(parts, fmt.Sprintf("Country: %s", res.Country))
 	}
 	return strings.Join(parts, FieldSeparator) + "\n"
+}
+
+// Age renders d coarsely, as "45 minutes", "14 hours" or "30 days".
+func Age(d time.Duration) string {
+	plural := func(n int, unit string) string {
+		if n == 1 {
+			return "1 " + unit
+		}
+		return fmt.Sprintf("%d %ss", n, unit)
+	}
+	switch {
+	case d < time.Minute:
+		return "less than a minute"
+	case d < time.Hour:
+		return plural(int(d/time.Minute), "minute")
+	case d < 48*time.Hour:
+		return plural(int(d/time.Hour), "hour")
+	default:
+		return plural(int(d/(24*time.Hour)), "day")
+	}
+}
+
+// Bytes renders n in B, KB, MB or GB, powers of 1000.
+func Bytes(n int64) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprintf("%d B", n)
+	case n < 1000*1000:
+		return fmt.Sprintf("%.1f KB", float64(n)/1e3)
+	case n < 1000*1000*1000:
+		return fmt.Sprintf("%.1f MB", float64(n)/1e6)
+	default:
+		return fmt.Sprintf("%.1f GB", float64(n)/1e9)
+	}
 }

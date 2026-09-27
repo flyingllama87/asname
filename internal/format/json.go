@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/flyingllama87/asname/internal/engine"
 	"github.com/flyingllama87/asname/internal/sources"
@@ -331,4 +332,51 @@ func FormatJSONNetblockOutput(res engine.NetblockEnrichedResult) (string, error)
 		return "", err
 	}
 	return string(data) + "\n", nil
+}
+
+// JSONVersion is the output of `asname version --json`.
+type JSONVersion struct {
+	Version string `json:"version"`
+	Dir     string `json:"dir"`
+	// MaxAgeHours is the age at which auto-update refreshes a database; 0
+	// when it is off.
+	MaxAgeHours float64      `json:"max_age_hours"`
+	Databases   []JSONDBInfo `json:"databases"`
+}
+
+// JSONDBInfo describes one data file. Updated is when asname last wrote it;
+// Built, when present, is when its source data was built.
+type JSONDBInfo struct {
+	Name       string     `json:"name"`
+	Path       string     `json:"path"`
+	Optional   bool       `json:"optional"`
+	Present    bool       `json:"present"`
+	Size       int64      `json:"size,omitempty"`
+	Updated    *time.Time `json:"updated,omitempty"`
+	AgeSeconds int64      `json:"age_seconds,omitempty"`
+	Built      *time.Time `json:"built,omitempty"`
+	Stale      bool       `json:"stale"`
+}
+
+// FormatJSONVersion renders the version and database status as one JSON line.
+func FormatJSONVersion(version, dir string, maxAge time.Duration, dbs []sources.DBStatus, now time.Time) (string, error) {
+	out := JSONVersion{Version: version, Dir: dir, MaxAgeHours: maxAge.Hours(), Databases: make([]JSONDBInfo, len(dbs))}
+	for i, db := range dbs {
+		info := JSONDBInfo{Name: db.Name, Path: db.Path, Optional: db.Optional, Present: db.Present}
+		if db.Present {
+			updated, age := db.Updated, now.Sub(db.Updated)
+			info.Size, info.Updated, info.AgeSeconds = db.Size, &updated, int64(age/time.Second)
+			info.Stale = maxAge > 0 && age > maxAge
+		}
+		if !db.Built.IsZero() {
+			built := db.Built
+			info.Built = &built
+		}
+		out.Databases[i] = info
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(b) + "\n", nil
 }

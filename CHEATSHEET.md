@@ -203,6 +203,10 @@ curl -s -X POST http://127.0.0.1:8086/v1/bulk \
 `asname` auto-refreshes databases older than 30 days. You can also trigger manual updates:
 
 ```bash
+# When each database was last updated, and which are due for a refresh
+asname version
+asname version -j | jq '.databases[] | {name, updated, stale}'
+
 # Update core databases (ASN, AS Names, Country)
 asname update
 

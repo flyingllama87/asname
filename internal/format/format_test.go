@@ -5,7 +5,9 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/flyingllama87/asname/internal/engine"
@@ -154,4 +156,23 @@ func TestFormatASNSearchOutputWithPrefixes(t *testing.T) {
 	require.Contains(t, line, `"ipv4_prefixes":["45.121.184.0/24"],"ipv6_prefixes":["2a01:bc80::/29"]`)
 
 	require.Contains(t, FormatPrettyASNSearchOutput(res, 0, 1, false), "Announced Prefixes: 2 (1 IPv4, 1 IPv6)")
+}
+
+func TestAgeAndBytes(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		30 * time.Second:      "less than a minute",
+		time.Minute:           "1 minute",
+		59 * time.Minute:      "59 minutes",
+		time.Hour:             "1 hour",
+		47 * time.Hour:        "47 hours",
+		48 * time.Hour:        "2 days",
+		720 * time.Hour:       "30 days",
+		721*time.Hour + 59*60: "30 days",
+	} {
+		assert.Equal(t, want, Age(d), d.String())
+	}
+	assert.Equal(t, "999 B", Bytes(999))
+	assert.Equal(t, "737.7 KB", Bytes(737748))
+	assert.Equal(t, "127.3 MB", Bytes(127339927))
+	assert.Equal(t, "1.5 GB", Bytes(1_500_000_000))
 }

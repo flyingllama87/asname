@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/urfave/cli/v3"
 
@@ -1038,11 +1039,61 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 
 func versionCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "version",
-		Usage: "print version information and exit",
-		Action: func(ctx context.Context, cmd *cli.Command) error {
-			fmt.Fprintf(cmd.Root().Writer, "asname v%s\n", version)
-			return nil
-		},
+		Name:   "version",
+		Usage:  "print version information and when each database was last updated",
+		Action: versionAction,
 	}
+}
+
+func versionAction(ctx context.Context, cmd *cli.Command) error {
+	cfg := newConfig(cmd)
+	dbs := sources.DatabaseStatus(cfg)
+	maxAge := cmd.Duration("max-age")
+	if cmd.Bool("no-update") {
+		maxAge = 0
+	}
+	now := time.Now()
+
+	if cmd.Bool("json") {
+		line, err := format.FormatJSONVersion(version, cmd.String("dir"), maxAge, dbs, now)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(cmd.Root().Writer, line)
+		return err
+	}
+
+	out := bufio.NewWriter(cmd.Root().Writer)
+	fmt.Fprintf(out, "asname v%s\n\n", version)
+	dir := cmd.String("dir")
+	refresh := "auto-refresh off"
+	if maxAge > 0 {
+		refresh = "auto-refreshed when older than " + format.Age(maxAge)
+	}
+	fmt.Fprintf(out, "Databases in %s (%s):\n", dir, refresh)
+	for _, db := range dbs {
+		name := db.Path
+		if filepath.Dir(db.Path) == filepath.Clean(dir) {
+			name = filepath.Base(db.Path)
+		}
+		fmt.Fprintf(out, "  %-13s %-14s ", db.Name, name)
+		if !db.Present {
+			if db.Optional {
+				fmt.Fprintln(out, "not present (optional)")
+			} else {
+				fmt.Fprintln(out, "not present; run `asname update`")
+			}
+			continue
+		}
+		age := now.Sub(db.Updated)
+		fmt.Fprintf(out, "updated %s (%s ago)  %s", db.Updated.Format("2006-01-02 15:04"), format.Age(age), format.Bytes(db.Size))
+		if !db.Built.IsZero() {
+			fmt.Fprintf(out, "  data built %s", db.Built.Format("2006-01-02"))
+		}
+		if maxAge > 0 && age > maxAge {
+			fmt.Fprint(out, "  stale: refreshed on the next lookup")
+		}
+		fmt.Fprintln(out)
+	}
+	return out.Flush()
 }

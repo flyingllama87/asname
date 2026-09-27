@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/flyingllama87/asname/internal/fixture"
+	"github.com/flyingllama87/asname/internal/format"
 	"github.com/flyingllama87/asname/internal/sources"
 	"github.com/flyingllama87/asname/pkg/database"
 )
@@ -292,9 +294,57 @@ func TestLookup(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	out, _, err := run(t, "version")
+	dir := writeFixtures(t)
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	require.NoError(t, os.Chtimes(filepath.Join(dir, sources.CountryFilename), old, old))
+
+	out, _, err := run(t, "version", "--dir", dir)
 	require.NoError(t, err)
-	assert.Equal(t, "asname vdev\n", out)
+	got := lines(out)
+	assert.Equal(t, "asname vdev", got[0], "the version stays on the first line")
+	assert.Contains(t, out, "auto-refreshed when older than 30 days")
+	byName := map[string]string{}
+	for _, l := range got[3:] {
+		for _, f := range []string{sources.DBFilename, sources.CountryFilename, sources.CategoryFilename, sources.CityFilename} {
+			if strings.Contains(l, " "+f+" ") {
+				byName[f] = l
+			}
+		}
+	}
+	assert.Regexp(t, `asname\.db +updated \d{4}-\d\d-\d\d \d\d:\d\d \(less than a minute ago\) +\d+(\.\d)? [KM]?B`, byName[sources.DBFilename])
+	assert.NotContains(t, byName[sources.DBFilename], "stale")
+	assert.Contains(t, byName[sources.CountryFilename], "(40 days ago)")
+	assert.Contains(t, byName[sources.CountryFilename], "stale: refreshed on the next lookup")
+	assert.Contains(t, byName[sources.CategoryFilename], "not present (optional)")
+	assert.Regexp(t, `data built \d{4}-\d\d-\d\d`, byName[sources.CityFilename], "the city database records its build date")
+
+	out, _, err = run(t, "--no-update", "version", "--dir", dir)
+	require.NoError(t, err)
+	assert.Contains(t, out, "(auto-refresh off)")
+	assert.NotContains(t, out, "stale")
+
+	out, _, err = run(t, "version", "--dir", dir, "-j")
+	require.NoError(t, err)
+	var v format.JSONVersion
+	require.NoError(t, json.Unmarshal([]byte(out), &v))
+	assert.Equal(t, "dev", v.Version)
+	assert.Equal(t, 720.0, v.MaxAgeHours)
+	require.Len(t, v.Databases, 7)
+	for _, db := range v.Databases {
+		switch db.Name {
+		case "Country":
+			assert.True(t, db.Stale)
+			assert.Greater(t, db.AgeSeconds, int64(39*24*3600))
+		case "Category":
+			assert.False(t, db.Present)
+			assert.Nil(t, db.Updated)
+		case "City":
+			assert.NotNil(t, db.Built)
+		default:
+			assert.True(t, db.Present, db.Name)
+			assert.False(t, db.Stale, db.Name)
+		}
+	}
 }
 
 func TestCity(t *testing.T) {

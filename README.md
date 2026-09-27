@@ -684,6 +684,22 @@ asname update
 
 You can also update specific databases using the `--db-only`, `--names-only`, `--country-only`, `--city-only`, `--netblock-only`, or `--category-only` flags.
 
+`asname version` shows when each database was last updated, its size, and whether it is due for a refresh. The update time is when `asname` last wrote the file, which is also what `--max-age` is measured against; the city database also records when DB-IP built its data. Add `-j` for JSON.
+
+```bash
+$ asname version
+asname v0.11.0
+
+Databases in ~/.asname (auto-refreshed when older than 30 days):
+  ASN           asname.db      updated 2026-09-26 23:33 (14 hours ago)  11.2 MB
+  AS names      asn_db.txt     updated 2026-09-26 23:33 (14 hours ago)  7.1 MB
+  Country       country.db     updated 2026-09-26 23:33 (14 hours ago)  8.3 MB
+  ASN prefixes  prefixes.db    updated 2026-09-26 23:33 (14 hours ago)  6.5 MB
+  City          city.mmdb      updated 2026-09-26 23:33 (14 hours ago)  127.3 MB  data built 2026-09-01
+  Netblock      netblock.db    updated 2026-09-26 23:35 (14 hours ago)  306.2 MB
+  Category      category.db    updated 2026-09-26 23:36 (14 hours ago)  737.7 KB
+```
+
 ### RIB Sources and Fallback
 
 The IP to ASN database is built from an MRT RIB dump. `asname` tries the following archives in order and stops at the first that yields a database, so an outage at one archive does not stop an update:
