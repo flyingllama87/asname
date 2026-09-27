@@ -1,4 +1,4 @@
-VERSION ?= 0.9.0
+VERSION ?= 0.9.1
 BUILDDIR ?= build
 BINDIR ?= /usr/local/bin
 GOOS ?= $(shell go env GOOS)
