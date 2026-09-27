@@ -323,16 +323,22 @@ func splitNameCountry(name string) (org, country string) {
 	return name[:idx], cc
 }
 
-// ASNSearchResult is an Autonomous System whose registered name matched a search.
+// ASNSearchResult is an Autonomous System whose registered name matched a
+// search, with the prefixes the local prefix database has it announcing.
 type ASNSearchResult struct {
-	Number  uint32
-	ASN     string
-	Name    string
-	Country string
+	Number       uint32
+	ASN          string
+	Name         string
+	Country      string
+	Prefixes     []string
+	IPv4Prefixes []string
+	IPv6Prefixes []string
 }
 
 // SearchASNs returns the ASNs whose name contains query, ignoring case, in
-// ascending ASN order, stopping after limit results when limit > 0. The
+// ascending ASN order, stopping after limit results when limit > 0. Each
+// carries its announced prefixes when the prefix database is open; they are
+// never fetched online, as one search can match hundreds of ASNs. The
 // trailing country code of a name is not searched, so a query such as "us"
 // does not match every AS registered in the United States.
 func (e *Engine) SearchASNs(query string, limit int) []ASNSearchResult {
@@ -360,8 +366,30 @@ func (e *Engine) SearchASNs(query string, limit int) []ASNSearchResult {
 			country = "Unknown"
 		}
 		results[i] = ASNSearchResult{Number: asn, ASN: fmt.Sprintf("AS%d", asn), Name: name, Country: country}
+		if e.prefixDB != nil {
+			if pr, err := e.prefixDB.Lookup(asn); err == nil {
+				results[i].Prefixes = pr.All()
+				results[i].IPv4Prefixes = pr.IPv4
+				results[i].IPv6Prefixes = pr.IPv6
+			}
+		}
 	}
 	return results
+}
+
+// CountryPrefixes returns the CIDR blocks the country database assigns to
+// the country cc, which is a two-letter ISO code or an English name. The
+// database comes from the RIR delegation files, so these are the blocks
+// registered to holders in that country, not where the addresses are used.
+func (e *Engine) CountryPrefixes(country string) (cc string, v4, v6 []string, err error) {
+	if e.countryDB == nil {
+		return "", nil, nil, fmt.Errorf("country database is not open (run `asname update --country-only`)")
+	}
+	if cc, err = sources.ParseCountry(country); err != nil {
+		return "", nil, nil, err
+	}
+	v4, v6, err = sources.CountryPrefixes(e.countryDB, cc)
+	return cc, v4, v6, err
 }
 
 // NetblockEnrichedResult represents a netblock search result enriched with ASN and Country data.

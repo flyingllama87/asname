@@ -482,9 +482,6 @@ func IPv4RangeToCIDRs(start, end uint32) []string {
 		cidrs = append(cidrs, fmt.Sprintf("%d.%d.%d.%d/%d", ip[0], ip[1], ip[2], ip[3], maskLen))
 
 		cur += 1 << maxK
-		if len(cidrs) >= 32 {
-			break
-		}
 	}
 	return cidrs
 }
@@ -529,9 +526,6 @@ func IPv6RangeToCIDRs(start, end [16]byte) []string {
 
 		step := new(big.Int).Lsh(&one, uint(maxK))
 		cur.Add(cur, step)
-		if len(cidrs) >= 32 {
-			break
-		}
 	}
 	return cidrs
 }

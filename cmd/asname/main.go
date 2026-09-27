@@ -60,7 +60,7 @@ OPTIONAL LOOKUPS & METADATA:
 
 SEARCH:
    --org query, -O query          search AS names and registry netblocks by organization name or netname
-   --limit value, -l value        maximum number of ASNs, and of netblocks, to display (default: 50, 0 for unlimited)
+   --limit value, -l value        maximum number of ASNs, and of netblocks, to display (default: unlimited)
    --asns-only                    only search AS names
    --netblocks-only               only search registry netblocks
    --v4-only                      only display IPv4 netblocks in search
@@ -176,9 +176,9 @@ DATA FILES & AUTO-UPDATE:
 				Usage:   "search AS names and registry netblocks by organization name or netname",
 			},
 			&cli.IntFlag{
-				Name:    "limit",
-				Value:   50,
-				Usage:   "maximum number of ASNs, and of netblocks, to display (0 for unlimited)",
+				Name:        "limit",
+				Usage:       "maximum number of ASNs, and of netblocks, to display",
+				DefaultText: "unlimited",
 			},
 			&cli.BoolFlag{
 				Name:  "asns-only",
@@ -255,6 +255,7 @@ DATA FILES & AUTO-UPDATE:
 		},
 		Commands: []*cli.Command{
 			searchCommand,
+			countryCommand,
 			updateCommand,
 			versionCommand,
 		},
@@ -476,10 +477,10 @@ var searchCommand = &cli.Command{
 	ArgsUsage: "<organization-name>",
 	Flags: []cli.Flag{
 		&cli.IntFlag{
-			Name:    "limit",
-			Aliases: []string{"l"},
-			Value:   50,
-			Usage:   "maximum number of ASNs, and of netblocks, to display (0 for unlimited)",
+			Name:        "limit",
+			Aliases:     []string{"l"},
+			Usage:       "maximum number of ASNs, and of netblocks, to display",
+			DefaultText: "unlimited",
 		},
 		&cli.BoolFlag{
 			Name:  "asns-only",
@@ -597,9 +598,6 @@ func runSearch(ctx *cli.Context, query string) error {
 	defer eng.Close()
 
 	limit := ctx.Int("limit")
-	if limit == 0 && !ctx.IsSet("limit") {
-		limit = 50
-	}
 
 	var asns []engine.ASNSearchResult
 	if !netblocksOnly {
@@ -663,6 +661,131 @@ func runSearch(ctx *cli.Context, query string) error {
 			fmt.Fprint(out, format.FormatPrettyNetblockOutput(res, len(asns)+i, total, useColor))
 		} else {
 			fmt.Fprint(out, format.FormatNetblockOutput(res, uniform))
+		}
+	}
+	return out.Flush()
+}
+
+var countryCommand = &cli.Command{
+	Name:      "country",
+	Usage:     "list every IP block (CIDR) registered to a country",
+	ArgsUsage: "<country-code|country-name>...",
+	Description: "Prints the minimal CIDR blocks the country database assigns to each country, one per line.\n" +
+		"The database comes from the RIR delegation files, so a block is listed under the country its\n" +
+		"holder registered it in, which is not always where its addresses are used.",
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:    "pretty",
+			Aliases: []string{"p"},
+			Usage:   "display each country as a card with block counts",
+		},
+		&cli.BoolFlag{
+			Name:    "json",
+			Aliases: []string{"j"},
+			Usage:   "output one JSON object per block (JSONL)",
+		},
+		&cli.BoolFlag{
+			Name:  "v4-only",
+			Usage: "only list IPv4 blocks",
+		},
+		&cli.BoolFlag{
+			Name:  "v6-only",
+			Usage: "only list IPv6 blocks",
+		},
+		&cli.BoolFlag{
+			Name:  "color",
+			Usage: "force ANSI colored output even when stdout is piped",
+		},
+		&cli.BoolFlag{
+			Name:  "no-color",
+			Usage: "suppress ANSI colored output (also respects NO_COLOR env var)",
+		},
+		&cli.StringFlag{
+			Name:    "dir",
+			Aliases: []string{"d"},
+			EnvVars: []string{sources.DirEnvVar},
+			Value:   sources.DefaultDir(),
+			Usage:   "data `directory` holding the country database",
+		},
+		&cli.StringFlag{
+			Name:    "country-db",
+			EnvVars: []string{sources.CountryEnvVar},
+			Usage:   "IP->country database `file` (default: <dir>/" + sources.CountryFilename + ")",
+		},
+	},
+	Action: countryAction,
+}
+
+func countryAction(ctx *cli.Context) error {
+	if ctx.NArg() == 0 {
+		cli.ShowSubcommandHelp(ctx)
+		return fmt.Errorf("country requires a country code or name, such as AU or Australia")
+	}
+	isJSON, isPretty := searchBool(ctx, "json"), searchBool(ctx, "pretty")
+	if isJSON && isPretty {
+		return fmt.Errorf("--pretty and --json are mutually exclusive")
+	}
+	v4Only, v6Only := ctx.Bool("v4-only"), ctx.Bool("v6-only")
+	if v4Only && v6Only {
+		return fmt.Errorf("--v4-only and --v6-only are mutually exclusive")
+	}
+
+	cfg := newConfig(ctx)
+	if path := ctx.String("country-db"); path != "" {
+		cfg.CountryPath = path
+	}
+	eng, err := engine.NewEngine(cfg, false, false, false, false, sources.WhoisNever, os.Stderr)
+	if err != nil {
+		return err
+	}
+	defer eng.Close()
+
+	out := bufio.NewWriter(os.Stdout)
+	useColor := format.ShouldColorize(os.Stdout, searchBool(ctx, "color"), searchBool(ctx, "no-color"))
+	for i, arg := range ctx.Args().Slice() {
+		cc, v4, v6, err := eng.CountryPrefixes(arg)
+		if err != nil {
+			out.Flush()
+			return err
+		}
+		if v6Only {
+			v4 = nil
+		}
+		if v4Only {
+			v6 = nil
+		}
+		if len(v4)+len(v6) == 0 {
+			fmt.Fprintf(os.Stderr, "asname: no blocks registered to %s\n", cc)
+			continue
+		}
+
+		switch {
+		case isPretty:
+			country := cc
+			if name, ok := sources.CountryNames[cc]; ok {
+				country = cc + ", " + name
+			}
+			fmt.Fprint(out, format.FormatPrettyCountryOutput(country, v4, v6, i, ctx.NArg(), useColor))
+		case isJSON:
+			for _, family := range []struct {
+				cidrs []string
+				isV6  bool
+			}{{v4, false}, {v6, true}} {
+				for _, c := range family.cidrs {
+					line, err := format.FormatJSONCountryPrefix(cc, c, family.isV6)
+					if err != nil {
+						return err
+					}
+					fmt.Fprint(out, line)
+				}
+			}
+		default:
+			for _, c := range v4 {
+				fmt.Fprintln(out, c)
+			}
+			for _, c := range v6 {
+				fmt.Fprintln(out, c)
+			}
 		}
 	}
 	return out.Flush()

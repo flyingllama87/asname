@@ -27,6 +27,9 @@ const (
 	UniformCategoryWidth = 30
 )
 
+// FieldSeparator separates the fields of a default or uniform output line.
+const FieldSeparator = " | "
+
 type outputField struct {
 	label string
 	value string
@@ -58,7 +61,7 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 			}
 			parts = append(parts, fmt.Sprintf("%s: %-*s", field.label, field.width, field.value))
 		}
-		return strings.Join(parts, " → ") + "\n"
+		return strings.Join(parts, FieldSeparator) + "\n"
 	}
 
 	fields := make([]outputField, 0, 6)
@@ -100,7 +103,7 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 		}
 		parts = append(parts, fmt.Sprintf("%s: %-*s", field.label, field.width, field.value))
 	}
-	return strings.Join(parts, " → ") + "\n"
+	return strings.Join(parts, FieldSeparator) + "\n"
 }
 
 // FormatASNSearchOutput renders one AS name search result line.
@@ -112,7 +115,10 @@ func FormatASNSearchOutput(res engine.ASNSearchResult) string {
 	if res.Country != "" && res.Country != "Unknown" {
 		parts = append(parts, fmt.Sprintf("Country: %s", res.Country))
 	}
-	return strings.Join(parts, " → ") + "\n"
+	if len(res.Prefixes) > 0 {
+		parts = append(parts, fmt.Sprintf("Prefixes: %s", strings.Join(res.Prefixes, ", ")))
+	}
+	return strings.Join(parts, FieldSeparator) + "\n"
 }
 
 // FormatNetblockOutput renders one netblock search result line.
@@ -142,6 +148,6 @@ func FormatNetblockOutput(res engine.NetblockEnrichedResult, uniform bool) strin
 	if res.Country != "" && res.Country != "Unknown" {
 		parts = append(parts, fmt.Sprintf("Country: %s", res.Country))
 	}
-	return strings.Join(parts, " → ") + "\n"
+	return strings.Join(parts, FieldSeparator) + "\n"
 }
 

@@ -67,6 +67,17 @@ asname search -p --limit 5 "Cloudflare"
 asname search -j "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + " " + .org'
 ```
 
+### Country Listing (`country`)
+```bash
+# Every CIDR registered to a country, one per line (code or English name)
+asname country AU
+asname country --v4-only "New Zealand" > nz.txt
+
+# Formats: pretty card with counts, or JSON Lines
+asname country -p AU
+asname country -j AU NZ
+```
+
 ### Enriching with Optional Databases
 ```bash
 # Reverse DNS PTR records
@@ -215,7 +226,10 @@ asnRes, err := client.LookupASN(15169)
 //    (Scope: asname.SearchASNsOnly or asname.SearchNetblocksOnly for one kind)
 matches, err := client.Search("Valve", asname.SearchOptions{Limit: 10})
 
-// 6. Refresh databases missing or older than 30 days; returns the paths rewritten
+// 6. Every CIDR registered to a country: au.IPv4, au.IPv6
+au, err := client.CountryPrefixes("AU")
+
+// 7. Refresh databases missing or older than 30 days; returns the paths rewritten
 refreshed, err := asname.UpdateStale(ctx, asname.UpdateOptions{}, 720*time.Hour)
 ```
 

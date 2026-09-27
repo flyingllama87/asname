@@ -233,19 +233,43 @@ func FormatJSONError(target, errStr string) (string, error) {
 // JSONASNSearchResult is one AS name search match. Type is always "asn", so
 // a JSON Lines consumer can tell it from a JSONNetblockSearchResult.
 type JSONASNSearchResult struct {
-	Type    string `json:"type"`
-	ASN     string `json:"asn"`
-	Name    string `json:"name"`
-	Country string `json:"country,omitempty"`
+	Type         string   `json:"type"`
+	ASN          string   `json:"asn"`
+	Name         string   `json:"name"`
+	Country      string   `json:"country,omitempty"`
+	IPv4Prefixes []string `json:"ipv4_prefixes,omitempty"`
+	IPv6Prefixes []string `json:"ipv6_prefixes,omitempty"`
 }
 
 // NewJSONASNSearchResult converts an engine AS name match for JSON output.
 func NewJSONASNSearchResult(res engine.ASNSearchResult) JSONASNSearchResult {
-	return JSONASNSearchResult{Type: "asn", ASN: res.ASN, Name: res.Name, Country: res.Country}
+	return JSONASNSearchResult{
+		Type:         "asn",
+		ASN:          res.ASN,
+		Name:         res.Name,
+		Country:      res.Country,
+		IPv4Prefixes: res.IPv4Prefixes,
+		IPv6Prefixes: res.IPv6Prefixes,
+	}
 }
 
 func FormatJSONASNSearchOutput(res engine.ASNSearchResult) (string, error) {
 	data, err := json.Marshal(NewJSONASNSearchResult(res))
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
+// JSONCountryPrefix is one CIDR block of a country listing.
+type JSONCountryPrefix struct {
+	Country string `json:"country"`
+	CIDR    string `json:"cidr"`
+	IsV6    bool   `json:"is_v6"`
+}
+
+func FormatJSONCountryPrefix(cc, cidr string, isV6 bool) (string, error) {
+	data, err := json.Marshal(JSONCountryPrefix{Country: cc, CIDR: cidr, IsV6: isV6})
 	if err != nil {
 		return "", err
 	}

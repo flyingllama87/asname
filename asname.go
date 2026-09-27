@@ -211,6 +211,25 @@ func (c *Client) Search(query string, opts SearchOptions) (SearchResults, error)
 	return out, nil
 }
 
+// CountryPrefixes returns the minimal CIDR blocks the country database
+// assigns to country, a two-letter ISO code ("AU") or an English name
+// ("Australia"), in ascending address order. The database is built from the
+// RIR delegation files, so a block belongs to the country its holder
+// registered it in, which is not always where its addresses are used.
+func (c *Client) CountryPrefixes(country string) (CountryResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return CountryResult{}, ErrClosed
+	}
+
+	cc, v4, v6, err := c.eng.CountryPrefixes(country)
+	if err != nil {
+		return CountryResult{}, err
+	}
+	return CountryResult{Country: cc, Name: sources.CountryNames[cc], IPv4: v4, IPv6: v6}, nil
+}
+
 // SearchNetblocks searches the registry netblock database by organization name or netname.
 func (c *Client) SearchNetblocks(query string, opts SearchOptions) ([]NetblockResult, error) {
 	c.mu.RLock()

@@ -75,5 +75,5 @@ func TestRunStreamDefaultFormat(t *testing.T) {
 	require.NoError(t, err)
 
 	out := w.String()
-	require.Equal(t, "IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States\n", out)
+	require.Equal(t, "IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States\n", out)
 }

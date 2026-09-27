@@ -271,6 +271,44 @@ func FormatPrettyASNSearchOutput(res engine.ASNSearchResult, index, total int, c
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Country:          "), st.location(FormatCountryPretty(res.Country))))
 	}
 
+	if len(res.Prefixes) > 0 {
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  %s %d (%d IPv4, %d IPv6)\n",
+			st.section("Announced Prefixes:"), len(res.Prefixes), len(res.IPv4Prefixes), len(res.IPv6Prefixes)))
+		for _, p := range res.Prefixes {
+			b.WriteString(fmt.Sprintf("    %s\n", st.value(p)))
+		}
+	}
+
+	b.WriteString(borderLine + "\n\n")
+	return b.String()
+}
+
+// FormatPrettyCountryOutput renders a country's CIDR blocks in card format.
+// country is "CC, Country Name" or a bare code.
+func FormatPrettyCountryOutput(country string, v4, v6 []string, index, total int, colored bool) string {
+	st := newPrettyStyler(colored)
+	var b strings.Builder
+
+	borderLine := st.border("────────────────────────────────────────────────────────────")
+	if total > 1 {
+		b.WriteString(fmt.Sprintf("%s [%d/%d] %s\n", st.header("Country:"), index+1, total, st.location(FormatCountryPretty(country))))
+	} else {
+		b.WriteString(fmt.Sprintf("%s %s\n", st.header("Country:"), st.location(FormatCountryPretty(country))))
+	}
+	b.WriteString(borderLine + "\n")
+	for _, family := range []struct {
+		name  string
+		cidrs []string
+	}{{"IPv4 Blocks:", v4}, {"IPv6 Blocks:", v6}} {
+		if len(family.cidrs) == 0 {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("  %s %d\n", st.section(family.name), len(family.cidrs)))
+		for _, c := range family.cidrs {
+			b.WriteString(fmt.Sprintf("    %s\n", st.value(c)))
+		}
+	}
 	b.WriteString(borderLine + "\n\n")
 	return b.String()
 }

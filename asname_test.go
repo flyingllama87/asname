@@ -99,7 +99,7 @@ func TestClient_Lookup(t *testing.T) {
 	assert.Equal(t, uint32(0), unknownRes.ASNNumber())
 	assert.Equal(t, "", unknownRes.Name)
 	assert.Equal(t, "", unknownRes.Country)
-	assert.Contains(t, unknownRes.String(), "ASN: N/A → Name: Unknown → Country: Unknown")
+	assert.Contains(t, unknownRes.String(), "ASN: N/A | Name: Unknown | Country: Unknown")
 
 	// 4. Lookup ASN
 	asnRes, err := client.LookupASN(15169)
@@ -363,4 +363,18 @@ func TestClient_Search_ASNsWithoutNetblockDB(t *testing.T) {
 
 	_, err = client.Search("google", SearchOptions{Scope: SearchNetblocksOnly})
 	assert.Error(t, err, "netblocks were asked for but the database is absent")
+}
+
+func TestClient_CountryPrefixes(t *testing.T) {
+	dir := createTestEnv(t)
+	client, err := New(WithDataDir(dir))
+	require.NoError(t, err)
+	defer client.Close()
+
+	got, err := client.CountryPrefixes("united states")
+	require.NoError(t, err)
+	assert.Equal(t, CountryResult{Country: "US", Name: "United States", IPv4: []string{"1.1.1.0/24", "8.8.8.0/24"}}, got)
+
+	_, err = client.CountryPrefixes("Atlantis")
+	assert.Error(t, err)
 }

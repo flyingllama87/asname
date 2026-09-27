@@ -71,3 +71,17 @@ func NewFromDump(r io.Reader) (Database, error) {
 	}
 	return d, nil
 }
+
+// Walk calls fn, in ascending address order, for every maximal range of
+// addresses db maps to one value, stopping early when fn returns false. start
+// and end are inclusive; IPv4 ranges come IPv4-mapped (::ffff:a.b.c.d). It
+// works on databases made by this package and reports an error for any other
+// implementation of Database.
+func Walk(db Database, fn func(start, end [16]byte, value uint32) bool) error {
+	d, ok := db.(*database)
+	if !ok {
+		return fmt.Errorf("walk: unsupported database type %T", db)
+	}
+	d.mappings.Walk(fn)
+	return nil
+}

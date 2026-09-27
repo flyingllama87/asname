@@ -4,7 +4,7 @@
 
 The default output of `asname` is a dense, single-line format:
 ```text
-IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States
+IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 ```
 
 The `--pretty` (or `-p`) flag introduces a multi-line, card-based visual format designed with generous vertical and horizontal whitespace, clear section groupings, high-value contextual metadata (IP version, ISO country code, broken-out category badges, netblock provenance), and subtle terminal color highlights.

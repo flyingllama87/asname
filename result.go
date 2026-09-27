@@ -80,24 +80,24 @@ func (r Result) CountryName() string {
 func (r Result) String() string {
 	asn, name, country := orText(r.ASN, "N/A"), orText(r.Name, "Unknown"), orText(r.Country, "Unknown")
 	if r.IsASN {
-		s := fmt.Sprintf("ASN: %s → Name: %s → Country: %s", asn, name, country)
+		s := fmt.Sprintf("ASN: %s | Name: %s | Country: %s", asn, name, country)
 		if r.Category != "" {
-			s += " → Category: " + r.Category
+			s += " | Category: " + r.Category
 		}
 		return s
 	}
-	s := fmt.Sprintf("IP: %s → ASN: %s → Name: %s → Country: %s", r.IP, asn, name, country)
+	s := fmt.Sprintf("IP: %s | ASN: %s | Name: %s | Country: %s", r.IP, asn, name, country)
 	if r.City != "" {
-		s += " → City: " + r.City
+		s += " | City: " + r.City
 	}
 	if r.Netblock != "" {
-		s += " → Netblock: " + r.Netblock
+		s += " | Netblock: " + r.Netblock
 	}
 	if r.Category != "" {
-		s += " → Category: " + r.Category
+		s += " | Category: " + r.Category
 	}
 	if r.RDNS != "" {
-		s += " → RDNS: " + r.RDNS
+		s += " | RDNS: " + r.RDNS
 	}
 	return s
 }
@@ -140,6 +140,15 @@ func resultFromEngine(r engine.LookupResult) Result {
 	}
 }
 
+// CountryResult lists the CIDR blocks registered to one country. Country is
+// the upper-case ISO code and Name its English name, when known.
+type CountryResult struct {
+	Country string   `json:"country"`
+	Name    string   `json:"name,omitempty"`
+	IPv4    []string `json:"ipv4,omitempty"`
+	IPv6    []string `json:"ipv6,omitempty"`
+}
+
 // SearchScope selects what Search looks through.
 type SearchScope int
 
@@ -172,20 +181,27 @@ type SearchResults struct {
 
 // ASNResult is an Autonomous System whose registered name matched a search.
 // Name is the full AS name, such as "GOOGLE - Google LLC, US", and Country
-// reads "US, United States".
+// reads "US, United States". The prefixes are those the local prefix
+// database has it announcing, and are empty without that database.
 type ASNResult struct {
-	ASN     string `json:"asn"`
-	Number  uint32 `json:"number"`
-	Name    string `json:"name,omitempty"`
-	Country string `json:"country,omitempty"`
+	ASN          string   `json:"asn"`
+	Number       uint32   `json:"number"`
+	Name         string   `json:"name,omitempty"`
+	Country      string   `json:"country,omitempty"`
+	Prefixes     []string `json:"prefixes,omitempty"`
+	IPv4Prefixes []string `json:"ipv4_prefixes,omitempty"`
+	IPv6Prefixes []string `json:"ipv6_prefixes,omitempty"`
 }
 
 func asnResultFromEngine(r engine.ASNSearchResult) ASNResult {
 	return ASNResult{
-		ASN:     r.ASN,
-		Number:  r.Number,
-		Name:    known(r.Name),
-		Country: known(r.Country),
+		ASN:          r.ASN,
+		Number:       r.Number,
+		Name:         known(r.Name),
+		Country:      known(r.Country),
+		Prefixes:     r.Prefixes,
+		IPv4Prefixes: r.IPv4Prefixes,
+		IPv6Prefixes: r.IPv6Prefixes,
 	}
 }
 

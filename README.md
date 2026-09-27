@@ -9,7 +9,8 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Blazing Fast**: Uses offline LC-trie databases for instantaneous IP lookups.
 - **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file listing any mix of them.
 - **ASN & Prefix Lookups**: Query any ASN (`AS15169`) to see its owner, country, classification, and all announced IPv4/IPv6 prefixes.
-- **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs, IP ranges and CIDRs.
+- **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs with their announced prefixes, IP ranges and CIDRs.
+- **Country Listings**: List every IP block registered to a country as CIDRs (`asname country AU`), ready for a firewall or allowlist.
 - **Pretty Cards & JSONL**: Format results as clean multi-line cards (`--pretty`) or streamable JSON objects (`--json`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
@@ -128,22 +129,22 @@ Simply pass an IP address to resolve its information:
 
 ```bash
 $ asname 8.8.8.8
-IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States
+IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 ```
 
 The argument can equally be a hostname. Every address the name resolves to is looked up, one line each:
 
 ```bash
 $ asname dns.google
-Host: dns.google → IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States
-Host: dns.google → IP: 8.8.4.4 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States
+Host: dns.google | IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
+Host: dns.google | IP: 8.8.4.4 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 ```
 
 Or a URL, so you can paste one straight from a browser. The scheme, credentials, port, path, query and fragment are stripped and whatever host remains is looked up:
 
 ```bash
 $ asname 'https://dns.google:443/resolve?name=example.com'
-Host: dns.google → IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States
+Host: dns.google | IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 ```
 
 Or a file listing any mix of the above, one entry per line. Blank lines and `#` comments are ignored, and only the first field of a line is read, so columnar files work as they are:
@@ -156,9 +157,9 @@ $ cat hosts.txt
 https://github.com/anthropics
 
 $ asname hosts.txt
-IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States
-IP: 1.1.1.1 → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US → Country: AU, Australia
-Host: github.com → IP: 4.237.22.38 → ASN: AS8075 → Name: MICROSOFT-CORP-MSN-AS-BLOCK - Microsoft Corporation, US → Country: US, United States
+IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
+IP: 1.1.1.1 | ASN: AS13335 | Name: CLOUDFLARENET - Cloudflare, Inc., US | Country: AU, Australia
+Host: github.com | IP: 4.237.22.38 | ASN: AS8075 | Name: MICROSOFT-CORP-MSN-AS-BLOCK - Microsoft Corporation, US | Country: US, United States
 ```
 
 Entries that cannot be resolved are reported on stderr and the rest of the file is still printed; `asname` then exits non-zero. Names are resolved concurrently, so a long file is not paced by DNS latency.
@@ -169,7 +170,7 @@ Add `--reverse-dns` (or `-r`) to also send a reverse DNS query and include PTR n
 
 ```bash
 $ asname --reverse-dns 8.8.8.8
-IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Reverse DNS: dns.google
+IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Reverse DNS: dns.google
 ```
 
 ### ASN lookups
@@ -178,7 +179,7 @@ Pass an Autonomous System Number directly (`AS15169`, `asn13335`, or just `AS` f
 
 ```bash
 $ asname AS15169
-ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Category: cdn, content, hosting, vpn → Prefixes: 1415 announced (1239 IPv4, 176 IPv6)
+ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Category: cdn, content, hosting, vpn | Prefixes: 1415 announced (1239 IPv4, 176 IPv6)
 Announced Prefixes:
   8.8.4.0/24
   8.8.8.0/24
@@ -222,7 +223,7 @@ large. Enable it once with `--city` (or `-c`), which downloads it:
 
 ```bash
 $ asname --city 8.8.8.8
-IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → City: Mountain View, California
+IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | City: Mountain View, California
 ```
 
 After that the flag is not needed — the city is included whenever the database
@@ -230,7 +231,7 @@ is present, and refreshed along with everything else:
 
 ```bash
 $ asname 1.1.1.1
-IP: 1.1.1.1 → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US → Country: AU, Australia → City: Sydney, New South Wales
+IP: 1.1.1.1 | ASN: AS13335 | Name: CLOUDFLARENET - Cloudflare, Inc., US | Country: AU, Australia | City: Sydney, New South Wales
 ```
 
 Use `--no-city` to suppress it for one run, or delete `~/.asname/city.mmdb` to
@@ -256,7 +257,7 @@ them, enabled once with `--netblock` (or `-n`):
 
 ```bash
 $ asname --netblock 183.177.54.135
-IP: 183.177.54.135 → ASN: AS15830 → Name: Equinix Equinix (EMEA) Acquisition Enterprises B.V., NL → Country: AU, Australia → Netblock: SISS-SY4 (Secure Internet Storage Solutions)
+IP: 183.177.54.135 | ASN: AS15830 | Name: Equinix Equinix (EMEA) Acquisition Enterprises B.V., NL | Country: AU, Australia | Netblock: SISS-SY4 (Secure Internet Storage Solutions)
 ```
 
 Like the city, the flag is only needed once: from then on the netblock is
@@ -321,7 +322,7 @@ $ asname 8.8.8.8
 asname: 8.8.8.8 has no offline netblock: not every registry publishes owner data
 asname: in a form that can be indexed offline. Query whois over the network for
 asname: addresses like it? Either answer is remembered for an hour. [y/N] y
-IP: 8.8.8.8 → ASN: AS15169 → Name: GOOGLE - Google LLC, US → Country: US, United States → Netblock: GOGL (Google LLC) [whois]
+IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Netblock: GOGL (Google LLC) [whois]
 ```
 
 Every other lookup asname does is offline, so this one is asked about rather
@@ -374,16 +375,17 @@ is still found. Without the netblock database only the AS names are searched.
 
 ```bash
 $ asname search "Cloudflare"
-ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US → Country: US, United States
-ASN: AS14789 → Name: CLOUDFLARENET - Cloudflare, Inc., US → Country: US, United States
+ASN: AS13335 | Name: CLOUDFLARENET - Cloudflare, Inc., US | Country: US, United States | Prefixes: 1.0.0.0/24, 1.1.1.0/24, ...
+ASN: AS14789 | Name: CLOUDFLARENET - Cloudflare, Inc., US | Country: US, United States | Prefixes: ...
 ...
-Netblock: 1.0.0.0/24 → Org: APNIC and Cloudflare DNS Resolver project (APNIC-LABS) → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US
-Netblock: 1.1.1.0/24 → Org: APNIC and Cloudflare DNS Resolver project (APNIC-LABS) → ASN: AS13335 → Name: CLOUDFLARENET - Cloudflare, Inc., US
-Netblock: 27.111.242.236/30 → Org: Equinix Customer - CLOUDFLARE US, INC (CLOUDFLARE_US_INC) → ASN: AS15830 → Name: Equinix Equinix (EMEA) Acquisition Enterprises B.V., NL
+Netblock: 1.0.0.0/24 | Org: APNIC and Cloudflare DNS Resolver project (APNIC-LABS) | ASN: AS13335 | Name: CLOUDFLARENET - Cloudflare, Inc., US
+Netblock: 1.1.1.0/24 | Org: APNIC and Cloudflare DNS Resolver project (APNIC-LABS) | ASN: AS13335 | Name: CLOUDFLARENET - Cloudflare, Inc., US
+Netblock: 27.111.242.236/30 | Org: Equinix Customer - CLOUDFLARE US, INC (CLOUDFLARE_US_INC) | ASN: AS15830 | Name: Equinix Equinix (EMEA) Acquisition Enterprises B.V., NL
 ...
 ```
 
-Each netblock is enriched with the announcing ASN, operator name, and country.
+Each ASN lists the prefixes it announces, from the local prefix database, and
+each netblock is enriched with the announcing ASN, operator name, and country.
 An AS name match is made against the name without its trailing country code,
 so searching `us` does not return every AS in the United States.
 
@@ -395,7 +397,7 @@ netblocks by IP version:
 asname search --asns-only "Valve"
 asname search --netblocks-only "Valve"
 
-# Limit results (default 50 ASNs and 50 netblocks)
+# Limit results (default unlimited; caps the ASNs and the netblocks separately)
 asname search --limit 10 "Google"
 
 # Search IPv4 only or IPv6 only
@@ -405,7 +407,31 @@ asname search --v6-only "Amazon"
 # Output formats: pretty cards (--pretty) or JSON Lines (--json)
 asname search --pretty --limit 5 "Cloudflare"
 asname search --json "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + " " + .org'
+asname search --json --asns-only "Valve" | jq -r '.ipv4_prefixes[]?'
 ```
+
+### Listing a country's IP blocks
+
+`asname country` prints every block the country database assigns to a
+country as minimal CIDRs, one per line, IPv4 first. It takes a two-letter code
+or an English name, and several at once:
+
+```bash
+$ asname country AU
+1.0.0.0/24
+1.0.4.0/22
+1.1.1.0/24
+...
+
+asname country --v4-only "New Zealand" > nz.txt
+asname country AU NZ
+asname country --json AU        # {"country":"AU","cidr":"1.0.0.0/24","is_v6":false} per line
+asname country --pretty AU      # a card with IPv4 and IPv6 block counts
+```
+
+The country database is built from the RIRs' delegation statistics, so a
+block is listed under the country its holder registered it in, as the
+Country field of a lookup is. That is not always where the addresses are used.
 
 ### Network categories
 
@@ -415,10 +441,10 @@ university, Tor exit and so on.
 
 ```bash
 $ asname -C 13.32.0.1
-IP: 13.32.0.1 → ASN: AS16509 → Name: AMAZON-02 - Amazon.com, Inc., US → Country: US, United States → Category: cdn, cloud:aws
+IP: 13.32.0.1 | ASN: AS16509 | Name: AMAZON-02 - Amazon.com, Inc., US | Country: US, United States | Category: cdn, cloud:aws
 
 $ asname 139.130.4.5
-IP: 139.130.4.5 → ASN: AS1221 → Name: ASN-TELSTRA Telstra Limited, AU → Country: AU, Australia → Category: isp, mobile
+IP: 139.130.4.5 | ASN: AS1221 | Name: ASN-TELSTRA Telstra Limited, AU | Country: AU, Australia | Category: isp, mobile
 ```
 
 Like the other optional databases, the flag is needed once; after that its
@@ -492,7 +518,7 @@ Add `--uniform` (or `-u`) to print aligned fields:
 
 ```bash
 $ asname -u -r 8.8.8.8
-IP: 8.8.8.8                                → ASN: AS15169      → Name: GOOGLE - Google LLC, US                                      → Country: US, United States         → Reverse DNS: dns.google
+IP: 8.8.8.8                                | ASN: AS15169      | Name: GOOGLE - Google LLC, US                                      | Country: US, United States         | Reverse DNS: dns.google
 ```
 
 ### Pretty mode
