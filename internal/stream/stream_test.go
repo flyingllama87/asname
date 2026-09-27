@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -76,4 +78,34 @@ func TestRunStreamDefaultFormat(t *testing.T) {
 
 	out := w.String()
 	require.Equal(t, "IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States\n", out)
+}
+
+// endlessLines yields "8.8.8.8" lines forever, like a producer that never
+// closes its end of the pipe.
+type endlessLines struct{}
+
+func (endlessLines) Read(p []byte) (int, error) {
+	const line = "8.8.8.8\n"
+	n := 0
+	for n+len(line) <= len(p) {
+		n += copy(p[n:], line)
+	}
+	return n, nil
+}
+
+func TestRunStreamStopsOnCancel(t *testing.T) {
+	eng := engine.NewTestEngine(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- RunStream(ctx, endlessLines{}, io.Discard, eng, StreamOptions{Workers: 2})
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunStream kept reading input after its context was cancelled")
+	}
 }

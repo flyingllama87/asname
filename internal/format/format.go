@@ -150,4 +150,3 @@ func FormatNetblockOutput(res engine.NetblockEnrichedResult, uniform bool) strin
 	}
 	return strings.Join(parts, FieldSeparator) + "\n"
 }
-

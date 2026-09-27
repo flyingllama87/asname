@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -408,7 +409,7 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 }
 
 func (d *NetblockDB) searchStrings(query string) (map[uint32]string, error) {
-	queryLower := []byte(strings.ToLower(query))
+	m := newFoldMatcher(query)
 	matched := make(map[uint32]string)
 
 	buf := make([]byte, 1024*1024)
@@ -433,9 +434,14 @@ func (d *NetblockDB) searchStrings(query string) (map[uint32]string, error) {
 				curStr = append(curStr, chunk[idx:]...)
 				break
 			}
-			curStr = append(curStr, chunk[idx:idx+nullIdx]...)
-			if bytes.Contains(bytes.ToLower(curStr), queryLower) {
-				matched[strStartOff] = string(curStr)
+			str := chunk[idx : idx+nullIdx]
+			if len(curStr) > 0 {
+				// The string began in the previous chunk.
+				curStr = append(curStr, str...)
+				str = curStr
+			}
+			if m.match(str) {
+				matched[strStartOff] = string(str)
 			}
 			idx += nullIdx + 1
 			strStartOff = uint32(filePos + int64(idx))
@@ -447,6 +453,64 @@ func (d *NetblockDB) searchStrings(query string) (map[uint32]string, error) {
 		}
 	}
 	return matched, nil
+}
+
+// foldMatcher reports whether a string contains a query, ignoring case. An
+// ASCII query is matched by folding bytes as it compares them, so the search
+// does not allocate a lower-cased copy of each of the millions of strings;
+// any other query falls back to bytes.ToLower.
+type foldMatcher struct {
+	query []byte // lower-cased
+	ascii bool
+}
+
+func newFoldMatcher(query string) foldMatcher {
+	m := foldMatcher{query: []byte(strings.ToLower(query)), ascii: true}
+	for _, c := range m.query {
+		if c >= utf8.RuneSelf {
+			m.ascii = false
+			break
+		}
+	}
+	return m
+}
+
+func (m foldMatcher) match(s []byte) bool {
+	q := m.query
+	if !m.ascii {
+		return bytes.Contains(bytes.ToLower(s), q)
+	}
+	if len(q) == 0 {
+		return true
+	}
+	first, firstUpper := q[0], upperASCII(q[0])
+	for i := 0; i+len(q) <= len(s); i++ {
+		if c := s[i]; c != first && c != firstUpper {
+			continue
+		}
+		j := 1
+		for j < len(q) && lowerASCII(s[i+j]) == q[j] {
+			j++
+		}
+		if j == len(q) {
+			return true
+		}
+	}
+	return false
+}
+
+func lowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
+func upperASCII(c byte) byte {
+	if 'a' <= c && c <= 'z' {
+		return c - ('a' - 'A')
+	}
+	return c
 }
 
 func decBytes16(b [16]byte) [16]byte {
@@ -529,4 +593,3 @@ func IPv6RangeToCIDRs(start, end [16]byte) []string {
 	}
 	return cidrs
 }
-

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/flyingllama87/asname/internal/engine"
+	"github.com/flyingllama87/asname/internal/sources"
 )
 
 type JSONLookupResult struct {
@@ -276,6 +277,23 @@ func FormatJSONCountryPrefix(cc, cidr string, isV6 bool) (string, error) {
 	return string(data) + "\n", nil
 }
 
+// JSONCityPrefix is one CIDR block of a city listing.
+type JSONCityPrefix struct {
+	City    string `json:"city"`
+	Region  string `json:"region,omitempty"`
+	Country string `json:"country"`
+	CIDR    string `json:"cidr"`
+	IsV6    bool   `json:"is_v6"`
+}
+
+func FormatJSONCityPrefix(p sources.CityPlace, cidr string, isV6 bool) (string, error) {
+	data, err := json.Marshal(JSONCityPrefix{City: p.City, Region: p.Region, Country: p.Country, CIDR: cidr, IsV6: isV6})
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
 // JSONNetblockSearchResult is one netblock search match. Type is always
 // "netblock".
 type JSONNetblockSearchResult struct {
@@ -314,4 +332,3 @@ func FormatJSONNetblockOutput(res engine.NetblockEnrichedResult) (string, error)
 	}
 	return string(data) + "\n", nil
 }
-

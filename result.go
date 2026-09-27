@@ -149,6 +149,16 @@ type CountryResult struct {
 	IPv6    []string `json:"ipv6,omitempty"`
 }
 
+// CityResult lists the CIDR blocks the city database locates in one place.
+// Country is the upper-case ISO code.
+type CityResult struct {
+	City    string   `json:"city"`
+	Region  string   `json:"region,omitempty"`
+	Country string   `json:"country"`
+	IPv4    []string `json:"ipv4,omitempty"`
+	IPv6    []string `json:"ipv6,omitempty"`
+}
+
 // SearchScope selects what Search looks through.
 type SearchScope int
 

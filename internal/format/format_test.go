@@ -131,7 +131,6 @@ func TestFormatNetblockOutput(t *testing.T) {
 	require.Equal(t, "Netblock: 8.8.8.0/24 | Org: Google LLC (GOGL) | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States\n", got)
 }
 
-
 func TestFormatASNSearchOutput(t *testing.T) {
 	res := engine.ASNSearchResult{Number: 15169, ASN: "AS15169", Name: "GOOGLE - Google LLC, US", Country: "US, United States"}
 	require.Equal(t, "ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States\n", FormatASNSearchOutput(res))

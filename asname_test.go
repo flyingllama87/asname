@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/flyingllama87/asname/internal/engine"
+	"github.com/flyingllama87/asname/internal/fixture"
 	"github.com/flyingllama87/asname/internal/sources"
 	"github.com/flyingllama87/asname/pkg/database"
 )
@@ -377,4 +378,29 @@ func TestClient_CountryPrefixes(t *testing.T) {
 
 	_, err = client.CountryPrefixes("Atlantis")
 	assert.Error(t, err)
+}
+
+func TestClient_CityPrefixes(t *testing.T) {
+	dir := createTestEnv(t)
+	client, err := New(WithDataDir(dir))
+	require.NoError(t, err)
+	_, err = client.CityPrefixes("Brisbane")
+	assert.ErrorContains(t, err, "city database is not open")
+	client.Close()
+
+	require.NoError(t, fixture.WriteCityDB(filepath.Join(dir, sources.CityFilename), []fixture.CityNetwork{
+		{CIDR: "1.0.0.0/24", City: map[string]string{"en": "Brisbane"}, Region: "Queensland", Country: "AU"},
+		{CIDR: "1.0.1.0/24", City: map[string]string{"en": "Brisbane"}, Region: "California", Country: "US"},
+	}))
+	client, err = New(WithDataDir(dir))
+	require.NoError(t, err)
+	defer client.Close()
+
+	got, err := client.CityPrefixes("brisbane, au")
+	require.NoError(t, err)
+	assert.Equal(t, []CityResult{{City: "Brisbane", Region: "Queensland", Country: "AU", IPv4: []string{"1.0.0.0/24"}}}, got)
+
+	got, err = client.CityPrefixes("Brisbane")
+	require.NoError(t, err)
+	assert.Len(t, got, 2)
 }

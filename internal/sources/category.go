@@ -118,7 +118,6 @@ func (d *CategoryDB) LookupASN(asn uint32) string {
 	return strings.Join(out, ", ")
 }
 
-
 func (d *CategoryDB) collect(i uint32, tags map[string]bool) {
 	if i == 0 || int(i) >= len(d.sets) {
 		return

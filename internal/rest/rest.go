@@ -462,4 +462,3 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		ASNs:     asnResults,
 	})
 }
-

@@ -230,6 +230,29 @@ func (c *Client) CountryPrefixes(country string) (CountryResult, error) {
 	return CountryResult{Country: cc, Name: sources.CountryNames[cc], IPv4: v4, IPv6: v6}, nil
 }
 
+// CityPrefixes returns every place whose city is named city, with the CIDR
+// blocks the city database locates there, the place with the most networks
+// first. A name several places share returns them all; add ", " and a region,
+// country code or country name to pick one, as in "Brisbane, AU". It needs the
+// city database, which New loads when it is present or WithCity(true) is set.
+func (c *Client) CityPrefixes(city string) ([]CityResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return nil, ErrClosed
+	}
+
+	places, err := c.eng.CityPrefixes(city)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CityResult, len(places))
+	for i, p := range places {
+		out[i] = CityResult{City: p.City, Region: p.Region, Country: p.Country, IPv4: p.IPv4, IPv6: p.IPv6}
+	}
+	return out, nil
+}
+
 // SearchNetblocks searches the registry netblock database by organization name or netname.
 func (c *Client) SearchNetblocks(query string, opts SearchOptions) ([]NetblockResult, error) {
 	c.mu.RLock()

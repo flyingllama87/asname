@@ -11,6 +11,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **ASN & Prefix Lookups**: Query any ASN (`AS15169`) to see its owner, country, classification, and all announced IPv4/IPv6 prefixes.
 - **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs with their announced prefixes, IP ranges and CIDRs.
 - **Country Listings**: List every IP block registered to a country as CIDRs (`asname country AU`), ready for a firewall or allowlist.
+- **City Listings**: List every IP block the city database locates in a city (`asname city "Brisbane, AU"`).
 - **Pretty Cards & JSONL**: Format results as clean multi-line cards (`--pretty`) or streamable JSON objects (`--json`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
@@ -429,9 +430,40 @@ asname country --json AU        # {"country":"AU","cidr":"1.0.0.0/24","is_v6":fa
 asname country --pretty AU      # a card with IPv4 and IPv6 block counts
 ```
 
+Adjacent blocks are merged, so the list is already as short as it can be
+without taking in addresses registered to another country.
+
 The country database is built from the RIRs' delegation statistics, so a
 block is listed under the country its holder registered it in, as the
 Country field of a lookup is. That is not always where the addresses are used.
+
+### Listing a city's IP blocks
+
+`asname city` prints every block the city database locates in a city, as
+minimal CIDRs, one per line, IPv4 first. It needs the city database (~125MB;
+`asname update --city-only`). A name several places share lists them all and
+names each on stderr; add a region, country code or country name after a comma
+to pick one. Region names are the database's full names (`Queensland`, not
+`QLD`), and city names are English (`Munich`, not `München`).
+
+```bash
+$ asname city Brisbane
+asname: "Brisbane" matches 2 places, so all are listed; add a region or country to pick one:
+asname:   Brisbane, Queensland, AU (13826 blocks)
+asname:   Brisbane, California, US (49 blocks)
+1.44.93.0/24
+...
+
+asname city "Brisbane, AU" > brisbane.txt
+asname city --v4-only "Brisbane, Queensland"
+asname city --json "Brisbane, AU"    # {"city":"Brisbane","region":"Queensland","country":"AU","cidr":"1.44.93.0/24","is_v6":false} per line
+asname city --pretty Munich         # a card with IPv4 and IPv6 block counts
+```
+
+The city database is DB-IP Lite geolocation: estimates, mostly at /24
+granularity, of where addresses are used. Expect some of a city's blocks to be
+missing or placed in a neighbouring city. A listing reads the whole database,
+so it takes a couple of seconds.
 
 ### Network categories
 

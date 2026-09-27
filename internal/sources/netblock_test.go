@@ -365,3 +365,33 @@ func TestIPv4RangeToCIDRs(t *testing.T) {
 	require.Equal(t, []string{"8.8.8.0/25"}, cidrs2)
 }
 
+func TestFoldMatcher(t *testing.T) {
+	tests := []struct {
+		query, s string
+		want     bool
+	}{
+		{"google", "GOOGLE LLC", true},
+		{"Google", "google-cloud", true},
+		{"gOoGlE", "Alphabet (Google)", true},
+		{"ggl", "GOOGLE", false},
+		{"llc", "LL", false},
+		{"", "anything", true},
+		{"amazon", "Amazon.com, Inc.", true},
+		{"a-b", "X A-B Y", true},
+		{"@", "`", false},
+		{"münchen", "Stadtwerke MÜNCHEN", true},
+		{"müller", "Mueller", false},
+	}
+	for _, tt := range tests {
+		got := newFoldMatcher(tt.query).match([]byte(tt.s))
+		require.Equal(t, tt.want, got, "query %q in %q", tt.query, tt.s)
+	}
+}
+
+func BenchmarkFoldMatcher(b *testing.B) {
+	m := newFoldMatcher("cloudflare")
+	s := []byte("CHINANET-GUANGDONG-PROVINCE-NETWORK Data Communication Division")
+	for i := 0; i < b.N; i++ {
+		m.match(s)
+	}
+}

@@ -78,6 +78,20 @@ asname country -p AU
 asname country -j AU NZ
 ```
 
+### City Listing (`city`)
+```bash
+# Every CIDR the city database locates in a city (needs `asname update --city-only`)
+asname city "Brisbane, AU"
+asname city --v4-only "Brisbane, Queensland" > bne.txt
+
+# A shared name lists every place and names them on stderr
+asname city Brisbane
+
+# Formats: pretty card per place, or JSON Lines
+asname city -p "Brisbane, AU"
+asname city -j "Brisbane, AU" | jq -r .cidr
+```
+
 ### Enriching with Optional Databases
 ```bash
 # Reverse DNS PTR records
@@ -229,7 +243,10 @@ matches, err := client.Search("Valve", asname.SearchOptions{Limit: 10})
 // 6. Every CIDR registered to a country: au.IPv4, au.IPv6
 au, err := client.CountryPrefixes("AU")
 
-// 7. Refresh databases missing or older than 30 days; returns the paths rewritten
+// 7. Every CIDR the city database locates in a city, one result per place
+places, err := client.CityPrefixes("Brisbane, AU")
+
+// 8. Refresh databases missing or older than 30 days; returns the paths rewritten
 refreshed, err := asname.UpdateStale(ctx, asname.UpdateOptions{}, 720*time.Hour)
 ```
 

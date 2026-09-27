@@ -399,6 +399,15 @@ func (e *Engine) CountryPrefixes(country string) (cc string, v4, v6 []string, er
 	return cc, v4, v6, err
 }
 
+// CityPrefixes lists the blocks the city database locates in each place whose
+// city is named query; see sources.CityPrefixes.
+func (e *Engine) CityPrefixes(query string) ([]sources.CityPlace, error) {
+	if e.cityDB == nil {
+		return nil, fmt.Errorf("city database is not open (run `asname update --city-only`)")
+	}
+	return sources.CityPrefixes(e.cityDB, query)
+}
+
 // NetblockEnrichedResult represents a netblock search result enriched with ASN and Country data.
 type NetblockEnrichedResult struct {
 	sources.NetblockSearchResult

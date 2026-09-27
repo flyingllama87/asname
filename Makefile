@@ -59,7 +59,8 @@ $(BUILDDIR)/asname: deps
 release:
 	$(MAKE) clean
 	$(MAKE) build
-	tar -zcf asname-$(GOOS)-$(GOARCH)-v$(VERSION).tar.gz -C $(BUILDDIR) .
+	cp -f README.md CHEATSHEET.md LICENSE NOTICE $(BUILDDIR)/
+	tar -zcf asname-$(GOOS)-$(GOARCH)-v$(VERSION).tar.gz -C $(BUILDDIR) asname README.md CHEATSHEET.md LICENSE NOTICE
 
 .PHONY: release-all
 release-all:

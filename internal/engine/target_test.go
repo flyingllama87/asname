@@ -201,4 +201,3 @@ func TestNewTargetASN(t *testing.T) {
 	require.Empty(t, gotNum.Host)
 	require.Empty(t, gotNum.IPs)
 }
-

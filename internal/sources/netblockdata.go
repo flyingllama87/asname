@@ -333,6 +333,23 @@ func isUnspecifiedV6Range(start, end net.IP) bool {
 	return true
 }
 
+// NetblockRecord is one registry range for WriteNetblockDB.
+type NetblockRecord struct {
+	Start, End   net.IP
+	Netname, Org string
+}
+
+// WriteNetblockDB writes records to a netblock database at path. It exists for
+// test fixtures; UpdateNetblockDB builds the real database from registry dumps.
+func WriteNetblockDB(path string, records []NetblockRecord) error {
+	b := newNetblockBuilder()
+	for _, r := range records {
+		b.add(r.Start, r.End, r.Netname, r.Org)
+	}
+	_, err := b.write(path)
+	return err
+}
+
 func (b *netblockBuilder) write(path string) (int64, error) {
 	if len(b.blob) > math.MaxUint32 {
 		return 0, fmt.Errorf("string table too large: %d bytes", len(b.blob))

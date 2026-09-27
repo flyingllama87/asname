@@ -9,7 +9,6 @@ import (
 	"encoding"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 
 	"github.com/flyingllama87/asname/pkg/binarytrie"
@@ -61,7 +60,7 @@ func NewFromDump(r io.Reader) (Database, error) {
 	d := &database{
 		mappings: binarytrie.NewArrayTrie(),
 	}
-	data, err := ioutil.ReadAll(r)
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read: %v", err)
 	}

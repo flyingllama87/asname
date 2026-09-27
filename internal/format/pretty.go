@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/flyingllama87/asname/internal/engine"
+	"github.com/flyingllama87/asname/internal/sources"
 )
 
 const (
@@ -287,14 +288,29 @@ func FormatPrettyASNSearchOutput(res engine.ASNSearchResult, index, total int, c
 // FormatPrettyCountryOutput renders a country's CIDR blocks in card format.
 // country is "CC, Country Name" or a bare code.
 func FormatPrettyCountryOutput(country string, v4, v6 []string, index, total int, colored bool) string {
+	return formatPrettyBlocks("Country:", FormatCountryPretty(country), v4, v6, index, total, colored)
+}
+
+// FormatPrettyCityOutput renders a place's blocks from a city listing as a card.
+func FormatPrettyCityOutput(p sources.CityPlace, index, total int, colored bool) string {
+	label := sources.FormatCity(p.City, p.Region)
+	if name := sources.CountryNames[p.Country]; name != "" {
+		label += ", " + name + " (" + p.Country + ")"
+	} else if p.Country != "" {
+		label += ", " + p.Country
+	}
+	return formatPrettyBlocks("City:", label, p.IPv4, p.IPv6, index, total, colored)
+}
+
+func formatPrettyBlocks(title, label string, v4, v6 []string, index, total int, colored bool) string {
 	st := newPrettyStyler(colored)
 	var b strings.Builder
 
 	borderLine := st.border("────────────────────────────────────────────────────────────")
 	if total > 1 {
-		b.WriteString(fmt.Sprintf("%s [%d/%d] %s\n", st.header("Country:"), index+1, total, st.location(FormatCountryPretty(country))))
+		b.WriteString(fmt.Sprintf("%s [%d/%d] %s\n", st.header(title), index+1, total, st.location(label)))
 	} else {
-		b.WriteString(fmt.Sprintf("%s %s\n", st.header("Country:"), st.location(FormatCountryPretty(country))))
+		b.WriteString(fmt.Sprintf("%s %s\n", st.header(title), st.location(label)))
 	}
 	b.WriteString(borderLine + "\n")
 	for _, family := range []struct {
@@ -361,4 +377,3 @@ func FormatPrettyNetblockOutput(res engine.NetblockEnrichedResult, index, total 
 	b.WriteString(borderLine + "\n\n")
 	return b.String()
 }
-

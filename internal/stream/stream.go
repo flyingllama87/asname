@@ -59,10 +59,11 @@ func RunStream(ctx context.Context, r io.Reader, w io.Writer, eng *engine.Engine
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	scanErr := error(nil)
+scan:
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			break
+			break scan
 		default:
 		}
 
@@ -75,7 +76,7 @@ func RunStream(ctx context.Context, r io.Reader, w io.Writer, eng *engine.Engine
 		t := engine.NewTarget(entry)
 		select {
 		case <-ctx.Done():
-			break
+			break scan
 		case targetsCh <- t:
 		}
 	}
