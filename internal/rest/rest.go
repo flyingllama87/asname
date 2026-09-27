@@ -431,7 +431,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	asnResults := make([]format.JSONASNSearchResult, 0)
 	if scope != "netblocks" {
-		for _, res := range s.eng.SearchASNs(query, limit) {
+		for _, res := range s.eng.SearchASNs(query, limit, v4Only, v6Only) {
 			asnResults = append(asnResults, format.NewJSONASNSearchResult(res))
 		}
 	}

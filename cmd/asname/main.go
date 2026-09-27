@@ -63,8 +63,8 @@ SEARCH:
    --limit value, -l value        maximum number of ASNs, and of netblocks, to display (default: unlimited)
    --asns-only                    only search AS names
    --netblocks-only               only search registry netblocks
-   --v4-only                      only display IPv4 netblocks in search
-   --v6-only                      only display IPv6 netblocks in search
+   --v4-only                      only display IPv4 netblocks and ASN prefixes in search
+   --v6-only                      only display IPv6 netblocks and ASN prefixes in search
 
 DATA FILES & AUTO-UPDATE:
    --dir directory, -d directory  data directory holding the ASN database and name file (default: "/home/mj12/.asname") [$ASNAME_DIR]
@@ -190,11 +190,11 @@ DATA FILES & AUTO-UPDATE:
 			},
 			&cli.BoolFlag{
 				Name:  "v4-only",
-				Usage: "only display IPv4 netblocks in search",
+				Usage: "only display IPv4 netblocks and ASN prefixes in search",
 			},
 			&cli.BoolFlag{
 				Name:  "v6-only",
-				Usage: "only display IPv6 netblocks in search",
+				Usage: "only display IPv6 netblocks and ASN prefixes in search",
 			},
 			&cli.StringFlag{
 				Name:    "dir",
@@ -507,11 +507,11 @@ var searchCommand = &cli.Command{
 		},
 		&cli.BoolFlag{
 			Name:  "v4-only",
-			Usage: "only display IPv4 netblocks",
+			Usage: "only display IPv4 netblocks and ASN prefixes",
 		},
 		&cli.BoolFlag{
 			Name:  "v6-only",
-			Usage: "only display IPv6 netblocks",
+			Usage: "only display IPv6 netblocks and ASN prefixes",
 		},
 		&cli.BoolFlag{
 			Name:  "color",
@@ -574,8 +574,9 @@ func runSearch(ctx *cli.Context, query string) error {
 	if asnsOnly && netblocksOnly {
 		return fmt.Errorf("--asns-only and --netblocks-only are mutually exclusive")
 	}
-	if asnsOnly && (ctx.Bool("v4-only") || ctx.Bool("v6-only")) {
-		return fmt.Errorf("--v4-only and --v6-only filter netblocks and cannot be used with --asns-only")
+	v4Only, v6Only := ctx.Bool("v4-only"), ctx.Bool("v6-only")
+	if v4Only && v6Only {
+		return fmt.Errorf("--v4-only and --v6-only are mutually exclusive")
 	}
 
 	cfg := newConfig(ctx)
@@ -601,15 +602,15 @@ func runSearch(ctx *cli.Context, query string) error {
 
 	var asns []engine.ASNSearchResult
 	if !netblocksOnly {
-		asns = eng.SearchASNs(query, limit)
+		asns = eng.SearchASNs(query, limit, v4Only, v6Only)
 	}
 
 	var netblocks []engine.NetblockEnrichedResult
 	if wantNetblock {
 		netblocks, err = eng.SearchNetblocks(query, sources.NetblockSearchOptions{
 			Limit:  limit,
-			V4Only: ctx.Bool("v4-only"),
-			V6Only: ctx.Bool("v6-only"),
+			V4Only: v4Only,
+			V6Only: v6Only,
 		})
 		if err != nil {
 			return err

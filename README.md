@@ -389,8 +389,8 @@ each netblock is enriched with the announcing ASN, operator name, and country.
 An AS name match is made against the name without its trailing country code,
 so searching `us` does not return every AS in the United States.
 
-You can restrict the search to one kind, customize the result limit and filter
-netblocks by IP version:
+You can restrict the search to one kind, customize the result limit and keep
+only IPv4 or IPv6 netblocks and ASN prefixes:
 
 ```bash
 # Only AS names, or only registry netblocks
@@ -400,7 +400,7 @@ asname search --netblocks-only "Valve"
 # Limit results (default unlimited; caps the ASNs and the netblocks separately)
 asname search --limit 10 "Google"
 
-# Search IPv4 only or IPv6 only
+# IPv4 only or IPv6 only (netblocks and ASN prefixes; ASNs stay listed)
 asname search --v4-only "Fastly"
 asname search --v6-only "Amazon"
 

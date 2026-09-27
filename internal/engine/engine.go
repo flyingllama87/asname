@@ -340,8 +340,9 @@ type ASNSearchResult struct {
 // carries its announced prefixes when the prefix database is open; they are
 // never fetched online, as one search can match hundreds of ASNs. The
 // trailing country code of a name is not searched, so a query such as "us"
-// does not match every AS registered in the United States.
-func (e *Engine) SearchASNs(query string, limit int) []ASNSearchResult {
+// does not match every AS registered in the United States. v4Only and v6Only
+// keep only the prefixes of that family; the ASNs themselves are kept.
+func (e *Engine) SearchASNs(query string, limit int, v4Only, v6Only bool) []ASNSearchResult {
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
 		return nil
@@ -368,6 +369,12 @@ func (e *Engine) SearchASNs(query string, limit int) []ASNSearchResult {
 		results[i] = ASNSearchResult{Number: asn, ASN: fmt.Sprintf("AS%d", asn), Name: name, Country: country}
 		if e.prefixDB != nil {
 			if pr, err := e.prefixDB.Lookup(asn); err == nil {
+				if v4Only {
+					pr.IPv6 = nil
+				}
+				if v6Only {
+					pr.IPv4 = nil
+				}
 				results[i].Prefixes = pr.All()
 				results[i].IPv4Prefixes = pr.IPv4
 				results[i].IPv6Prefixes = pr.IPv6

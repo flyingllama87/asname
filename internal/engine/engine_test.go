@@ -2,9 +2,12 @@ package engine
 
 import (
 	"net"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/flyingllama87/asname/internal/sources"
 )
 
 func TestEngineLookupNormalizesFourByteIPv4(t *testing.T) {
@@ -73,16 +76,45 @@ func TestEngineSearchASNs(t *testing.T) {
 		64500:  "NO-COUNTRY",
 	}
 
-	got := eng.SearchASNs("google llc", 0)
+	got := eng.SearchASNs("google llc", 0, false, false)
 	require.Len(t, got, 2)
 	require.Equal(t, ASNSearchResult{Number: 15169, ASN: "AS15169", Name: "GOOGLE - Google LLC, US", Country: "US, United States"}, got[0])
 	require.Equal(t, uint32(396982), got[1].Number)
 
-	require.Len(t, eng.SearchASNs("Google", 1), 1)
-	require.Empty(t, eng.SearchASNs("us", 0), "the country code is not searched")
-	require.Empty(t, eng.SearchASNs("  ", 0))
+	require.Len(t, eng.SearchASNs("Google", 1, false, false), 1)
+	require.Empty(t, eng.SearchASNs("us", 0, false, false), "the country code is not searched")
+	require.Empty(t, eng.SearchASNs("  ", 0, false, false))
 
-	nc := eng.SearchASNs("no-country", 0)
+	nc := eng.SearchASNs("no-country", 0, false, false)
 	require.Len(t, nc, 1)
 	require.Equal(t, "Unknown", nc[0].Country)
+}
+
+func TestEngineSearchASNsFiltersPrefixFamily(t *testing.T) {
+	b := sources.NewPrefixDBBuilder()
+	for _, cidr := range []string{"8.8.8.0/24", "2001:4860::/32"} {
+		_, n, err := net.ParseCIDR(cidr)
+		require.NoError(t, err)
+		b.Add(15169, n)
+	}
+	path := filepath.Join(t.TempDir(), "prefixes.db")
+	_, err := b.Write(path)
+	require.NoError(t, err)
+	pdb, err := sources.OpenPrefixDB(path)
+	require.NoError(t, err)
+	defer pdb.Close()
+
+	eng := NewTestEngine(t)
+	eng.prefixDB = pdb
+
+	all := eng.SearchASNs("google", 0, false, false)
+	require.Equal(t, []string{"8.8.8.0/24", "2001:4860::/32"}, all[0].Prefixes)
+
+	v4 := eng.SearchASNs("google", 0, true, false)
+	require.Equal(t, []string{"8.8.8.0/24"}, v4[0].Prefixes)
+	require.Empty(t, v4[0].IPv6Prefixes)
+
+	v6 := eng.SearchASNs("google", 0, false, true)
+	require.Equal(t, []string{"2001:4860::/32"}, v6[0].Prefixes)
+	require.Empty(t, v6[0].IPv4Prefixes)
 }

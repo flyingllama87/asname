@@ -162,8 +162,9 @@ const (
 )
 
 // SearchOptions controls search filters and limits. Limit caps the ASNs and
-// the netblocks separately (0 for unlimited); V4Only and V6Only filter
-// netblocks only. Scope is used by Search and ignored by SearchNetblocks.
+// the netblocks separately (0 for unlimited); V4Only and V6Only keep only
+// netblocks, and ASN prefixes, of that family. Scope is used by Search and
+// ignored by SearchNetblocks.
 type SearchOptions struct {
 	Limit  int
 	V4Only bool

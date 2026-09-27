@@ -58,7 +58,7 @@ asname search --netblocks-only "Valve"
 # Search using --org / -O flag with custom result limit
 asname -O "Google" --limit 10
 
-# Search IPv4 only or IPv6 only
+# IPv4 only or IPv6 only (netblocks and ASN prefixes)
 asname search --v4-only "Fastly"
 asname search --v6-only "Amazon"
 
