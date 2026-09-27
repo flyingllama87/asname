@@ -23,6 +23,12 @@ type builder struct {
 	prototype   *binarytrie.NaiveTrie
 	fillFactor  float32
 	mappingHook MappingHook
+	ipv4Only    bool
+}
+
+// SetIPv4Only makes ImportMRT pass over IPv6 routes instead of storing them.
+func (b *builder) SetIPv4Only(v4Only bool) {
+	b.ipv4Only = v4Only
 }
 
 // SetMappingHook registers a callback invoked for every imported prefix and ASN.
@@ -135,6 +141,9 @@ func (b *builder) ImportMRT(input io.Reader) (int, error) {
 
 		prefix, asn, err := mrtRIBToMapping(rib)
 		if err != nil {
+			continue
+		}
+		if b.ipv4Only && prefix.IP.To4() == nil {
 			continue
 		}
 		if err := b.InsertMapping(prefix, asn); err != nil {

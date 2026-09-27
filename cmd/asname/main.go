@@ -57,6 +57,8 @@ OPTIONAL LOOKUPS & METADATA:
    --no-netblock                  omit the netblock even when the netblock database is present
    --whois                        look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking [$ASNAME_WHOIS]
    --no-whois                     never query whois, and do not ask
+   --online-prefixes              ask RIPEstat for the prefixes of an ASN the offline prefix database lacks, without asking [$ASNAME_ONLINE_PREFIXES]
+   --no-online-prefixes           never ask RIPEstat for prefixes, and do not ask
    --category, -C                 include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag
    --no-category                  omit the category even when the category database is present
 
@@ -192,6 +194,17 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{
 				Name:  "no-whois",
 				Usage: "never query whois, and do not ask",
+				Local: true,
+			},
+			&cli.BoolFlag{
+				Name:    "online-prefixes",
+				Sources: cli.EnvVars("ASNAME_ONLINE_PREFIXES"),
+				Usage:   "ask RIPEstat for the prefixes of an ASN the offline prefix database lacks, without asking",
+				Local:   true,
+			},
+			&cli.BoolFlag{
+				Name:  "no-online-prefixes",
+				Usage: "never ask RIPEstat for prefixes, and do not ask",
 				Local: true,
 			},
 			&cli.BoolFlag{
@@ -347,6 +360,9 @@ func newConfig(cmd *cli.Command) sources.Config {
 	c.CachePath = filepath.Join(dir, sources.CacheDirName)
 	c.ConsentPath = filepath.Join(dir, sources.WhoisConsentFilename)
 	c.ContactPath = filepath.Join(dir, sources.ContactFilename)
+	c.PrefixConsentPath = filepath.Join(dir, sources.OnlinePrefixConsentFilename)
+	c.IPv6Path = filepath.Join(dir, sources.IPv6MarkerFilename)
+	c.IPv6 = sources.IPv6RoutesEnabled(c)
 	return c
 }
 
@@ -415,11 +431,25 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
+	// RIPEstat is asked about like whois: on a terminal by default, and in
+	// stream and REST modes only when opted into.
+	onlinePrefixes := sources.WhoisAsk
+	if isStream || isREST {
+		onlinePrefixes = sources.WhoisNever
+	}
+	switch {
+	case cmd.Bool("no-online-prefixes"):
+		onlinePrefixes = sources.WhoisNever
+	case cmd.Bool("online-prefixes"):
+		onlinePrefixes = sources.WhoisAlways
+	}
+
 	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, whois, cmd.Root().ErrWriter)
 	if err != nil {
 		return err
 	}
 	defer eng.Close()
+	eng.SetOnlinePrefixes(onlinePrefixes)
 
 	if isREST {
 		server := rest.NewServer(eng, cmd.String("listen"), cmd.Bool("cors"), cmd.Bool("reverse-dns"), version)
@@ -976,6 +1006,15 @@ func updateCommand() *cli.Command {
 				Name:  "rib-url",
 				Usage: "download the RIB MRT dump from this `URL` (.bz2 or .gz) instead of trying RouteViews then RIPE RIS",
 			},
+			&cli.BoolFlag{
+				Name:    "ipv6",
+				Sources: cli.EnvVars("ASNAME_IPV6"),
+				Usage:   "also import IPv6 routes into the ASN and prefix databases (~25MB more from RouteViews); later updates keep doing so",
+			},
+			&cli.BoolFlag{
+				Name:  "no-ipv6",
+				Usage: "import IPv4 routes only, undoing an earlier --ipv6",
+			},
 		},
 		Action: updateAction,
 	}
@@ -983,6 +1022,14 @@ func updateCommand() *cli.Command {
 
 func updateAction(ctx context.Context, cmd *cli.Command) error {
 	cfg := newConfig(cmd)
+	switch {
+	case cmd.Bool("ipv6") && cmd.Bool("no-ipv6"):
+		return fmt.Errorf("--ipv6 and --no-ipv6 are mutually exclusive")
+	case cmd.Bool("ipv6"):
+		cfg.IPv6 = true
+	case cmd.Bool("no-ipv6"):
+		cfg.IPv6 = false
+	}
 	rctx := sources.WithLog(ctx, cmd.Root().ErrWriter)
 	for _, dir := range []string{cfg.DBPath, cfg.NamesPath, cfg.CountryPath, cfg.CityPath, cfg.NetblockPath, cfg.CategoryPath, cfg.PrefixPath} {
 		if dir != "" {
@@ -1055,7 +1102,7 @@ func versionAction(ctx context.Context, cmd *cli.Command) error {
 	now := time.Now()
 
 	if cmd.Bool("json") {
-		line, err := format.FormatJSONVersion(version, cmd.String("dir"), maxAge, dbs, now)
+		line, err := format.FormatJSONVersion(version, cmd.String("dir"), maxAge, cfg.IPv6, dbs, now)
 		if err != nil {
 			return err
 		}
@@ -1094,6 +1141,11 @@ func versionAction(ctx context.Context, cmd *cli.Command) error {
 			fmt.Fprint(out, "  stale: refreshed on the next lookup")
 		}
 		fmt.Fprintln(out)
+	}
+	if cfg.IPv6 {
+		fmt.Fprintln(out, "\nIPv6 routes: on (`asname update --no-ipv6` to stop importing them)")
+	} else {
+		fmt.Fprintln(out, "\nIPv6 routes: off (`asname update --ipv6` to import them)")
 	}
 	return out.Flush()
 }

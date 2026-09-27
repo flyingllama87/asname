@@ -112,3 +112,63 @@ func TestImportMRTRejectsGarbage(t *testing.T) {
 	_, err := b.ImportMRT(bytes.NewReader(garbage))
 	require.Error(t, err, "a stream that is not MRT at all must not pass as an empty import")
 }
+
+// ribEntry frames a TABLE_DUMP_V2 RIB record for prefix, with one entry whose
+// AS path is the single AS origin.
+func ribEntry(t *testing.T, prefix string, origin uint32) []byte {
+	t.Helper()
+	_, ipNet, err := net.ParseCIDR(prefix)
+	require.NoError(t, err)
+	ones, _ := ipNet.Mask.Size()
+	subtype := uint16(2) // RIB_IPV4_UNICAST
+	ip := []byte(ipNet.IP.To4())
+	if ip == nil {
+		subtype = 4 // RIB_IPV6_UNICAST
+		ip = ipNet.IP.To16()
+	}
+
+	// AS_PATH: one AS_SEQUENCE segment holding one four-byte AS.
+	asPath := []byte{2, 1, 0, 0, 0, 0}
+	binary.BigEndian.PutUint32(asPath[2:], origin)
+	attr := append([]byte{0x40, 2, byte(len(asPath))}, asPath...)
+
+	body := []byte{0, 0, 0, 1, byte(ones)}
+	body = append(body, ip[:(ones+7)/8]...)
+	body = append(body, 0, 1)             // entry count
+	body = append(body, 0, 0, 0, 0, 0, 0) // peer index, originated time
+	body = binary.BigEndian.AppendUint16(body, uint16(len(attr)))
+	body = append(body, attr...)
+	return mrtRecord(13, subtype, body)
+}
+
+func TestImportMRTIPv4OnlyDropsIPv6Routes(t *testing.T) {
+	var stream []byte
+	stream = append(stream, ribEntry(t, "192.0.2.0/24", 64500)...)
+	stream = append(stream, ribEntry(t, "2001:db8::/32", 64501)...)
+
+	for _, v4Only := range []bool{false, true} {
+		var hooked []string
+		b := NewBuilder()
+		b.SetIPv4Only(v4Only)
+		b.SetMappingHook(func(prefix *net.IPNet, asn uint32) { hooked = append(hooked, prefix.String()) })
+		skipped, err := b.ImportMRT(bytes.NewReader(stream))
+		require.NoError(t, err)
+		require.Zero(t, skipped, "a dropped IPv6 route is not an unreadable record")
+
+		db, err := b.Build()
+		require.NoError(t, err)
+		as, err := db.Lookup(net.ParseIP("192.0.2.1"))
+		require.NoError(t, err)
+		require.Equal(t, uint32(64500), as.Number)
+
+		as, err = db.Lookup(net.ParseIP("2001:db8::1"))
+		if v4Only {
+			require.ErrorIs(t, err, ErrNotFound)
+			require.Equal(t, []string{"192.0.2.0/24"}, hooked, "the prefix database must not see dropped routes")
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, uint32(64501), as.Number)
+			require.Equal(t, []string{"192.0.2.0/24", "2001:db8::/32"}, hooked)
+		}
+	}
+}

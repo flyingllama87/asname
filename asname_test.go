@@ -330,7 +330,7 @@ func TestNew_OnlinePrefixesOffByDefault(t *testing.T) {
 	client, err := New(WithDataDir(dir))
 	require.NoError(t, err)
 	defer client.Close()
-	assert.False(t, client.eng.OnlinePrefixes)
+	assert.Equal(t, sources.WhoisNever, client.eng.OnlinePrefixMode())
 
 	// With no prefix database and online queries off, an ASN lookup answers
 	// from the local names alone.
@@ -343,7 +343,7 @@ func TestNew_OnlinePrefixesOffByDefault(t *testing.T) {
 	online, err := New(WithDataDir(dir), WithOnlinePrefixes(true))
 	require.NoError(t, err)
 	defer online.Close()
-	assert.True(t, online.eng.OnlinePrefixes)
+	assert.Equal(t, sources.WhoisAlways, online.eng.OnlinePrefixMode())
 }
 
 func TestClient_Search_ASNsWithoutNetblockDB(t *testing.T) {

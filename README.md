@@ -218,7 +218,13 @@ Target: AS15169
 
 Add `--json` (or `-j`) to emit structured JSON Lines containing prefix counts and the full array of announced CIDRs.
 
-Prefixes are answered instantly and offline via `~/.asname/prefixes.db`, which is built automatically from BGP RIB dumps during `asname update`. If the offline prefix database is not yet generated, `asname` automatically falls back to live queries via the RIPE Stat API.
+Prefixes are answered instantly and offline via `~/.asname/prefixes.db`, which is built automatically from BGP RIB dumps during `asname update`. It holds IPv4 prefixes only unless you opt into IPv6 routes; see [IPv6 routes](#ipv6-routes).
+
+An ASN the prefix database has nothing for, because it announces nothing or the database has not been built, can be looked up on the [RIPEstat](https://stat.ripe.net/) API instead. That is a network query, so like [whois](#filling-the-gaps-with-whois) it is asked about first, and the answer is remembered for an hour in `~/.asname/online-prefixes-consent.json`. Prefixes that came from RIPEstat are labelled as such in `--pretty` and `--json` output.
+
+- `--online-prefixes` (or `ASNAME_ONLINE_PREFIXES=1`) queries without asking.
+- `--no-online-prefixes` never queries and never asks.
+- Without a terminal to ask on, and in `--stream` and `--rest` modes, nothing is queried unless `--online-prefixes` is given; a lookup that could have used it prints a one-line reminder on stderr.
 
 
 ### City lookups
@@ -698,6 +704,8 @@ Databases in ~/.asname (auto-refreshed when older than 30 days):
   City          city.mmdb      updated 2026-09-26 23:33 (14 hours ago)  127.3 MB  data built 2026-09-01
   Netblock      netblock.db    updated 2026-09-26 23:35 (14 hours ago)  306.2 MB
   Category      category.db    updated 2026-09-26 23:36 (14 hours ago)  737.7 KB
+
+IPv6 routes: off (`asname update --ipv6` to import them)
 ```
 
 ### RIB Sources and Fallback
@@ -720,6 +728,18 @@ asname update --db-only --rib-url https://data.ris.ripe.net/rrc12/2026.09/bview.
 
 The dump is decompressed according to its file extension, so any `.bz2` or `.gz` MRT TABLE_DUMP_V2 file works. Records the decoder cannot read are skipped and counted rather than failing the import, and the count is printed; RIS dumps carry ADD_PATH RIB entries (RFC 8050) and path attribute type codes 20, 21 and 255, which account for roughly 250,000 skipped records out of an rrc04 dump. A dump that yields no usable records at all is treated as a failure, so the next archive is tried. Other RIS collectors are listed at [data.ris.ripe.net](https://data.ris.ripe.net/), and other RouteViews collectors under [archive.routeviews.org](http://archive.routeviews.org/); they vary considerably in size and in how many full-table peers they carry.
 
+### IPv6 routes
+
+By default the ASN and prefix databases hold IPv4 routes only, so an IPv6 address looks up as `ASN: N/A` and an ASN lists no IPv6 prefixes. To include IPv6 routes:
+
+```bash
+asname update --ipv6
+```
+
+With RouteViews this also downloads the newest [route-views6](http://archive.routeviews.org/route-views6/bgpdata/) dump (~25 MB), since route-views2 collects IPv4 only; if either dump cannot be fetched, the update falls back to RIPE RIS as usual. RIS dumps carry both families already, and their IPv6 routes are dropped when IPv6 is off. An update with `--rib-url` imports the IPv6 routes that one dump holds.
+
+The choice is remembered by the marker file `~/.asname/ipv6-routes`, so later updates, including automatic refreshes, keep importing IPv6 routes. `asname update --no-ipv6` goes back to IPv4 only. `ASNAME_IPV6=1` has the same effect as `--ipv6`, and library callers set `UpdateOptions.IPv6`.
+
 ## Database Locations
 
 By default, `asname` stores its auto-updating databases in your home directory under `~/.asname/`. The following files will be created:
@@ -732,6 +752,8 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/netblock.db`: The IP to registry netblock index, built from the RIRs' bulk whois dumps. Only present if you have enabled netblock lookups.
 - `~/.asname/category.db`: The IP and ASN to category index. Only present if you have enabled category lookups; under 1 MB.
 - `~/.asname/whois-consent.json`: Whether you agreed to live whois lookups, and when you were asked. Delete it to be asked again; it expires after an hour anyway.
+- `~/.asname/online-prefixes-consent.json`: The same, for looking up an ASN's prefixes on RIPEstat.
+- `~/.asname/ipv6-routes`: Present when `asname update --ipv6` opted into IPv6 routes; see [IPv6 routes](#ipv6-routes).
 - `~/.asname/contact.json`: The contact address sent to bgp.tools, or a note that you declined. Delete it to be asked again.
 - `~/.asname/cache/`: The source files downloaded to build the databases above (BGP RIB dump, RIR delegation and whois dumps, and so on). Entries are reused for 24 hours and deleted once older than that, so an update that fails partway through does not download the same files again on the next attempt. An interrupted download is resumed where it stopped rather than restarted. The directory is safe to delete at any time.
 

@@ -89,7 +89,9 @@ func NewWithOptions(opts Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	eng.OnlinePrefixes = opts.OnlinePrefixes
+	if opts.OnlinePrefixes {
+		eng.SetOnlinePrefixes(sources.WhoisAlways)
+	}
 
 	return &Client{
 		eng:        eng,

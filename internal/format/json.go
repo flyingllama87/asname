@@ -340,8 +340,10 @@ type JSONVersion struct {
 	Dir     string `json:"dir"`
 	// MaxAgeHours is the age at which auto-update refreshes a database; 0
 	// when it is off.
-	MaxAgeHours float64      `json:"max_age_hours"`
-	Databases   []JSONDBInfo `json:"databases"`
+	MaxAgeHours float64 `json:"max_age_hours"`
+	// IPv6Routes reports whether ASN updates import IPv6 routes.
+	IPv6Routes bool         `json:"ipv6_routes"`
+	Databases  []JSONDBInfo `json:"databases"`
 }
 
 // JSONDBInfo describes one data file. Updated is when asname last wrote it;
@@ -359,8 +361,8 @@ type JSONDBInfo struct {
 }
 
 // FormatJSONVersion renders the version and database status as one JSON line.
-func FormatJSONVersion(version, dir string, maxAge time.Duration, dbs []sources.DBStatus, now time.Time) (string, error) {
-	out := JSONVersion{Version: version, Dir: dir, MaxAgeHours: maxAge.Hours(), Databases: make([]JSONDBInfo, len(dbs))}
+func FormatJSONVersion(version, dir string, maxAge time.Duration, ipv6 bool, dbs []sources.DBStatus, now time.Time) (string, error) {
+	out := JSONVersion{Version: version, Dir: dir, MaxAgeHours: maxAge.Hours(), IPv6Routes: ipv6, Databases: make([]JSONDBInfo, len(dbs))}
 	for i, db := range dbs {
 		info := JSONDBInfo{Name: db.Name, Path: db.Path, Optional: db.Optional, Present: db.Present}
 		if db.Present {

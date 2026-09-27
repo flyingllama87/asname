@@ -29,10 +29,10 @@ type Engine struct {
 	prefixDB     *sources.PrefixDB
 	log          io.Writer
 
-	// OnlinePrefixes lets LookupASN ask an online service for an ASN's
-	// announced prefixes when the prefix database does not cover it. NewEngine
-	// turns it on, as the CLI expects; the library turns it off by default.
-	OnlinePrefixes bool
+	// onlinePrefixes decides whether LookupASN may ask RIPEstat for an ASN's
+	// announced prefixes when the prefix database does not cover it. It is
+	// off until SetOnlinePrefixes says otherwise.
+	onlinePrefixes *sources.PrefixAsker
 }
 
 // NewEngine opens the databases cfg names. Warnings about optional databases
@@ -112,8 +112,22 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		categoryDB:     catDB,
 		prefixDB:       prefixDB,
 		log:            log,
-		OnlinePrefixes: true,
+		onlinePrefixes: sources.NewPrefixAsker(cfg.PrefixConsentPath, sources.WhoisNever),
 	}, nil
+}
+
+// OnlinePrefixMode reports how LookupASN treats prefixes the database lacks.
+func (e *Engine) OnlinePrefixMode() sources.WhoisMode { return e.onlinePrefixes.Mode }
+
+// SetOnlinePrefixes sets whether LookupASN may query RIPEstat for prefixes
+// the prefix database lacks: always, never, or after asking on the terminal.
+// Only a question actually put to the terminal writes to it directly; the
+// hint given in its place without one goes to the log like any warning.
+func (e *Engine) SetOnlinePrefixes(mode sources.WhoisMode) {
+	e.onlinePrefixes.Mode = mode
+	if mode != sources.WhoisAsk || !e.onlinePrefixes.Terminal {
+		e.onlinePrefixes.Out = e.log
+	}
 }
 
 func (e *Engine) Close() {
@@ -219,7 +233,7 @@ func (e *Engine) LookupASNContext(ctx context.Context, asn uint32) (LookupResult
 		}
 	}
 
-	if prefixRes.Total() == 0 && e.OnlinePrefixes {
+	if prefixRes.Total() == 0 && e.onlinePrefixes.Allowed(asn) {
 		ctx, cancel := context.WithTimeout(ctx, 7*time.Second)
 		defer cancel()
 		if pr, err := sources.FetchASNPrefixesOnline(ctx, asn); err == nil && pr.Total() > 0 {

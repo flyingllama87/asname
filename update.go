@@ -26,6 +26,11 @@ type UpdateOptions struct {
 	Netblock bool
 	Category bool
 
+	// IPv6 controls whether an ASN update imports IPv6 routes as well as
+	// IPv4. FeatureAuto, the default, keeps whatever the last update did,
+	// which is IPv4 only until an update enables IPv6.
+	IPv6 FeatureState
+
 	// Paths allows overriding specific database file locations. A path left
 	// empty comes from its ASNAME_* environment variable, else from DataDir.
 	Paths CustomPaths
@@ -71,6 +76,12 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) b
 		ctx = context.Background()
 	}
 	cfg := resolveConfig(opts.DataDir, opts.Paths)
+	switch opts.IPv6 {
+	case FeatureEnabled:
+		cfg.IPv6 = true
+	case FeatureDisabled:
+		cfg.IPv6 = false
+	}
 	ctx = sources.WithLog(ctx, opts.Log)
 
 	all := opts.All

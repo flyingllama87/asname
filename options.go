@@ -229,8 +229,9 @@ func contactEmail(email string) string {
 // resolveConfig picks each database's location: the explicit path, else its
 // ASNAME_* environment variable, else its standard filename under dir. This is
 // the precedence the CLI gives its flags, so a library caller and `asname` read
-// the same files. The consent, contact and cache files have no variable of
-// their own and always live under dir.
+// the same files. The consent, contact and cache files and the IPv6 marker
+// have no variable of their own and always live under dir. IPv6 routes are
+// imported by an ASN update when an earlier update opted into them.
 func resolveConfig(dir string, p CustomPaths) sources.Config {
 	dir = dataDir(dir)
 	pick := func(explicit, env, name string) string {
@@ -244,7 +245,7 @@ func resolveConfig(dir string, p CustomPaths) sources.Config {
 		}
 		return filepath.Join(dir, name)
 	}
-	return sources.Config{
+	cfg := sources.Config{
 		DBPath:       pick(p.DBPath, sources.DBEnvVar, sources.DBFilename),
 		NamesPath:    pick(p.NamesPath, sources.NamesEnvVar, sources.NamesFilename),
 		CountryPath:  pick(p.CountryPath, sources.CountryEnvVar, sources.CountryFilename),
@@ -255,5 +256,10 @@ func resolveConfig(dir string, p CustomPaths) sources.Config {
 		ConsentPath:  pick(p.ConsentPath, "", sources.WhoisConsentFilename),
 		ContactPath:  pick(p.ContactPath, "", sources.ContactFilename),
 		CachePath:    pick(p.CachePath, "", sources.CacheDirName),
+
+		PrefixConsentPath: pick("", "", sources.OnlinePrefixConsentFilename),
+		IPv6Path:          pick("", "", sources.IPv6MarkerFilename),
 	}
+	cfg.IPv6 = sources.IPv6RoutesEnabled(cfg)
+	return cfg
 }

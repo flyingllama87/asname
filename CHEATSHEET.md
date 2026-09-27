@@ -218,6 +218,10 @@ asname update --city-only       # MaxMind DB-IP Lite city database
 asname update --netblock-only   # RIR inetnum whois dump index
 asname update --category-only   # Provider prefixes & ASN category tags
 
+# Include IPv6 routes in the ASN and prefix databases (off by default; remembered)
+asname update --ipv6
+asname update --no-ipv6         # back to IPv4 only
+
 # Build netblock database with full ARIN coverage, using your ARIN Bulk Whois API key.
 # Without the key, ARIN ranges are named from ARIN's open delegated statistics instead,
 # which covers 87% of ARIN IPv4 address space.
@@ -305,6 +309,8 @@ make release-all
 | `ASNAME_PREFIXES` | Custom path to ASN announced prefixes database | `~/.asname/prefixes.db` |
 | `ASNAME_LISTEN` | REST API server bind host and port | `127.0.0.1:8086` |
 | `ASNAME_WHOIS` | Enable online whois lookups without asking | `false` |
+| `ASNAME_ONLINE_PREFIXES` | Look up prefixes the offline database lacks on RIPEstat without asking | `false` |
+| `ASNAME_IPV6` | Import IPv6 routes on `asname update` (remembered for later updates) | `false` |
 | `ASNAME_CONTACT_EMAIL` | Contact email for `bgp.tools` category queries | `""` |
 | `ASNAME_ARIN_APIKEY` | ARIN bulk whois download key, for complete ARIN netblock coverage | `""` |
 | `NO_COLOR` | Disables ANSI color output if set | `""` |

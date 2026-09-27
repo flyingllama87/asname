@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/flyingllama87/asname/internal/engine"
+	"golang.org/x/term"
+
 	"github.com/flyingllama87/asname/internal/sources"
 )
 
@@ -21,15 +23,10 @@ const (
 	ansiBoldWhite   = "\033[1;37m"
 )
 
+// isTerminal reports whether f is an interactive terminal; output redirected
+// to /dev/null, a character device, is not.
 func isTerminal(f *os.File) bool {
-	if f == nil {
-		return false
-	}
-	fi, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	return f != nil && term.IsTerminal(int(f.Fd()))
 }
 
 func ShouldColorize(f *os.File, forceColor, noColor bool) bool {

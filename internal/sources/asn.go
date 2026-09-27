@@ -33,6 +33,13 @@ type Config struct {
 	ConsentPath  string
 	ContactPath  string
 	CachePath    string
+
+	// PrefixConsentPath remembers whether online prefix lookups were allowed.
+	PrefixConsentPath string
+	// IPv6Path marks that IPv6 routes were opted into; see IPv6RoutesEnabled.
+	IPv6Path string
+	// IPv6 makes UpdateDatabase import IPv6 routes as well as IPv4.
+	IPv6 bool
 }
 
 func DefaultDir() string {

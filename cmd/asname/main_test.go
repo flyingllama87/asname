@@ -347,6 +347,28 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+func TestVersionShowsIPv6Routes(t *testing.T) {
+	dir := writeFixtures(t)
+
+	out, _, err := run(t, "version", "--dir", dir)
+	require.NoError(t, err)
+	assert.Contains(t, out, "IPv6 routes: off (`asname update --ipv6` to import them)")
+	var v format.JSONVersion
+	out, _, err = run(t, "version", "--dir", dir, "-j")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(out), &v))
+	assert.False(t, v.IPv6Routes)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, sources.IPv6MarkerFilename), nil, 0o644))
+	out, _, err = run(t, "version", "--dir", dir)
+	require.NoError(t, err)
+	assert.Contains(t, out, "IPv6 routes: on (`asname update --no-ipv6` to stop importing them)")
+	out, _, err = run(t, "version", "--dir", dir, "-j")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(out), &v))
+	assert.True(t, v.IPv6Routes)
+}
+
 func TestCity(t *testing.T) {
 	dir := writeFixtures(t)
 
@@ -483,4 +505,37 @@ func TestCSV(t *testing.T) {
 		_, _, err := run(t, args...)
 		assert.ErrorContains(t, err, "mutually exclusive", args)
 	}
+}
+
+func TestLookupASNStaysOfflineUnlessAllowed(t *testing.T) {
+	dir := writeFixtures(t)
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { r.Close(); w.Close() })
+	stdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = stdin })
+
+	// AS64501 is not in the prefix database. Without a terminal to ask on,
+	// asname must not go to RIPEstat, and says how to let it.
+	out, errOut, err := run(t, "--dir", dir, "--no-update", "AS64501")
+	require.NoError(t, err)
+	assert.Contains(t, out, "AS64501")
+	assert.NotContains(t, out, "Prefixes")
+	assert.Equal(t, "asname: AS64501 has no offline prefixes; pass --online-prefixes to ask RIPEstat for them\n", errOut)
+
+	_, errOut, err = run(t, "--dir", dir, "--no-update", "--no-online-prefixes", "AS64501")
+	require.NoError(t, err)
+	assert.Empty(t, errOut)
+
+	// An ASN the prefix database covers never needs the network.
+	out, errOut, err = run(t, "--dir", dir, "--no-update", "AS15169")
+	require.NoError(t, err)
+	assert.Contains(t, out, "2001:4860::/32")
+	assert.Empty(t, errOut)
+}
+
+func TestUpdateIPv6FlagsConflict(t *testing.T) {
+	_, _, err := run(t, "update", "--dir", t.TempDir(), "--ipv6", "--no-ipv6")
+	assert.ErrorContains(t, err, "mutually exclusive")
 }

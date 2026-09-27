@@ -30,6 +30,38 @@ type ribSource struct {
 	listing  string         // directory URL, with the month as "2006.01"
 	filename *regexp.Regexp // dump filenames within that directory
 	size     string         // approximate download size, for the operator
+
+	// ipv6 is a companion archive for the IPv6 routes this one lacks, read
+	// alongside it when IPv6 is enabled. It is nil for an archive whose dumps
+	// already carry both address families.
+	ipv6 *ribSource
+}
+
+// IPv6MarkerFilename marks, by existing, that the ASN database was built with
+// IPv6 routes, so later updates keep importing them.
+const IPv6MarkerFilename = "ipv6-routes"
+
+// IPv6RoutesEnabled reports whether an earlier update opted into IPv6 routes.
+func IPv6RoutesEnabled(cfg Config) bool {
+	if cfg.IPv6Path == "" {
+		return false
+	}
+	_, err := os.Stat(cfg.IPv6Path)
+	return err == nil
+}
+
+// setIPv6Marker records whether the database just written holds IPv6 routes.
+func setIPv6Marker(cfg Config) error {
+	if cfg.IPv6Path == "" {
+		return nil
+	}
+	if cfg.IPv6 {
+		return os.WriteFile(cfg.IPv6Path, []byte("IPv6 routes are imported by `asname update`; run `asname update --no-ipv6` to stop.\n"), 0o644)
+	}
+	if err := os.Remove(cfg.IPv6Path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // ribSources are tried in order until one yields a database. RouteViews is the
@@ -37,12 +69,22 @@ type ribSource struct {
 // operator on separate infrastructure, so an outage at one does not stop the
 // other. rrc04 is comparable in size to RouteViews, and rrc00 is RIS' multi-hop
 // collector, the most complete and the largest.
+//
+// route-views2 collects IPv4 only, so with IPv6 enabled route-views6 is read
+// with it. The RIS dumps carry both families; with IPv6 disabled their IPv6
+// routes are dropped on import.
 var ribSources = []ribSource{
 	{
 		name:     "RouteViews route-views2",
 		listing:  "http://archive.routeviews.org/bgpdata/%s/RIBS/",
 		filename: regexp.MustCompile(`rib\.[0-9]{8}\.[0-9]{4}\.bz2`),
 		size:     "~75MB",
+		ipv6: &ribSource{
+			name:     "RouteViews route-views6",
+			listing:  "http://archive.routeviews.org/route-views6/bgpdata/%s/RIBS/",
+			filename: regexp.MustCompile(`rib\.[0-9]{8}\.[0-9]{4}\.bz2`),
+			size:     "~25MB",
+		},
 	},
 	{
 		name:     "RIPE RIS rrc04",
@@ -141,6 +183,7 @@ func Stale(path string, maxAge time.Duration) bool {
 // UpdateDatabase downloads an MRT RIB dump, converts it to binary and replaces
 // cfg.DBPath. With no ribURL given it works through ribSources in order, moving
 // on to the next archive whenever one cannot be listed, downloaded or parsed.
+// IPv6 routes are imported only when cfg.IPv6 is set.
 func UpdateDatabase(ctx context.Context, cfg Config, ribURL string) error {
 	cache := cfg.CacheDir()
 
@@ -153,13 +196,13 @@ func UpdateDatabase(ctx context.Context, cfg Config, ribURL string) error {
 		if i > 0 {
 			logf(ctx, "asname: falling back to %s%s\n", src.name, parenthesise(src.size))
 		}
-		url, err := latestRIBURL(ctx, cache, src)
+		urls, err := latestRIBURLs(ctx, cache, src, cfg.IPv6)
 		if err != nil {
 			logf(ctx, "asname: %s: %v\n", src.name, err)
 			failures = append(failures, fmt.Sprintf("%s: %v", src.name, err))
 			continue
 		}
-		if err := buildFromRIB(ctx, cfg, cache, url); err != nil {
+		if err := buildFromRIB(ctx, cfg, cache, urls...); err != nil {
 			logf(ctx, "asname: %s: %v\n", src.name, err)
 			failures = append(failures, fmt.Sprintf("%s: %v", src.name, err))
 			continue
@@ -176,33 +219,38 @@ func parenthesise(s string) string {
 	return " (" + s + ")"
 }
 
-// buildFromRIB imports one MRT dump and replaces cfg.DBPath with the result.
-func buildFromRIB(ctx context.Context, cfg Config, cache, ribURL string) error {
-	f, err := openCached(ctx, cache, ribURL, "")
+// latestRIBURLs resolves the newest dump in src and, when ipv6 is set and src
+// has an IPv6 companion archive, the newest dump there too.
+func latestRIBURLs(ctx context.Context, cache string, src ribSource, ipv6 bool) ([]string, error) {
+	url, err := latestRIBURL(ctx, cache, src)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer f.Close()
-
-	r, err := decompress(ribURL, bufio.NewReaderSize(f, 1<<20))
-	if err != nil {
-		dropCached(cache, ribURL)
-		return fmt.Errorf("decompressing %s: %v", ribURL, err)
+	urls := []string{url}
+	if ipv6 && src.ipv6 != nil {
+		logf(ctx, "asname: also reading IPv6 routes from %s%s\n", src.ipv6.name, parenthesise(src.ipv6.size))
+		v6, err := latestRIBURL(ctx, cache, *src.ipv6)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %v", src.ipv6.name, err)
+		}
+		urls = append(urls, v6)
 	}
+	return urls, nil
+}
 
+// buildFromRIB imports MRT dumps into one database and replaces cfg.DBPath
+// with the result.
+func buildFromRIB(ctx context.Context, cfg Config, cache string, ribURLs ...string) error {
 	builder := database.NewBuilder()
+	builder.SetIPv4Only(!cfg.IPv6)
 	prefixBuilder := NewPrefixDBBuilder()
 	builder.SetMappingHook(func(prefix *net.IPNet, asn uint32) {
 		prefixBuilder.Add(asn, prefix)
 	})
-	skipped, err := builder.ImportMRT(r)
-	if err != nil {
-		// The file downloaded in full but will not parse, so do not keep it.
-		dropCached(cache, ribURL)
-		return fmt.Errorf("importing MRT: %v", err)
-	}
-	if skipped > 0 {
-		logf(ctx, "asname: skipped %d MRT records this decoder does not understand\n", skipped)
+	for _, ribURL := range ribURLs {
+		if err := importRIB(ctx, builder, cache, ribURL); err != nil {
+			return err
+		}
 	}
 	builder.SetFillFactor(OptimizationFillFactor)
 	db, err := builder.Build()
@@ -224,6 +272,39 @@ func buildFromRIB(ctx context.Context, cfg Config, cache, ribURL string) error {
 		} else {
 			logf(ctx, "asname: wrote %s (%d bytes)\n", cfg.PrefixPath, n)
 		}
+	}
+	if err := setIPv6Marker(cfg); err != nil {
+		logf(ctx, "asname: warning: failed to record the IPv6 setting: %v\n", err)
+	}
+	return nil
+}
+
+// mrtImporter is the database builder, whose type is not exported.
+type mrtImporter interface {
+	ImportMRT(io.Reader) (int, error)
+}
+
+// importRIB reads one MRT dump into builder.
+func importRIB(ctx context.Context, builder mrtImporter, cache, ribURL string) error {
+	f, err := openCached(ctx, cache, ribURL, "")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	r, err := decompress(ribURL, bufio.NewReaderSize(f, 1<<20))
+	if err != nil {
+		dropCached(cache, ribURL)
+		return fmt.Errorf("decompressing %s: %v", ribURL, err)
+	}
+	skipped, err := builder.ImportMRT(r)
+	if err != nil {
+		// The file downloaded in full but will not parse, so do not keep it.
+		dropCached(cache, ribURL)
+		return fmt.Errorf("importing MRT: %v", err)
+	}
+	if skipped > 0 {
+		logf(ctx, "asname: skipped %d MRT records this decoder does not understand\n", skipped)
 	}
 	return nil
 }

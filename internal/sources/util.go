@@ -4,6 +4,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"golang.org/x/term"
 )
 
 const (
@@ -11,9 +13,11 @@ const (
 	OptimizationFillFactor = float32(9-5) * 0.125
 )
 
+// isTerminal reports whether f is an interactive terminal. A character device
+// is not enough: /dev/null is one, and stdin redirected from it under cron must
+// not be taken for someone to ask.
 func isTerminal(f *os.File) bool {
-	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return f != nil && term.IsTerminal(int(f.Fd()))
 }
 
 // WriteFileAtomic writes data to a temp file in the destination directory and renames it into place.
