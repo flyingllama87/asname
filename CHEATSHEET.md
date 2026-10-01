@@ -28,7 +28,8 @@ asname "https://user:secret@dns.google:8443/resolve?name=example.com#frag"
 asname city Brisbane -p
 asname 8.8.8.8 -r
 
-# --v4-only / --v6-only apply to lookups, search, country and city alike
+# --v4-only / --v6-only apply to lookups, country and city.
+# search is IPv4 only unless --v6 (both) or --v6-only
 asname --v4-only dns.google
 asname AS13335 --v6-only
 ```
@@ -72,9 +73,13 @@ asname search --netblocks-only "Valve"
 # Search using --org / -O flag with custom result limit
 asname -O "Google" --limit 10
 
-# IPv4 only or IPv6 only (netblocks and ASN prefixes)
-asname search --v4-only "Fastly"
+# IPv4 is the default. --v6 adds IPv6; --v6-only keeps IPv6 alone
+asname search "Fastly"
+asname search --v6 "Amazon"
 asname search --v6-only "Amazon"
+
+# CIDRs only, one per line
+asname search --ips-only "Fastly"
 
 # Formats: pretty cards or JSON Lines
 asname search -p --limit 5 "Cloudflare"

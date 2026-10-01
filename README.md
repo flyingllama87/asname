@@ -174,7 +174,7 @@ $ asname --reverse-dns 8.8.8.8
 IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Reverse DNS: dns.google
 ```
 
-`--v4-only` and `--v6-only` keep one address family everywhere: a hostname's addresses, an ASN's prefixes, and the blocks `search`, `country` and `city` list.
+`--v4-only` and `--v6-only` keep one address family for lookups and for the blocks `country` and `city` list. `search` is IPv4 only unless you pass `--v6` (both families) or `--v6-only`.
 
 Flags can go before or after the arguments, so `asname 8.8.8.8 -r`, `asname city Brisbane -p` and `asname -p city Brisbane` all work. The output, address family and data file flags (`-p`, `-j`, `--csv`, `--color`, `--v4-only`, `--dir`, `--city-db`...) work with every command; the rest belong to lookups (`-r`, `--rest`...) or to `search` (`--limit`, `--asns-only`...) alone.
 
@@ -401,7 +401,8 @@ An AS name match is made against the name without its trailing country code,
 so searching `us` does not return every AS in the United States.
 
 You can restrict the search to one kind, customize the result limit and keep
-only IPv4 or IPv6 netblocks and ASN prefixes:
+only IPv4 or IPv6 netblocks and ASN prefixes. Search is IPv4 only unless you
+opt into IPv6:
 
 ```bash
 # Only AS names, or only registry netblocks
@@ -411,9 +412,13 @@ asname search --netblocks-only "Valve"
 # Limit results (default unlimited; caps the ASNs and the netblocks separately)
 asname search --limit 10 "Google"
 
-# IPv4 only or IPv6 only (netblocks and ASN prefixes; ASNs stay listed)
-asname search --v4-only "Fastly"
+# IPv4 is the default. --v6 adds IPv6; --v6-only keeps IPv6 alone
+asname search "Fastly"
+asname search --v6 "Amazon"
 asname search --v6-only "Amazon"
+
+# CIDRs only, one per line (IPv4 unless --v6 or --v6-only)
+asname search --ips-only "Fastly"
 
 # Output formats: pretty cards (--pretty), JSON Lines (--json) or CSV (--csv)
 asname search --pretty --limit 5 "Cloudflare"

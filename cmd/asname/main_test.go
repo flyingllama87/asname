@@ -111,13 +111,13 @@ func TestSearchFindsASNsAndNetblocks(t *testing.T) {
 	require.NoError(t, err)
 
 	got := lines(out)
-	require.Len(t, got, 4, out)
+	require.Len(t, got, 3, out)
 	assert.True(t, strings.HasPrefix(got[0], "ASN: AS15169 | "), got[0])
 	assert.Contains(t, got[0], " | ")
 	assert.Contains(t, got[0], "8.8.8.0/24")
-	assert.Contains(t, got[0], "2001:4860::/32")
+	assert.NotContains(t, out, "2001:4860")
 	assert.Contains(t, out, "GOOGLE-DNS")
-	assert.Contains(t, out, "GOOGLE-V6")
+	assert.NotContains(t, out, "GOOGLE-V6")
 }
 
 func TestSearchIsCaseInsensitive(t *testing.T) {
@@ -149,7 +149,7 @@ func TestSearchScope(t *testing.T) {
 
 	out, _, err = run(t, "search", "--dir", dir, "--netblocks-only", "google")
 	require.NoError(t, err)
-	require.Len(t, lines(out), 3, out)
+	require.Len(t, lines(out), 2, out)
 	for _, l := range lines(out) {
 		assert.True(t, strings.HasPrefix(l, "Netblock: "), l)
 	}
@@ -165,10 +165,21 @@ func TestSearchScope(t *testing.T) {
 func TestSearchAddressFamily(t *testing.T) {
 	dir := writeFixtures(t)
 
-	out, _, err := run(t, "search", "--dir", dir, "--v4-only", "google")
+	out, _, err := run(t, "search", "--dir", dir, "google")
 	require.NoError(t, err)
 	assert.Contains(t, out, "8.8.8.0/24")
 	assert.NotContains(t, out, "2001:4860")
+
+	out, _, err = run(t, "search", "--dir", dir, "--v4-only", "google")
+	require.NoError(t, err)
+	assert.Contains(t, out, "8.8.8.0/24")
+	assert.NotContains(t, out, "2001:4860")
+
+	out, _, err = run(t, "search", "--dir", dir, "--v6", "google")
+	require.NoError(t, err)
+	assert.Contains(t, out, "8.8.8.0/24")
+	assert.Contains(t, out, "2001:4860::/32")
+	assert.Contains(t, out, "GOOGLE-V6")
 
 	out, _, err = run(t, "search", "--dir", dir, "--v6-only", "google")
 	require.NoError(t, err)
@@ -177,6 +188,48 @@ func TestSearchAddressFamily(t *testing.T) {
 
 	_, _, err = run(t, "search", "--dir", dir, "--v4-only", "--v6-only", "google")
 	assert.ErrorContains(t, err, "mutually exclusive")
+
+	_, _, err = run(t, "search", "--dir", dir, "--v4-only", "--v6", "google")
+	assert.ErrorContains(t, err, "mutually exclusive")
+
+	_, _, err = run(t, "search", "--dir", dir, "--v6", "--v6-only", "google")
+	assert.ErrorContains(t, err, "mutually exclusive")
+}
+
+func TestSearchIPsOnly(t *testing.T) {
+	dir := writeFixtures(t)
+
+	out, stderr, err := run(t, "search", "--dir", dir, "--ips-only", "google")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"8.8.8.0/24", "8.8.4.0/24"}, lines(out))
+	assert.Empty(t, stderr)
+
+	out, _, err = run(t, "search", "--dir", dir, "--ips-only", "--v6", "google")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"8.8.8.0/24", "2001:4860::/32", "8.8.4.0/24"}, lines(out))
+
+	out, _, err = run(t, "search", "--dir", dir, "--ips-only", "--v6-only", "google")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"2001:4860::/32"}, lines(out))
+
+	out, _, err = run(t, "search", "--dir", dir, "--ips-only", "--asns-only", "google")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"8.8.8.0/24"}, lines(out))
+
+	out, _, err = run(t, "search", "--dir", dir, "--ips-only", "--netblocks-only", "valve")
+	require.NoError(t, err)
+	assert.Empty(t, lines(out))
+
+	_, stderr, err = run(t, "search", "--dir", dir, "--ips-only", "--asns-only", "cloudflare")
+	require.NoError(t, err)
+	assert.Contains(t, stderr, `no CIDRs found matching "cloudflare"`)
+
+	_, _, err = run(t, "search", "--dir", dir, "--ips-only", "-j", "google")
+	assert.ErrorContains(t, err, "mutually exclusive")
+
+	out, _, err = run(t, "--ips-only", "search", "--dir", dir, "google")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"8.8.8.0/24", "8.8.4.0/24"}, lines(out))
 }
 
 func TestSearchLimit(t *testing.T) {
@@ -184,7 +237,7 @@ func TestSearchLimit(t *testing.T) {
 
 	out, _, err := run(t, "search", "--dir", dir, "--netblocks-only", "google")
 	require.NoError(t, err)
-	assert.Len(t, lines(out), 3, "no --limit is unlimited")
+	assert.Len(t, lines(out), 2, "no --limit is unlimited")
 
 	out, _, err = run(t, "search", "--dir", dir, "--netblocks-only", "--limit", "1", "google")
 	require.NoError(t, err)
@@ -206,7 +259,7 @@ func TestSearchJSON(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(l), &v), l)
 		types[v["type"].(string)]++
 	}
-	assert.Equal(t, map[string]int{"asn": 1, "netblock": 3}, types)
+	assert.Equal(t, map[string]int{"asn": 1, "netblock": 2}, types)
 
 	_, _, err = run(t, "search", "--dir", dir, "-j", "-p", "google")
 	assert.ErrorContains(t, err, "mutually exclusive")

@@ -67,8 +67,10 @@ SEARCH:
    --limit value                  maximum number of ASNs, and of netblocks, to display (default: unlimited)
    --asns-only                    only search AS names
    --netblocks-only               only search registry netblocks
+   --ips-only                     only print matching CIDRs, one per line
+   --v6                           also include IPv6 (search is IPv4 only unless this or --v6-only)
 
-ADDRESS FAMILY (lookups, search, country and city):
+ADDRESS FAMILY (lookups, country and city; search is IPv4 unless --v6 or --v6-only):
    --v4-only                      only show IPv4 addresses, prefixes and blocks
    --v6-only                      only show IPv6 addresses, prefixes and blocks
 
@@ -238,6 +240,16 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{
 				Name:  "netblocks-only",
 				Usage: "only search registry netblocks",
+				Local: true,
+			},
+			&cli.BoolFlag{
+				Name:  "ips-only",
+				Usage: "only print matching CIDRs, one per line",
+				Local: true,
+			},
+			&cli.BoolFlag{
+				Name:  "v6",
+				Usage: "also include IPv6 (search is IPv4 only unless this or --v6-only)",
 				Local: true,
 			},
 			&cli.BoolFlag{
@@ -590,6 +602,14 @@ func searchCommand() *cli.Command {
 				Usage: "only search registry netblocks",
 			},
 			&cli.BoolFlag{
+				Name:  "ips-only",
+				Usage: "only print matching CIDRs, one per line",
+			},
+			&cli.BoolFlag{
+				Name:  "v6",
+				Usage: "also include IPv6 (search is IPv4 only unless this or --v6-only)",
+			},
+			&cli.BoolFlag{
 				Name:    "uniform",
 				Aliases: []string{"u"},
 				Usage:   "print output as aligned fields",
@@ -643,6 +663,26 @@ func addressFamily(cmd *cli.Command) (v4Only, v6Only bool, err error) {
 	return v4Only, v6Only, nil
 }
 
+// searchAddressFamily is addressFamily with search's default: IPv4 only,
+// unless --v6 (both families) or --v6-only is set.
+func searchAddressFamily(cmd *cli.Command) (v4Only, v6Only bool, err error) {
+	v4Only, v6Only, err = addressFamily(cmd)
+	if err != nil {
+		return false, false, err
+	}
+	includeV6 := anyBool(cmd, "v6")
+	if includeV6 && v4Only {
+		return false, false, fmt.Errorf("--v4-only and --v6 are mutually exclusive")
+	}
+	if includeV6 && v6Only {
+		return false, false, fmt.Errorf("--v6 and --v6-only are mutually exclusive")
+	}
+	if !includeV6 && !v6Only {
+		v4Only = true
+	}
+	return v4Only, v6Only, nil
+}
+
 func runSearch(cmd *cli.Command, query string) error {
 	outputFlags := 0
 	if cmd.Bool("pretty") {
@@ -657,15 +697,19 @@ func runSearch(cmd *cli.Command, query string) error {
 	if anyBool(cmd, "uniform") {
 		outputFlags++
 	}
+	ipsOnly := anyBool(cmd, "ips-only")
+	if ipsOnly {
+		outputFlags++
+	}
 	if outputFlags > 1 {
-		return fmt.Errorf("--pretty, --json, --csv and --uniform are mutually exclusive")
+		return fmt.Errorf("--pretty, --json, --csv, --uniform and --ips-only are mutually exclusive")
 	}
 
 	asnsOnly, netblocksOnly := anyBool(cmd, "asns-only"), anyBool(cmd, "netblocks-only")
 	if asnsOnly && netblocksOnly {
 		return fmt.Errorf("--asns-only and --netblocks-only are mutually exclusive")
 	}
-	v4Only, v6Only, err := addressFamily(cmd)
+	v4Only, v6Only, err := searchAddressFamily(cmd)
 	if err != nil {
 		return err
 	}
@@ -728,6 +772,10 @@ func runSearch(cmd *cli.Command, query string) error {
 		return nil
 	}
 
+	if ipsOnly {
+		return writeSearchCIDRs(out, cmd.Root().ErrWriter, query, asns, netblocks)
+	}
+
 	uniform := anyBool(cmd, "uniform")
 	isPretty := cmd.Bool("pretty")
 	useColor := shouldColorize(cmd)
@@ -761,6 +809,34 @@ func runSearch(cmd *cli.Command, query string) error {
 		} else {
 			fmt.Fprint(out, format.FormatNetblockOutput(res, uniform))
 		}
+	}
+	return out.Flush()
+}
+
+func writeSearchCIDRs(out *bufio.Writer, errOut io.Writer, query string, asns []engine.ASNSearchResult, netblocks []engine.NetblockEnrichedResult) error {
+	seen := make(map[string]struct{})
+	n := 0
+	write := func(cidrs []string) {
+		for _, cidr := range cidrs {
+			if cidr == "" {
+				continue
+			}
+			if _, ok := seen[cidr]; ok {
+				continue
+			}
+			seen[cidr] = struct{}{}
+			fmt.Fprintln(out, cidr)
+			n++
+		}
+	}
+	for _, res := range asns {
+		write(res.Prefixes)
+	}
+	for _, res := range netblocks {
+		write(res.CIDRs)
+	}
+	if n == 0 {
+		fmt.Fprintf(errOut, "asname: no CIDRs found matching %q\n", query)
 	}
 	return out.Flush()
 }
