@@ -164,10 +164,7 @@ func AutoUpdate(ctx context.Context, cfg Config, maxAge time.Duration, city, net
 			return err
 		}
 	}
-	// Blocklists go stale within days, so the reputation database is
-	// refreshed daily however long the others are kept.
-	repAge := min(maxAge, ReputationMaxAge)
-	if reputation && Stale(cfg.ReputationPath, repAge) {
+	if reputation && Stale(cfg.ReputationPath, maxAge) {
 		logf(ctx, "asname: refreshing reputation database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.ReputationPath), 0o755); err != nil {
 			return err

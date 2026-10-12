@@ -18,11 +18,6 @@ const (
 	ReputationEnvVar   = "ASNAME_REPUTATION"
 	ReputationFilename = "reputation.db"
 
-	// ReputationMaxAge is how old the CLI lets the reputation database get
-	// before refreshing it. Blocklists change daily, so this is much shorter
-	// than the default for the other databases.
-	ReputationMaxAge = 24 * time.Hour
-
 	reputationMagic      = "ASNREP\x00\x01"
 	reputationHeaderSize = 32
 	reputationASNEntry   = 20

@@ -610,7 +610,7 @@ The ASN-level summary is the useful signal for spotting a dodgy ASN:
 
 In `--pretty` mode the AS card for an ASN lookup or `search` result shows the ASN summary. `--json` carries the same data under `reputation`, including `listed_share_pct`, and `--csv` adds `reputation` and `asn_reputation` columns.
 
-The database is about 10 MB and builds in under ten seconds. Blocklists go stale within days, so it is refreshed when older than 24 hours, or `--max-age` if that is shorter; `asname update --reputation-only` refreshes it on demand. Per-ASN counts are attributed using the ASN database at build time, so `asname update` builds it last.
+The database is about 10 MB and builds in under ten seconds. Like the other databases it is refreshed when older than `--max-age`. `asname update --reputation-only` refreshes it on demand. Per-ASN counts are attributed using the ASN database at build time, so `asname update` builds it last.
 
 FireHOL level 1 is not used: it includes the full bogon list, so private and unallocated space would be reported as listed, and it otherwise repeats Spamhaus DROP. AbuseIPDB, IBM X-Force and similar services need an API key per lookup and do not fit an offline database.
 

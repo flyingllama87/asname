@@ -751,9 +751,9 @@ func runSearch(cmd *cli.Command, query string) error {
 	}
 
 	// Search reports reputation whenever the database is present; asking for
-	// it builds the database first if it is missing or a day old.
+	// it builds the database first if it is missing.
 	wantReputation := !anyBool(cmd, "no-reputation") && (anyBool(cmd, "reputation") || sources.ReputationDBPresent(cfg.ReputationPath))
-	if anyBool(cmd, "reputation") && !anyBool(cmd, "no-update") && sources.Stale(cfg.ReputationPath, sources.ReputationMaxAge) {
+	if anyBool(cmd, "reputation") && !anyBool(cmd, "no-update") && sources.Stale(cfg.ReputationPath, 0) {
 		if err := os.MkdirAll(filepath.Dir(cfg.ReputationPath), 0o755); err != nil {
 			return err
 		}

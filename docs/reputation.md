@@ -62,4 +62,4 @@ Little-endian. Implemented in `internal/sources/reputation.go`.
 
 ## Refresh
 
-`sources.ReputationMaxAge` is 24 hours. The CLI auto-update refreshes the database when it is older than the lesser of that and `--max-age`. The library's `UpdateStale` uses the caller's `maxAge` unchanged.
+The same as the other databases: auto-update refreshes it when older than `--max-age` (default 30 days), and the library's `UpdateStale` uses the caller's `maxAge`. Blocklists change daily, so `asname update --reputation-only` refreshes it on demand.

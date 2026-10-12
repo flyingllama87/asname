@@ -126,7 +126,7 @@ asname -n 183.177.54.135
 # Network Classification (cloud provider, CDN, ISP, hosting, Tor exit)
 asname -C 13.32.0.1
 
-# Reputation: Spamhaus DROP/ASN-DROP, IPsum, FireHOL hits for the IP and its ASN (builds ~10MB DB on first use, refreshed daily)
+# Reputation: Spamhaus DROP/ASN-DROP, IPsum, FireHOL hits for the IP and its ASN (builds ~10MB DB on first use)
 asname -R -p 77.91.71.90
 asname -p AS211486
 
