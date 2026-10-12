@@ -23,7 +23,7 @@ help:
 	@printf "\n$(BOLD)Usage:$(RESET) make $(CYAN)<target>$(RESET) [VARIABLE=value]\n\n"
 	@printf "$(BOLD)Build & Install Targets:$(RESET)\n"
 	@printf "  $(CYAN)%-14s$(RESET) %s\n" "build" "Build the asname binary ($(BUILDDIR)/asname)"
-	@printf "  $(CYAN)%-14s$(RESET) %s\n" "install" "Install binary to BINDIR (default: $(BINDIR))"
+	@printf "  $(CYAN)%-14s$(RESET) %s\n" "install" "Install built binary to BINDIR (default: $(BINDIR)); run build first"
 	@printf "  $(CYAN)%-14s$(RESET) %s\n" "uninstall" "Remove binary from BINDIR"
 	@printf "  $(CYAN)%-14s$(RESET) %s\n" "clean" "Remove build artifacts ($(BUILDDIR)/*)"
 	@printf "  $(CYAN)%-14s$(RESET) %s\n\n" "deps" "Download Go dependencies"
@@ -75,7 +75,8 @@ test:
 	go test -race ./...
 
 .PHONY: install
-install: build
+install:
+	@test -f $(BUILDDIR)/asname || { echo "$(BUILDDIR)/asname not found; run 'make build' first"; exit 1; }
 	mkdir -p $(DESTDIR)$(BINDIR)
 	cp -f $(BUILDDIR)/asname $(DESTDIR)$(BINDIR)/
 
