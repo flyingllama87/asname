@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oschwald/maxminddb-golang/v2"
@@ -26,8 +27,12 @@ type Engine struct {
 	showNetblock bool
 	whois        *sources.WhoisAsker
 	categoryDB   *sources.CategoryDB
-	prefixDB     *sources.PrefixDB
-	log          io.Writer
+	reputationDB *sources.ReputationDB
+	// asnReps caches asnReputation's results, as counting an ASN's announced
+	// space reads all of its prefixes; stream and REST lookups run concurrently.
+	asnReps  sync.Map
+	prefixDB *sources.PrefixDB
+	log      io.Writer
 
 	// onlinePrefixes decides whether LookupASN may ask RIPEstat for an ASN's
 	// announced prefixes when the prefix database does not cover it. It is
@@ -38,7 +43,7 @@ type Engine struct {
 // NewEngine opens the databases cfg names. Warnings about optional databases
 // that could not be opened, and about failed whois lookups, go to log; a nil
 // log discards them.
-func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCategory bool, whois sources.WhoisMode, log io.Writer) (*Engine, error) {
+func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCategory, wantReputation bool, whois sources.WhoisMode, log io.Writer) (*Engine, error) {
 	if log == nil {
 		log = io.Discard
 	}
@@ -87,6 +92,14 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		}
 	}
 
+	var repDB *sources.ReputationDB
+	if wantReputation {
+		if repDB, err = sources.OpenReputationDB(cfg.ReputationPath); err != nil {
+			fmt.Fprintln(log, "asname: reputation database unavailable (run `asname update --reputation-only`):", err)
+			repDB = nil
+		}
+	}
+
 	whoisAsker := sources.NewWhoisAsker(cfg.ConsentPath, whois)
 	if whois != sources.WhoisAsk {
 		// Only the interactive mode owns the terminal; the others report the
@@ -110,6 +123,7 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		showNetblock:   showNetblock,
 		whois:          whoisAsker,
 		categoryDB:     catDB,
+		reputationDB:   repDB,
 		prefixDB:       prefixDB,
 		log:            log,
 		onlinePrefixes: sources.NewPrefixAsker(cfg.PrefixConsentPath, sources.WhoisNever),
@@ -142,11 +156,12 @@ func (e *Engine) Close() {
 	}
 }
 
-func (e *Engine) HasCountryDB() bool  { return e.countryDB != nil }
-func (e *Engine) HasCityDB() bool     { return e.cityDB != nil }
-func (e *Engine) HasNetblockDB() bool { return e.netblockDB != nil }
-func (e *Engine) HasCategoryDB() bool { return e.categoryDB != nil }
-func (e *Engine) HasPrefixDB() bool   { return e.prefixDB != nil }
+func (e *Engine) HasCountryDB() bool    { return e.countryDB != nil }
+func (e *Engine) HasCityDB() bool       { return e.cityDB != nil }
+func (e *Engine) HasNetblockDB() bool   { return e.netblockDB != nil }
+func (e *Engine) HasCategoryDB() bool   { return e.categoryDB != nil }
+func (e *Engine) HasReputationDB() bool { return e.reputationDB != nil }
+func (e *Engine) HasPrefixDB() bool     { return e.prefixDB != nil }
 
 // LookupResult is everything known about a single address or ASN.
 type LookupResult struct {
@@ -160,12 +175,19 @@ type LookupResult struct {
 	Netblock     string
 	NetblockLive bool
 	Category     string
-	RDNS         string
-	IsASN        bool
-	Prefixes     []string
-	IPv4Prefixes []string
-	IPv6Prefixes []string
-	PrefixSource string
+	// Reputation names the blocklists listing the address itself, and
+	// ASNReputation what they say about its ASN. Both are empty without the
+	// reputation database; Reputation is a non-nil empty slice when the
+	// database is loaded and no list names the address. ASNReputation is
+	// nil without the database, or when the address is not announced.
+	Reputation    []string
+	ASNReputation *sources.ASNReputation
+	RDNS          string
+	IsASN         bool
+	Prefixes      []string
+	IPv4Prefixes  []string
+	IPv6Prefixes  []string
+	PrefixSource  string
 }
 
 func (e *Engine) LookupTarget(t Target) ([]LookupResult, error) {
@@ -246,6 +268,12 @@ func (e *Engine) LookupASNContext(ctx context.Context, asn uint32) (LookupResult
 	res.Prefixes = prefixRes.All()
 	res.PrefixSource = prefixRes.Source
 
+	if e.reputationDB != nil {
+		rep := e.reputationDB.LookupASN(asn)
+		rep.AnnouncedIPv4 = sources.CountIPv4(res.IPv4Prefixes)
+		res.ASNReputation = &rep
+	}
+
 	return res, nil
 }
 
@@ -316,7 +344,36 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		}
 	}
 
+	if e.reputationDB != nil {
+		// Non-nil even when empty, so a formatter can tell "not listed"
+		// from "not checked".
+		res.Reputation = e.reputationDB.Lookup(ip)
+		if res.Reputation == nil {
+			res.Reputation = []string{}
+		}
+		if haveASN {
+			rep := e.asnReputation(asn)
+			res.ASNReputation = &rep
+		}
+	}
+
 	return res, nil
+}
+
+// asnReputation is the reputation of asn with its announced IPv4 space
+// filled in from the prefix database when anything inside it is listed.
+func (e *Engine) asnReputation(asn uint32) sources.ASNReputation {
+	if cached, ok := e.asnReps.Load(asn); ok {
+		return cached.(sources.ASNReputation)
+	}
+	rep := e.reputationDB.LookupASN(asn)
+	if rep.ListedIPs > 0 && e.prefixDB != nil {
+		if pr, err := e.prefixDB.Lookup(asn); err == nil {
+			rep.AnnouncedIPv4 = sources.CountIPv4(pr.IPv4)
+		}
+	}
+	e.asnReps.Store(asn, rep)
+	return rep
 }
 
 // splitNameCountry splits an AS name such as "GOOGLE - Google LLC, US" into
@@ -347,6 +404,8 @@ type ASNSearchResult struct {
 	Prefixes     []string
 	IPv4Prefixes []string
 	IPv6Prefixes []string
+	// ASNReputation is nil without the reputation database.
+	ASNReputation *sources.ASNReputation
 }
 
 // SearchASNs returns the ASNs whose name contains query, ignoring case, in
@@ -393,6 +452,10 @@ func (e *Engine) SearchASNs(query string, limit int, v4Only, v6Only bool) []ASNS
 				results[i].IPv4Prefixes = pr.IPv4
 				results[i].IPv6Prefixes = pr.IPv6
 			}
+		}
+		if e.reputationDB != nil {
+			rep := e.asnReputation(asn)
+			results[i].ASNReputation = &rep
 		}
 	}
 	return results

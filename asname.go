@@ -62,6 +62,14 @@ func NewWithOptions(opts Options) (*Client, error) {
 		wantCategory = sources.CategoryDBPresent(cfg.CategoryPath)
 	}
 
+	wantReputation := false
+	switch opts.Reputation {
+	case FeatureEnabled:
+		wantReputation = true
+	case FeatureAuto:
+		wantReputation = sources.ReputationDBPresent(cfg.ReputationPath)
+	}
+
 	var whoisMode sources.WhoisMode
 	switch opts.Whois {
 	case WhoisAlways:
@@ -76,7 +84,7 @@ func NewWithOptions(opts Options) (*Client, error) {
 	if opts.AutoUpdate > 0 {
 		_, err := UpdateStale(context.Background(), UpdateOptions{
 			ASN: true, Names: true, Country: true,
-			City: wantCity, Netblock: wantNetblock, Category: wantCategory,
+			City: wantCity, Netblock: wantNetblock, Category: wantCategory, Reputation: wantReputation,
 			DataDir: opts.DataDir, Paths: opts.Paths,
 			ContactEmail: opts.ContactEmail, Log: opts.Log,
 		}, opts.AutoUpdate)
@@ -85,7 +93,7 @@ func NewWithOptions(opts Options) (*Client, error) {
 		}
 	}
 
-	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, whoisMode, opts.Log)
+	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, wantReputation, whoisMode, opts.Log)
 	if err != nil {
 		return nil, err
 	}
@@ -301,6 +309,13 @@ func (c *Client) HasCategoryDB() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.eng != nil && c.eng.HasCategoryDB()
+}
+
+// HasReputationDB reports whether the reputation database is loaded.
+func (c *Client) HasReputationDB() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.eng != nil && c.eng.HasReputationDB()
 }
 
 // HasPrefixDB reports whether the prefix database is loaded.

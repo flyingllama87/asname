@@ -107,8 +107,8 @@ func (s *Server) Start(ctx context.Context) error {
 	serverErr := make(chan error, 1)
 	go func() {
 		fmt.Fprintf(os.Stdout, "asname REST API listening on http://%s\n", s.listenAddr)
-		fmt.Fprintf(os.Stdout, "Databases: ASN (yes), Names (yes), Country (%v), City (%v), Netblock (%v), Category (%v)\n",
-			s.eng.HasCountryDB(), s.eng.HasCityDB(), s.eng.HasNetblockDB(), s.eng.HasCategoryDB())
+		fmt.Fprintf(os.Stdout, "Databases: ASN (yes), Names (yes), Country (%v), City (%v), Netblock (%v), Category (%v), Reputation (%v)\n",
+			s.eng.HasCountryDB(), s.eng.HasCityDB(), s.eng.HasNetblockDB(), s.eng.HasCategoryDB(), s.eng.HasReputationDB())
 		fmt.Fprintf(os.Stdout, "Ready to handle requests. Press Ctrl+C to shut down.\n")
 		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
@@ -141,12 +141,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Status:  "healthy",
 		Version: s.version,
 		Databases: map[string]bool{
-			"asn":      true,
-			"names":    true,
-			"country":  s.eng.HasCountryDB(),
-			"city":     s.eng.HasCityDB(),
-			"netblock": s.eng.HasNetblockDB(),
-			"category": s.eng.HasCategoryDB(),
+			"asn":        true,
+			"names":      true,
+			"country":    s.eng.HasCountryDB(),
+			"city":       s.eng.HasCityDB(),
+			"netblock":   s.eng.HasNetblockDB(),
+			"category":   s.eng.HasCategoryDB(),
+			"reputation": s.eng.HasReputationDB(),
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)

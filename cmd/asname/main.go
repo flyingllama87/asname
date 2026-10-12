@@ -61,6 +61,8 @@ OPTIONAL LOOKUPS & METADATA:
    --no-online-prefixes           never ask RIPEstat for prefixes, and do not ask
    --category, -C                 include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag
    --no-category                  omit the category even when the category database is present
+   --reputation, -R               include which public blocklists (Spamhaus DROP and ASN-DROP, IPsum, FireHOL) name the address and its ASN, building the database if absent; once present it is used without this flag, including by search
+   --no-reputation                omit reputation even when the reputation database is present
 
 SEARCH:
    --org query, -O query          search AS names and registry netblocks by organization name or netname
@@ -82,6 +84,7 @@ DATA FILES & AUTO-UPDATE:
    --city-db file                 IP->city database file (default: <dir>/city.mmdb) [$ASNAME_CITY]
    --netblock-db file             IP->netblock database file (default: <dir>/netblock.db) [$ASNAME_NETBLOCK]
    --category-db file             IP->category database file (default: <dir>/category.db) [$ASNAME_CATEGORY]
+   --reputation-db file           IP->reputation database file (default: <dir>/reputation.db) [$ASNAME_REPUTATION]
    --prefix-db file               ASN->prefix database file (default: <dir>/prefixes.db) [$ASNAME_PREFIXES]
    --max-age duration             auto-refresh data older than this duration (0 disables) (default: 720h0m0s)
    --no-update                    never auto-refresh data before a lookup
@@ -220,6 +223,15 @@ func newApp() *cli.Command {
 				Usage: "omit the category even when the category database is present",
 				Local: true,
 			},
+			&cli.BoolFlag{
+				Name:    "reputation",
+				Aliases: []string{"R"},
+				Usage:   "include which public blocklists (Spamhaus DROP and ASN-DROP, IPsum, FireHOL) name the address and its ASN, building the database if absent; once present it is used without this flag, including by search",
+			},
+			&cli.BoolFlag{
+				Name:  "no-reputation",
+				Usage: "omit reputation even when the reputation database is present",
+			},
 			&cli.StringFlag{
 				Name:    "org",
 				Aliases: []string{"O"},
@@ -299,6 +311,11 @@ func newApp() *cli.Command {
 				Usage:   "IP->category database `file` (default: <dir>/" + sources.CategoryFilename + ")",
 			},
 			&cli.StringFlag{
+				Name:    "reputation-db",
+				Sources: cli.EnvVars(sources.ReputationEnvVar),
+				Usage:   "IP->reputation database `file` (default: <dir>/" + sources.ReputationFilename + ")",
+			},
+			&cli.StringFlag{
 				Name:    "prefix-db",
 				Sources: cli.EnvVars(sources.PrefixEnvVar),
 				Usage:   "ASN->prefix database `file` (default: <dir>/" + sources.PrefixFilename + ")",
@@ -346,6 +363,8 @@ func newConfig(cmd *cli.Command) sources.Config {
 		CityPath:     cmd.String("city-db"),
 		NetblockPath: cmd.String("netblock-db"),
 		CategoryPath: cmd.String("category-db"),
+
+		ReputationPath: cmd.String("reputation-db"),
 	}
 	if c.DBPath == "" {
 		c.DBPath = filepath.Join(dir, sources.DBFilename)
@@ -364,6 +383,9 @@ func newConfig(cmd *cli.Command) sources.Config {
 	}
 	if c.CategoryPath == "" {
 		c.CategoryPath = filepath.Join(dir, sources.CategoryFilename)
+	}
+	if c.ReputationPath == "" {
+		c.ReputationPath = filepath.Join(dir, sources.ReputationFilename)
 	}
 	c.PrefixPath = cmd.String("prefix-db")
 	if c.PrefixPath == "" {
@@ -435,10 +457,11 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 	}
 	showNetblock := wantNetblock || whois == sources.WhoisAlways
 	wantCategory := !cmd.Bool("no-category") && (cmd.Bool("category") || sources.CategoryDBPresent(cfg.CategoryPath))
+	wantReputation := !cmd.Bool("no-reputation") && (cmd.Bool("reputation") || sources.ReputationDBPresent(cfg.ReputationPath))
 
 	if !cmd.Bool("no-update") {
 		contact := sources.NewContactAsker(cfg.ContactPath, cmd.String("contact-email"))
-		if err := sources.AutoUpdate(sources.WithLog(ctx, cmd.Root().ErrWriter), cfg, cmd.Duration("max-age"), wantCity, wantNetblock, wantCategory, contact); err != nil {
+		if err := sources.AutoUpdate(sources.WithLog(ctx, cmd.Root().ErrWriter), cfg, cmd.Duration("max-age"), wantCity, wantNetblock, wantCategory, wantReputation, contact); err != nil {
 			fmt.Fprintln(cmd.Root().ErrWriter, "asname: auto-update failed:", err)
 		}
 	}
@@ -456,7 +479,7 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 		onlinePrefixes = sources.WhoisAlways
 	}
 
-	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, whois, cmd.Root().ErrWriter)
+	eng, err := engine.NewEngine(cfg, wantCity, wantNetblock, showNetblock, wantCategory, wantReputation, whois, cmd.Root().ErrWriter)
 	if err != nil {
 		return err
 	}
@@ -727,7 +750,19 @@ func runSearch(cmd *cli.Command, query string) error {
 		wantNetblock = false
 	}
 
-	eng, err := engine.NewEngine(cfg, false, wantNetblock, wantNetblock, false, sources.WhoisNever, cmd.Root().ErrWriter)
+	// Search reports reputation whenever the database is present; asking for
+	// it builds the database first if it is missing or a day old.
+	wantReputation := !anyBool(cmd, "no-reputation") && (anyBool(cmd, "reputation") || sources.ReputationDBPresent(cfg.ReputationPath))
+	if anyBool(cmd, "reputation") && !anyBool(cmd, "no-update") && sources.Stale(cfg.ReputationPath, sources.ReputationMaxAge) {
+		if err := os.MkdirAll(filepath.Dir(cfg.ReputationPath), 0o755); err != nil {
+			return err
+		}
+		if err := sources.UpdateReputationDB(sources.WithLog(context.Background(), cmd.Root().ErrWriter), cfg); err != nil {
+			fmt.Fprintln(cmd.Root().ErrWriter, "asname: updating reputation database failed:", err)
+		}
+	}
+
+	eng, err := engine.NewEngine(cfg, false, wantNetblock, wantNetblock, false, wantReputation, sources.WhoisNever, cmd.Root().ErrWriter)
 	if err != nil {
 		return err
 	}
@@ -869,7 +904,7 @@ func countryAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	cfg := newConfig(cmd)
-	eng, err := engine.NewEngine(cfg, false, false, false, false, sources.WhoisNever, cmd.Root().ErrWriter)
+	eng, err := engine.NewEngine(cfg, false, false, false, false, false, sources.WhoisNever, cmd.Root().ErrWriter)
 	if err != nil {
 		return err
 	}
@@ -969,7 +1004,7 @@ func cityAction(ctx context.Context, cmd *cli.Command) error {
 	if !sources.CityDBPresent(cfg.CityPath) {
 		return fmt.Errorf("city database is not present; download it (~125MB) with `asname update --city-only`")
 	}
-	eng, err := engine.NewEngine(cfg, true, false, false, false, sources.WhoisNever, cmd.Root().ErrWriter)
+	eng, err := engine.NewEngine(cfg, true, false, false, false, false, sources.WhoisNever, cmd.Root().ErrWriter)
 	if err != nil {
 		return err
 	}
@@ -1078,6 +1113,10 @@ func updateCommand() *cli.Command {
 				Name:  "category-only",
 				Usage: "only refresh the IP->category database (builds it if absent)",
 			},
+			&cli.BoolFlag{
+				Name:  "reputation-only",
+				Usage: "only refresh the IP->reputation database of public blocklists (builds it if absent)",
+			},
 			&cli.StringFlag{
 				Name:  "rib-url",
 				Usage: "download the RIB MRT dump from this `URL` (.bz2 or .gz) instead of trying RouteViews then RIPE RIS",
@@ -1107,7 +1146,7 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		cfg.IPv6 = false
 	}
 	rctx := sources.WithLog(ctx, cmd.Root().ErrWriter)
-	for _, dir := range []string{cfg.DBPath, cfg.NamesPath, cfg.CountryPath, cfg.CityPath, cfg.NetblockPath, cfg.CategoryPath, cfg.PrefixPath} {
+	for _, dir := range []string{cfg.DBPath, cfg.NamesPath, cfg.CountryPath, cfg.CityPath, cfg.NetblockPath, cfg.CategoryPath, cfg.ReputationPath, cfg.PrefixPath} {
 		if dir != "" {
 			if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 				return err
@@ -1121,7 +1160,8 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 	cityOnly := cmd.Bool("city-only")
 	netblockOnly := cmd.Bool("netblock-only")
 	categoryOnly := cmd.Bool("category-only")
-	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly && !netblockOnly && !categoryOnly
+	reputationOnly := cmd.Bool("reputation-only")
+	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly && !netblockOnly && !categoryOnly && !reputationOnly
 
 	// A database that fails keeps its existing file; the others are still
 	// rebuilt, since they come from different hosts.
@@ -1155,6 +1195,12 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		contact := sources.NewContactAsker(cfg.ContactPath, cmd.String("contact-email"))
 		if err := sources.UpdateCategoryDB(rctx, cfg, contact); err != nil {
 			failed = append(failed, fmt.Errorf("updating category database: %v", err))
+		}
+	}
+	// Built last, so its per-ASN counts use the ASN database just refreshed.
+	if reputationOnly || cmd.Bool("reputation") || (all && sources.ReputationDBPresent(cfg.ReputationPath)) {
+		if err := sources.UpdateReputationDB(rctx, cfg); err != nil {
+			failed = append(failed, fmt.Errorf("updating reputation database: %v", err))
 		}
 	}
 	return errors.Join(failed...)

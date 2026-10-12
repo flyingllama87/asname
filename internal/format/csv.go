@@ -16,7 +16,7 @@ import (
 // LookupCSVHeader names the columns of FormatCSVLookupOutput and FormatCSVError.
 var LookupCSVHeader = []string{
 	"target", "host", "ip", "version", "asn", "as_name", "country_code", "country_name",
-	"city", "netblock", "netblock_source", "category", "reverse_dns",
+	"city", "netblock", "netblock_source", "category", "reputation", "asn_reputation", "reverse_dns",
 	"prefixes", "error",
 }
 
@@ -24,7 +24,7 @@ var LookupCSVHeader = []string{
 // FormatCSVNetblockOutput; type is "asn" or "netblock".
 var SearchCSVHeader = []string{
 	"type", "asn", "as_name", "country", "netname", "org", "range_start", "range_end",
-	"version", "cidrs", "ipv4_prefixes", "ipv6_prefixes",
+	"version", "cidrs", "ipv4_prefixes", "ipv6_prefixes", "asn_reputation",
 }
 
 // CountryCSVHeader names the columns of FormatCSVCountryPrefix.
@@ -71,6 +71,12 @@ func FormatCSVLookupOutput(res engine.LookupResult) string {
 	if j.Category != nil {
 		row["category"] = strings.Join(j.Category.Tags, " ")
 	}
+	if j.Reputation != nil {
+		row["reputation"] = strings.Join(j.Reputation.Lists, " ")
+		if j.Reputation.ASN != nil {
+			row["asn_reputation"] = j.Reputation.ASN.Summary
+		}
+	}
 	if j.ReverseDNS != nil {
 		row["reverse_dns"] = strings.Join(j.ReverseDNS.Names, " ")
 	}
@@ -89,13 +95,18 @@ func FormatCSVError(target, errStr string) string {
 // FormatCSVASNSearchOutput renders an AS name match as a SearchCSVHeader row.
 func FormatCSVASNSearchOutput(res engine.ASNSearchResult) string {
 	j := NewJSONASNSearchResult(res)
+	rep := ""
+	if j.Reputation != nil {
+		rep = j.Reputation.Summary
+	}
 	return formatCSVColumns(SearchCSVHeader, map[string]string{
-		"type":          j.Type,
-		"asn":           j.ASN,
-		"as_name":       j.Name,
-		"country":       j.Country,
-		"ipv4_prefixes": strings.Join(j.IPv4Prefixes, " "),
-		"ipv6_prefixes": strings.Join(j.IPv6Prefixes, " "),
+		"asn_reputation": rep,
+		"type":           j.Type,
+		"asn":            j.ASN,
+		"as_name":        j.Name,
+		"country":        j.Country,
+		"ipv4_prefixes":  strings.Join(j.IPv4Prefixes, " "),
+		"ipv6_prefixes":  strings.Join(j.IPv6Prefixes, " "),
 	})
 }
 

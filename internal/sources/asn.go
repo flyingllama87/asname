@@ -23,16 +23,17 @@ const (
 
 // Config bundles the resolved file locations for a run.
 type Config struct {
-	DBPath       string
-	NamesPath    string
-	CountryPath  string
-	CityPath     string
-	NetblockPath string
-	CategoryPath string
-	PrefixPath   string
-	ConsentPath  string
-	ContactPath  string
-	CachePath    string
+	DBPath         string
+	NamesPath      string
+	CountryPath    string
+	CityPath       string
+	NetblockPath   string
+	CategoryPath   string
+	ReputationPath string
+	PrefixPath     string
+	ConsentPath    string
+	ContactPath    string
+	CachePath      string
 
 	// PrefixConsentPath remembers whether online prefix lookups were allowed.
 	PrefixConsentPath string

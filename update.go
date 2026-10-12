@@ -25,6 +25,9 @@ type UpdateOptions struct {
 	City     bool
 	Netblock bool
 	Category bool
+	// Reputation builds the public blocklist database. It is built after
+	// the ASN database, whose routes attribute listed addresses to ASNs.
+	Reputation bool
 
 	// IPv6 controls whether an ASN update imports IPv6 routes as well as
 	// IPv4. FeatureAuto, the default, keeps whatever the last update did,
@@ -86,7 +89,7 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) b
 
 	all := opts.All
 	asn, names, country := opts.ASN || all, opts.Names || all, opts.Country || all
-	if !all && !opts.ASN && !opts.Names && !opts.Country && !opts.City && !opts.Netblock && !opts.Category {
+	if !all && !opts.ASN && !opts.Names && !opts.Country && !opts.City && !opts.Netblock && !opts.Category && !opts.Reputation {
 		asn, names, country = true, true, true
 	}
 
@@ -112,6 +115,10 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) b
 		steps = append(steps, updateStep{"category", cfg.CategoryPath, func(ctx context.Context, cfg sources.Config) error {
 			return sources.UpdateCategoryDB(ctx, cfg, libraryContact(cfg, contactEmail(opts.ContactEmail), opts.Log))
 		}})
+	}
+
+	if opts.Reputation || all {
+		steps = append(steps, updateStep{"reputation", cfg.ReputationPath, sources.UpdateReputationDB})
 	}
 
 	// A database that fails keeps its previous file and does not stop the

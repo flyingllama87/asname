@@ -16,6 +16,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
 - **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it.
+- **Says Who Is Dodgy**: An optional reputation database flags addresses and ASNs named by Spamhaus DROP and ASN-DROP, IPsum and FireHOL, and shows what share of an ASN's address space is listed.
 - **Says What It Is**: Another optional database classifies an address as cloud, CDN, hosting, residential ISP, mobile or Tor exit, from the providers' own published ranges and operator-declared network types.
 - **Auto-Updating**: Automatically fetches the latest RouteViews or RIPE RIS RIB dumps, RIPE ASN names, and RIR Delegation Statistics to build and maintain its own fresh databases when they get older than 30 days.
 - **Fully Standalone**: A single static binary — no Cgo, and no `geoiplookup` or other system tool to install alongside it.
@@ -99,6 +100,7 @@ client, err := asname.New(
 	asname.WithCity(true),                        // Enable DB-IP Lite city lookup
 	asname.WithNetblock(true),                    // Enable registry netblock owner lookup
 	asname.WithCategory(true),                    // Enable network classification
+	asname.WithReputation(true),                  // Enable public blocklist reputation
 	asname.WithReverseDNS(true),                  // Enable PTR reverse DNS lookups
 	asname.WithAutoUpdate(720 * time.Hour),       // Refresh databases older than 30 days
 	asname.WithLog(os.Stderr),                    // Show warnings and update progress (silent by default)
@@ -106,7 +108,7 @@ client, err := asname.New(
 )
 ```
 
-The client reads the same environment variables as the CLI: `ASNAME_DIR` for the data directory, and `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, `ASNAME_CATEGORY` and `ASNAME_PREFIXES` for individual files. An explicit `WithDataDir` beats `ASNAME_DIR`, a per-file variable beats the directory, and `WithCustomPaths` beats both.
+The client reads the same environment variables as the CLI: `ASNAME_DIR` for the data directory, and `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, `ASNAME_CATEGORY`, `ASNAME_REPUTATION` and `ASNAME_PREFIXES` for individual files. An explicit `WithDataDir` beats `ASNAME_DIR`, a per-file variable beats the directory, and `WithCustomPaths` beats both.
 
 A field the databases cannot answer is empty in a `Result`; the CLI's `Unknown` and `N/A` are display text only. `Result.String()` puts them back for printing.
 
@@ -568,6 +570,50 @@ $ asname -u -r 8.8.8.8
 IP: 8.8.8.8                                | ASN: AS15169      | Name: GOOGLE - Google LLC, US                                      | Country: US, United States         | Reverse DNS: dns.google
 ```
 
+### Reputation (blocklists)
+
+`--reputation` (or `-R`) reports which free public blocklists name an address, and what they say about the ASN announcing it. It is off until you ask for it once; after that the database's presence on disk is enough, for lookups and for `search`. `--no-reputation` suppresses it for a run.
+
+Reputation is shown in pretty, JSON and CSV output, not in the default one-line output:
+
+```bash
+$ asname -R -p 77.91.71.90
+...
+  Reputation:
+    Address:           firehol-level2, firehol-level3, ipsum:7
+    ASN:               11 listed IPs (1.43% of 768 announced IPv4), max 7 lists
+...
+
+$ asname -p 8.8.8.8
+...
+  Reputation:
+    Address:           not listed
+    ASN:               233 listed IPs (0.0103% of 2252800 announced IPv4), max 2 lists
+...
+```
+
+The address-level tags are:
+
+| Tag | Meaning |
+|---|---|
+| `spamhaus-drop:SBLnnnnnn` | The address is inside a [Spamhaus DROP](https://www.spamhaus.org/blocklists/do-not-route-or-peer/) block: hijacked or criminal-operated space. Block it outright. |
+| `ipsum:N` | [IPsum](https://github.com/stamparm/ipsum) lists the address on N of the 30+ public feeds it aggregates. IPsum's author suggests 3 or more as a blocking threshold. |
+| `firehol-level2` | [FireHOL level 2](https://iplists.firehol.org/?ipset=firehol_level2): reported attacking within the last 48 hours. |
+| `firehol-level3` | [FireHOL level 3](https://iplists.firehol.org/?ipset=firehol_level3): reported attacking within the last 30 days. |
+
+The ASN-level summary is the useful signal for spotting a dodgy ASN:
+
+- **Spamhaus ASN-DROP**: Spamhaus considers the whole ASN to be operated by or for criminals. This is the strongest single signal.
+- **Spamhaus DROP prefixes**: how many DROP blocks the ASN announces.
+- **Listed IPs**: distinct addresses inside the ASN's routes that IPsum or FireHOL name, with the share of its announced IPv4 space when the prefix database has its routes. Every large network has some listed addresses, so judge by the share, not the count: Google's 233 are 0.01% of its space, while AS211486's 11 are 1.43% of three /24s.
+- **max N lists**: the highest IPsum count among those addresses.
+
+In `--pretty` mode the AS card for an ASN lookup or `search` result shows the ASN summary. `--json` carries the same data under `reputation`, including `listed_share_pct`, and `--csv` adds `reputation` and `asn_reputation` columns.
+
+The database is about 10 MB and builds in under ten seconds. Blocklists go stale within days, so it is refreshed when older than 24 hours, or `--max-age` if that is shorter; `asname update --reputation-only` refreshes it on demand. Per-ASN counts are attributed using the ASN database at build time, so `asname update` builds it last.
+
+FireHOL level 1 is not used: it includes the full bogon list, so private and unallocated space would be reported as listed, and it otherwise repeats Spamhaus DROP. AbuseIPDB, IBM X-Force and similar services need an API key per lookup and do not fit an offline database.
+
 ### Pretty mode
 
 Add `--pretty` (or `-p`) to display results in a structured, multi-line card layout with plenty of whitespace and terminal color highlights:
@@ -637,8 +683,8 @@ The columns are:
 
 | Command | Columns |
 |---|---|
-| lookup, `--stream` | `target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reverse_dns,prefixes,error` |
-| `search` | `type,asn,as_name,country,netname,org,range_start,range_end,version,cidrs,ipv4_prefixes,ipv6_prefixes`, where `type` is `asn` or `netblock` |
+| lookup, `--stream` | `target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reputation,asn_reputation,reverse_dns,prefixes,error` |
+| `search` | `type,asn,as_name,country,netname,org,range_start,range_end,version,cidrs,ipv4_prefixes,ipv6_prefixes,asn_reputation`, where `type` is `asn` or `netblock` |
 | `country` | `country,cidr,version` |
 | `city` | `city,region,country,cidr,version` |
 
@@ -663,7 +709,7 @@ Run `asname --rest` to host a fast HTTP REST API daemon in the foreground on por
 ```bash
 $ asname --rest --city --netblock -r
 asname REST API listening on http://127.0.0.1:8086
-Databases: ASN (yes), Names (yes), Country (true), City (true), Netblock (true), Category (true)
+Databases: ASN (yes), Names (yes), Country (true), City (true), Netblock (true), Category (true), Reputation (true)
 Ready to handle requests. Press Ctrl+C to shut down.
 ```
 
@@ -703,7 +749,7 @@ You can manually trigger an update of the local databases using:
 asname update
 ```
 
-You can also update specific databases using the `--db-only`, `--names-only`, `--country-only`, `--city-only`, `--netblock-only`, or `--category-only` flags.
+You can also update specific databases using the `--db-only`, `--names-only`, `--country-only`, `--city-only`, `--netblock-only`, `--category-only` or `--reputation-only` flags.
 
 `asname version` shows when each database was last updated, its size, and whether it is due for a refresh. The update time is when `asname` last wrote the file, which is also what `--max-age` is measured against; the city database also records when DB-IP built its data. Add `-j` for JSON.
 
@@ -766,13 +812,14 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/city.mmdb`: The DB-IP Lite city database, in MaxMind DB format. Only present if you have enabled city lookups; ~125 MB.
 - `~/.asname/netblock.db`: The IP to registry netblock index, built from the RIRs' bulk whois dumps. Only present if you have enabled netblock lookups.
 - `~/.asname/category.db`: The IP and ASN to category index. Only present if you have enabled category lookups; under 1 MB.
+- `~/.asname/reputation.db`: The IP and ASN to blocklist index. Only present if you have enabled reputation lookups; ~10 MB.
 - `~/.asname/whois-consent.json`: Whether you agreed to live whois lookups, and when you were asked. Delete it to be asked again; it expires after an hour anyway.
 - `~/.asname/online-prefixes-consent.json`: The same, for looking up an ASN's prefixes on RIPEstat.
 - `~/.asname/ipv6-routes`: Present when `asname update --ipv6` opted into IPv6 routes; see [IPv6 routes](#ipv6-routes).
 - `~/.asname/contact.json`: The contact address sent to bgp.tools, or a note that you declined. Delete it to be asked again.
 - `~/.asname/cache/`: The source files downloaded to build the databases above (BGP RIB dump, RIR delegation and whois dumps, and so on). Entries are reused for 24 hours and deleted once older than that, so an update that fails partway through does not download the same files again on the next attempt. An interrupted download is resumed where it stopped rather than restarted. The directory is safe to delete at any time.
 
-You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_PREFIXES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, and `ASNAME_CATEGORY` environment variables or their respective flags.
+You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_PREFIXES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, `ASNAME_CATEGORY` and `ASNAME_REPUTATION` environment variables or their respective flags.
 
 ## Credits
 
@@ -795,6 +842,8 @@ Category data comes from the providers' own published ranges ([AWS](https://ip-r
 DigitalOcean, Linode and Vultr), the [Tor Project](https://check.torproject.org/torbulkexitlist)
 exit list, [PeeringDB](https://www.peeringdb.com/) network types, and
 [bgp.tools](https://bgp.tools/) operator tags.
+
+Reputation data comes from [Spamhaus DROP and ASN-DROP](https://www.spamhaus.org/blocklists/do-not-route-or-peer/), [IPsum](https://github.com/stamparm/ipsum) and [FireHOL](https://github.com/firehol/blocklist-ipsets) levels 2 and 3. Spamhaus DROP is free for any use under the [Spamhaus DROP terms](https://www.spamhaus.org/drop/terms/).
 
 Netblock data comes from the RIRs' bulk whois dumps, [APNIC](https://ftp.apnic.net/apnic/whois/),
 [RIPE NCC](https://ftp.ripe.net/ripe/dbase/split/) and [AFRINIC](https://ftp.afrinic.net/dbase/),

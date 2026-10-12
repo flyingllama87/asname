@@ -123,6 +123,18 @@ func FormatASNSearchOutput(res engine.ASNSearchResult) string {
 	return strings.Join(parts, FieldSeparator) + "\n"
 }
 
+// ReputationText renders the lists naming an address, or "not listed"; ok is
+// false when the reputation database is not loaded.
+func ReputationText(res engine.LookupResult) (string, bool) {
+	if len(res.Reputation) > 0 {
+		return strings.Join(res.Reputation, ", "), true
+	}
+	if res.Reputation != nil {
+		return "not listed", true
+	}
+	return "", false
+}
+
 // FormatNetblockOutput renders one netblock search result line.
 func FormatNetblockOutput(res engine.NetblockEnrichedResult, uniform bool) string {
 	cidrStr := strings.Join(res.CIDRs, ", ")

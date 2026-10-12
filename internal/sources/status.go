@@ -30,6 +30,7 @@ func DatabaseStatus(cfg Config) []DBStatus {
 		{Name: "City", Path: cfg.CityPath, Optional: true},
 		{Name: "Netblock", Path: cfg.NetblockPath, Optional: true},
 		{Name: "Category", Path: cfg.CategoryPath, Optional: true},
+		{Name: "Reputation", Path: cfg.ReputationPath, Optional: true},
 	}
 	for i := range out {
 		s := &out[i]

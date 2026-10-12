@@ -126,6 +126,10 @@ asname -n 183.177.54.135
 # Network Classification (cloud provider, CDN, ISP, hosting, Tor exit)
 asname -C 13.32.0.1
 
+# Reputation: Spamhaus DROP/ASN-DROP, IPsum, FireHOL hits for the IP and its ASN (builds ~10MB DB on first use, refreshed daily)
+asname -R -p 77.91.71.90
+asname -p AS211486
+
 # Combine all enrichments in pretty mode
 asname -p -r -c -n -C 8.8.8.8
 ```
@@ -222,6 +226,7 @@ asname update --country-only    # IP->Country delegation stats
 asname update --city-only       # MaxMind DB-IP Lite city database
 asname update --netblock-only   # RIR inetnum whois dump index
 asname update --category-only   # Provider prefixes & ASN category tags
+asname update --reputation-only # Spamhaus, IPsum & FireHOL blocklists
 
 # Include IPv6 routes in the ASN and prefix databases (off by default; remembered)
 asname update --ipv6
@@ -256,7 +261,7 @@ defer client.Close()
 
 // 2. Fast in-memory IP lookup
 res, err := client.LookupIP(net.ParseIP("8.8.8.8"))
-// res.ASN, res.ASNNumber(), res.Name, res.Country, res.City, res.Netblock, res.Category
+// res.ASN, res.ASNNumber(), res.Name, res.Country, res.City, res.Netblock, res.Category, res.Reputation, res.ASNReputation
 
 // 3. String lookup (IP, hostname, URL, or ASN)
 results, err := client.Lookup("dns.google")
@@ -311,6 +316,7 @@ make release-all
 | Variable | Description | Default |
 |---|---|---|
 | `ASNAME_DIR` | Directory holding all local databases | `~/.asname` |
+| `ASNAME_REPUTATION` | Custom path to the blocklist reputation database | `~/.asname/reputation.db` |
 | `ASNAME_PREFIXES` | Custom path to ASN announced prefixes database | `~/.asname/prefixes.db` |
 | `ASNAME_LISTEN` | REST API server bind host and port | `127.0.0.1:8086` |
 | `ASNAME_WHOIS` | Enable online whois lookups without asking | `false` |

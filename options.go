@@ -35,16 +35,17 @@ const (
 
 // CustomPaths allows explicitly specifying custom file paths for databases.
 type CustomPaths struct {
-	DBPath       string
-	NamesPath    string
-	CountryPath  string
-	CityPath     string
-	NetblockPath string
-	CategoryPath string
-	PrefixPath   string
-	ConsentPath  string
-	ContactPath  string
-	CachePath    string
+	DBPath         string
+	NamesPath      string
+	CountryPath    string
+	CityPath       string
+	NetblockPath   string
+	CategoryPath   string
+	ReputationPath string
+	PrefixPath     string
+	ConsentPath    string
+	ContactPath    string
+	CachePath      string
 }
 
 // Options configures the asname Client.
@@ -56,6 +57,7 @@ type Options struct {
 	// Paths allows setting individual database file locations. A path left
 	// empty comes from its environment variable (ASNAME_DB, ASNAME_NAMES,
 	// ASNAME_COUNTRY, ASNAME_CITY, ASNAME_NETBLOCK, ASNAME_CATEGORY,
+	// ASNAME_REPUTATION,
 	// ASNAME_PREFIXES), the same ones the asname CLI reads, and otherwise
 	// from DataDir.
 	Paths CustomPaths
@@ -64,6 +66,9 @@ type Options struct {
 	City     FeatureState
 	Netblock FeatureState
 	Category FeatureState
+	// Reputation loads the public blocklist database built by an update
+	// with UpdateOptions.Reputation.
+	Reputation FeatureState
 
 	// EnableReverseDNS resolves PTR records for IP addresses during Lookup.
 	// Defaults to false for maximum lookup speed.
@@ -94,18 +99,19 @@ type Options struct {
 
 // DefaultOptions returns the standard options:
 // - DataDir: $ASNAME_DIR, else ~/.asname
-// - City/Netblock/Category: FeatureAuto (loaded if present on disk)
+// - City/Netblock/Category/Reputation: FeatureAuto (loaded if present on disk)
 // - EnableReverseDNS: false
 // - Whois: WhoisNever
 // - OnlinePrefixes: false
 // - AutoUpdate: 0 (disabled)
 func DefaultOptions() Options {
 	return Options{
-		DataDir:  dataDir(""),
-		City:     FeatureAuto,
-		Netblock: FeatureAuto,
-		Category: FeatureAuto,
-		Whois:    WhoisNever,
+		DataDir:    dataDir(""),
+		City:       FeatureAuto,
+		Netblock:   FeatureAuto,
+		Category:   FeatureAuto,
+		Reputation: FeatureAuto,
+		Whois:      WhoisNever,
 	}
 }
 
@@ -148,6 +154,17 @@ func WithCategory(enable bool) Option {
 			o.Category = FeatureEnabled
 		} else {
 			o.Category = FeatureDisabled
+		}
+	}
+}
+
+// WithReputation controls whether the public blocklist reputation database is loaded.
+func WithReputation(enable bool) Option {
+	return func(o *Options) {
+		if enable {
+			o.Reputation = FeatureEnabled
+		} else {
+			o.Reputation = FeatureDisabled
 		}
 	}
 }
@@ -246,16 +263,17 @@ func resolveConfig(dir string, p CustomPaths) sources.Config {
 		return filepath.Join(dir, name)
 	}
 	cfg := sources.Config{
-		DBPath:       pick(p.DBPath, sources.DBEnvVar, sources.DBFilename),
-		NamesPath:    pick(p.NamesPath, sources.NamesEnvVar, sources.NamesFilename),
-		CountryPath:  pick(p.CountryPath, sources.CountryEnvVar, sources.CountryFilename),
-		CityPath:     pick(p.CityPath, sources.CityEnvVar, sources.CityFilename),
-		NetblockPath: pick(p.NetblockPath, sources.NetblockEnvVar, sources.NetblockFilename),
-		CategoryPath: pick(p.CategoryPath, sources.CategoryEnvVar, sources.CategoryFilename),
-		PrefixPath:   pick(p.PrefixPath, sources.PrefixEnvVar, sources.PrefixFilename),
-		ConsentPath:  pick(p.ConsentPath, "", sources.WhoisConsentFilename),
-		ContactPath:  pick(p.ContactPath, "", sources.ContactFilename),
-		CachePath:    pick(p.CachePath, "", sources.CacheDirName),
+		DBPath:         pick(p.DBPath, sources.DBEnvVar, sources.DBFilename),
+		NamesPath:      pick(p.NamesPath, sources.NamesEnvVar, sources.NamesFilename),
+		CountryPath:    pick(p.CountryPath, sources.CountryEnvVar, sources.CountryFilename),
+		CityPath:       pick(p.CityPath, sources.CityEnvVar, sources.CityFilename),
+		NetblockPath:   pick(p.NetblockPath, sources.NetblockEnvVar, sources.NetblockFilename),
+		CategoryPath:   pick(p.CategoryPath, sources.CategoryEnvVar, sources.CategoryFilename),
+		ReputationPath: pick(p.ReputationPath, sources.ReputationEnvVar, sources.ReputationFilename),
+		PrefixPath:     pick(p.PrefixPath, sources.PrefixEnvVar, sources.PrefixFilename),
+		ConsentPath:    pick(p.ConsentPath, "", sources.WhoisConsentFilename),
+		ContactPath:    pick(p.ContactPath, "", sources.ContactFilename),
+		CachePath:      pick(p.CachePath, "", sources.CacheDirName),
 
 		PrefixConsentPath: pick("", "", sources.OnlinePrefixConsentFilename),
 		IPv6Path:          pick("", "", sources.IPv6MarkerFilename),

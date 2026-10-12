@@ -109,7 +109,7 @@ func decompress(url string, r io.Reader) (io.Reader, error) {
 }
 
 // AutoUpdate refreshes any data file that is missing or older than maxAge.
-func AutoUpdate(ctx context.Context, cfg Config, maxAge time.Duration, city, netblock, category bool, contact *ContactAsker) error {
+func AutoUpdate(ctx context.Context, cfg Config, maxAge time.Duration, city, netblock, category, reputation bool, contact *ContactAsker) error {
 	if Stale(cfg.DBPath, maxAge) {
 		logf(ctx, "asname: refreshing ASN database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
@@ -161,6 +161,18 @@ func AutoUpdate(ctx context.Context, cfg Config, maxAge time.Duration, city, net
 			return err
 		}
 		if err := UpdateCategoryDB(ctx, cfg, contact); err != nil {
+			return err
+		}
+	}
+	// Blocklists go stale within days, so the reputation database is
+	// refreshed daily however long the others are kept.
+	repAge := min(maxAge, ReputationMaxAge)
+	if reputation && Stale(cfg.ReputationPath, repAge) {
+		logf(ctx, "asname: refreshing reputation database...\n")
+		if err := os.MkdirAll(filepath.Dir(cfg.ReputationPath), 0o755); err != nil {
+			return err
+		}
+		if err := UpdateReputationDB(ctx, cfg); err != nil {
 			return err
 		}
 	}

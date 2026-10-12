@@ -21,6 +21,7 @@ type JSONLookupResult struct {
 	City       *JSONCity       `json:"city,omitempty"`
 	Netblock   *JSONNetblock   `json:"netblock,omitempty"`
 	Category   *JSONCategory   `json:"category,omitempty"`
+	Reputation *JSONReputation `json:"reputation,omitempty"`
 	ReverseDNS *JSONReverseDNS `json:"reverse_dns,omitempty"`
 	Prefixes   *JSONPrefixes   `json:"prefixes,omitempty"`
 	Error      string          `json:"error,omitempty"`
@@ -64,6 +65,56 @@ type JSONCategory struct {
 	Raw  string   `json:"raw"`
 }
 
+// JSONReputation is what public blocklists say about a result. Lists names
+// those listing the address itself, and is absent for an ASN lookup; ASN is
+// absent when the address is not announced.
+type JSONReputation struct {
+	Listed bool               `json:"listed"`
+	Lists  []string           `json:"lists,omitempty"`
+	ASN    *JSONASNReputation `json:"asn,omitempty"`
+}
+
+// JSONASNReputation is the reputation of an ASN as a whole. ListedSharePct is
+// ListedIPs as a percentage of AnnouncedIPv4, present only when that is known.
+type JSONASNReputation struct {
+	Listed          bool     `json:"listed"`
+	SpamhausASNDrop bool     `json:"spamhaus_asn_drop"`
+	ListedIPs       uint32   `json:"listed_ips"`
+	DropPrefixes    uint32   `json:"drop_prefixes"`
+	MaxLists        uint32   `json:"max_lists,omitempty"`
+	AnnouncedIPv4   uint64   `json:"announced_ipv4,omitempty"`
+	ListedSharePct  *float64 `json:"listed_share_pct,omitempty"`
+	Summary         string   `json:"summary"`
+}
+
+func newJSONASNReputation(r *sources.ASNReputation) *JSONASNReputation {
+	if r == nil {
+		return nil
+	}
+	out := &JSONASNReputation{
+		Listed:          r.Listed(),
+		SpamhausASNDrop: r.ASNDrop,
+		ListedIPs:       r.ListedIPs,
+		DropPrefixes:    r.DropPrefixes,
+		MaxLists:        r.MaxLists,
+		AnnouncedIPv4:   r.AnnouncedIPv4,
+		Summary:         r.String(),
+	}
+	if share := r.ListedShare(); share >= 0 {
+		out.ListedSharePct = &share
+	}
+	return out
+}
+
+func newJSONReputation(res engine.LookupResult) *JSONReputation {
+	if res.Reputation == nil && res.ASNReputation == nil {
+		return nil
+	}
+	out := &JSONReputation{Lists: res.Reputation, ASN: newJSONASNReputation(res.ASNReputation)}
+	out.Listed = len(res.Reputation) > 0 || (res.IsASN && out.ASN != nil && out.ASN.Listed)
+	return out
+}
+
 type JSONReverseDNS struct {
 	Names []string `json:"names"`
 	Raw   string   `json:"raw"`
@@ -94,6 +145,7 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 			tags := strings.Split(res.Category, ", ")
 			out.Category = &JSONCategory{Tags: tags, Raw: res.Category}
 		}
+		out.Reputation = newJSONReputation(res)
 		if len(res.Prefixes) > 0 {
 			out.Prefixes = &JSONPrefixes{
 				Total:     len(res.Prefixes),
@@ -186,6 +238,8 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		}
 	}
 
+	out.Reputation = newJSONReputation(res)
+
 	if res.RDNS != "" && res.RDNS != "N/A" {
 		rawNames := strings.Split(res.RDNS, ", ")
 		names := make([]string, 0, len(rawNames))
@@ -235,12 +289,13 @@ func FormatJSONError(target, errStr string) (string, error) {
 // JSONASNSearchResult is one AS name search match. Type is always "asn", so
 // a JSON Lines consumer can tell it from a JSONNetblockSearchResult.
 type JSONASNSearchResult struct {
-	Type         string   `json:"type"`
-	ASN          string   `json:"asn"`
-	Name         string   `json:"name"`
-	Country      string   `json:"country,omitempty"`
-	IPv4Prefixes []string `json:"ipv4_prefixes,omitempty"`
-	IPv6Prefixes []string `json:"ipv6_prefixes,omitempty"`
+	Type         string             `json:"type"`
+	ASN          string             `json:"asn"`
+	Name         string             `json:"name"`
+	Country      string             `json:"country,omitempty"`
+	IPv4Prefixes []string           `json:"ipv4_prefixes,omitempty"`
+	IPv6Prefixes []string           `json:"ipv6_prefixes,omitempty"`
+	Reputation   *JSONASNReputation `json:"reputation,omitempty"`
 }
 
 // NewJSONASNSearchResult converts an engine AS name match for JSON output.
@@ -252,6 +307,7 @@ func NewJSONASNSearchResult(res engine.ASNSearchResult) JSONASNSearchResult {
 		Country:      res.Country,
 		IPv4Prefixes: res.IPv4Prefixes,
 		IPv6Prefixes: res.IPv6Prefixes,
+		Reputation:   newJSONASNReputation(res.ASNReputation),
 	}
 }
 

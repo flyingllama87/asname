@@ -48,7 +48,7 @@ func TestFormatCSVLookupOutput(t *testing.T) {
 		"asn": "AS15169", "as_name": "GOOGLE - Google LLC, US",
 		"country_code": "US", "country_name": "United States", "city": "Mountain View, California",
 		"netblock": "GOGL (Google LLC)", "netblock_source": "offline",
-		"category": "cdn hosting", "reverse_dns": "dns.google", "prefixes": "", "error": "",
+		"category": "cdn hosting", "reputation": "", "asn_reputation": "", "reverse_dns": "dns.google", "prefixes": "", "error": "",
 	}, row)
 
 	unknown := parseCSVRow(t, LookupCSVHeader, FormatCSVLookupOutput(engine.LookupResult{

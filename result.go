@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/flyingllama87/asname/internal/engine"
+	"github.com/flyingllama87/asname/internal/sources"
 )
 
 // Result is everything known about an IP address, hostname, URL, or ASN.
@@ -16,22 +17,28 @@ import (
 // prefix (see ASNNumber) and Country reads "US, United States" (see
 // CountryCode and CountryName).
 type Result struct {
-	Target       string   `json:"target,omitempty"`
-	Host         string   `json:"host,omitempty"`
-	IP           net.IP   `json:"ip,omitempty"`
-	ASN          string   `json:"asn,omitempty"`
-	Name         string   `json:"name,omitempty"`
-	Country      string   `json:"country,omitempty"`
-	City         string   `json:"city,omitempty"`
-	Netblock     string   `json:"netblock,omitempty"`
-	NetblockLive bool     `json:"netblock_live,omitempty"`
-	Category     string   `json:"category,omitempty"`
-	RDNS         string   `json:"rdns,omitempty"`
-	IsASN        bool     `json:"is_asn,omitempty"`
-	Prefixes     []string `json:"prefixes,omitempty"`
-	IPv4Prefixes []string `json:"ipv4_prefixes,omitempty"`
-	IPv6Prefixes []string `json:"ipv6_prefixes,omitempty"`
-	PrefixSource string   `json:"prefix_source,omitempty"`
+	Target       string `json:"target,omitempty"`
+	Host         string `json:"host,omitempty"`
+	IP           net.IP `json:"ip,omitempty"`
+	ASN          string `json:"asn,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Country      string `json:"country,omitempty"`
+	City         string `json:"city,omitempty"`
+	Netblock     string `json:"netblock,omitempty"`
+	NetblockLive bool   `json:"netblock_live,omitempty"`
+	Category     string `json:"category,omitempty"`
+	// Reputation names the public blocklists listing the address, such as
+	// "ipsum:7" (IPsum, on 7 of its source lists), "firehol-level2" or
+	// "spamhaus-drop:SBL123456". ASNReputation is what the lists say about
+	// the ASN as a whole. Both are empty without the reputation database.
+	Reputation    []string       `json:"reputation,omitempty"`
+	ASNReputation *ASNReputation `json:"asn_reputation,omitempty"`
+	RDNS          string         `json:"rdns,omitempty"`
+	IsASN         bool           `json:"is_asn,omitempty"`
+	Prefixes      []string       `json:"prefixes,omitempty"`
+	IPv4Prefixes  []string       `json:"ipv4_prefixes,omitempty"`
+	IPv6Prefixes  []string       `json:"ipv6_prefixes,omitempty"`
+	PrefixSource  string         `json:"prefix_source,omitempty"`
 }
 
 // ASNNumber parses and returns the numeric ASN (e.g. 15169 for "AS15169").
@@ -121,22 +128,60 @@ func known(s string) string {
 
 func resultFromEngine(r engine.LookupResult) Result {
 	return Result{
-		Target:       r.Target,
-		Host:         r.Host,
-		IP:           r.IP,
-		ASN:          known(r.ASN),
-		Name:         known(r.Name),
-		Country:      known(r.Country),
-		City:         known(r.City),
-		Netblock:     known(r.Netblock),
-		NetblockLive: r.NetblockLive,
-		Category:     known(r.Category),
-		RDNS:         known(r.RDNS),
-		IsASN:        r.IsASN,
-		Prefixes:     r.Prefixes,
-		IPv4Prefixes: r.IPv4Prefixes,
-		IPv6Prefixes: r.IPv6Prefixes,
-		PrefixSource: r.PrefixSource,
+		Target:        r.Target,
+		Host:          r.Host,
+		IP:            r.IP,
+		ASN:           known(r.ASN),
+		Name:          known(r.Name),
+		Country:       known(r.Country),
+		City:          known(r.City),
+		Netblock:      known(r.Netblock),
+		NetblockLive:  r.NetblockLive,
+		Category:      known(r.Category),
+		Reputation:    r.Reputation,
+		ASNReputation: asnReputationFromEngine(r.ASNReputation),
+		RDNS:          known(r.RDNS),
+		IsASN:         r.IsASN,
+		Prefixes:      r.Prefixes,
+		IPv4Prefixes:  r.IPv4Prefixes,
+		IPv6Prefixes:  r.IPv6Prefixes,
+		PrefixSource:  r.PrefixSource,
+	}
+}
+
+// ASNReputation is what public blocklists say about an Autonomous System.
+// ListedIPs counts the distinct addresses inside its routes that IPsum or
+// FireHOL list, and MaxLists the most IPsum sources naming any one of them.
+// AnnouncedIPv4 is the IPv4 space it announces, when the prefix database
+// knows it, so ListedIPs can be read as a share of it.
+type ASNReputation struct {
+	SpamhausASNDrop bool   `json:"spamhaus_asn_drop"`
+	ListedIPs       uint32 `json:"listed_ips"`
+	DropPrefixes    uint32 `json:"drop_prefixes"`
+	MaxLists        uint32 `json:"max_lists,omitempty"`
+	AnnouncedIPv4   uint64 `json:"announced_ipv4,omitempty"`
+}
+
+// Listed reports whether any list names the ASN or anything inside it.
+func (r ASNReputation) Listed() bool { return r.toSources().Listed() }
+
+// String renders the reputation on one line, as the CLI does.
+func (r ASNReputation) String() string { return r.toSources().String() }
+
+func (r ASNReputation) toSources() sources.ASNReputation {
+	return sources.ASNReputation{
+		ASNDrop: r.SpamhausASNDrop, ListedIPs: r.ListedIPs, DropPrefixes: r.DropPrefixes,
+		MaxLists: r.MaxLists, AnnouncedIPv4: r.AnnouncedIPv4,
+	}
+}
+
+func asnReputationFromEngine(r *sources.ASNReputation) *ASNReputation {
+	if r == nil {
+		return nil
+	}
+	return &ASNReputation{
+		SpamhausASNDrop: r.ASNDrop, ListedIPs: r.ListedIPs, DropPrefixes: r.DropPrefixes,
+		MaxLists: r.MaxLists, AnnouncedIPv4: r.AnnouncedIPv4,
 	}
 }
 
@@ -202,17 +247,20 @@ type ASNResult struct {
 	Prefixes     []string `json:"prefixes,omitempty"`
 	IPv4Prefixes []string `json:"ipv4_prefixes,omitempty"`
 	IPv6Prefixes []string `json:"ipv6_prefixes,omitempty"`
+	// ASNReputation is nil without the reputation database.
+	ASNReputation *ASNReputation `json:"asn_reputation,omitempty"`
 }
 
 func asnResultFromEngine(r engine.ASNSearchResult) ASNResult {
 	return ASNResult{
-		ASN:          r.ASN,
-		Number:       r.Number,
-		Name:         known(r.Name),
-		Country:      known(r.Country),
-		Prefixes:     r.Prefixes,
-		IPv4Prefixes: r.IPv4Prefixes,
-		IPv6Prefixes: r.IPv6Prefixes,
+		ASN:           r.ASN,
+		Number:        r.Number,
+		Name:          known(r.Name),
+		Country:       known(r.Country),
+		Prefixes:      r.Prefixes,
+		IPv4Prefixes:  r.IPv4Prefixes,
+		IPv6Prefixes:  r.IPv6Prefixes,
+		ASNReputation: asnReputationFromEngine(r.ASNReputation),
 	}
 }
 

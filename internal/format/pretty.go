@@ -19,6 +19,7 @@ const (
 	ansiBoldCyan    = "\033[1;36m"
 	ansiYellow      = "\033[33m"
 	ansiGreen       = "\033[32m"
+	ansiBoldRed     = "\033[1;31m"
 	ansiBoldMagenta = "\033[1;35m"
 	ansiBoldWhite   = "\033[1;37m"
 )
@@ -110,6 +111,17 @@ func (s prettyStyler) category(str string) string {
 	return ansiYellow + str + ansiReset
 }
 
+// reputation styles a reputation value: red when something is listed.
+func (s prettyStyler) reputation(str string, listed bool) string {
+	if !s.colored {
+		return str
+	}
+	if listed {
+		return ansiBoldRed + str + ansiReset
+	}
+	return ansiGreen + str + ansiReset
+}
+
 func (s prettyStyler) notice(str string) string {
 	if !s.colored {
 		return str
@@ -129,8 +141,23 @@ const (
 	srcWhois    = "Live WHOIS (IANA referral to the RIR)"
 	srcCategory = "Cloud provider ranges, Tor exits, bgp.tools tags, PeeringDB, offline"
 	srcRDNS     = "Live DNS PTR query"
+	srcRep      = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline"
 	srcRIPEStat = "Live RIPEstat announced-prefixes API"
 )
+
+// writeReputation writes the Reputation section: the lists naming the
+// address, when this is an address, and what they say about its ASN.
+func writeReputation(b *strings.Builder, st prettyStyler, res engine.LookupResult) {
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("  %s\n", st.section("Reputation:")))
+	if !res.IsASN {
+		v, _ := ReputationText(res)
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Address:          "), st.reputation(v, len(res.Reputation) > 0)))
+	}
+	if r := res.ASNReputation; r != nil {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("ASN:              "), st.reputation(r.String(), r.Listed())))
+	}
+}
 
 // writeSources writes the Data Sources section, one row per field shown.
 func writeSources(b *strings.Builder, st prettyStyler, rows [][2]string) {
@@ -170,6 +197,10 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Category:         "), st.category(res.Category)))
 		}
 
+		if res.ASNReputation != nil {
+			writeReputation(&b, st, res)
+		}
+
 		if len(res.Prefixes) > 0 {
 			b.WriteString("\n")
 			srcNotice := "Offline Index"
@@ -192,6 +223,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		rows := [][2]string{{"Organization", srcASNames}, {"Country", srcASNames}}
 		if res.Category != "" {
 			rows = append(rows, [2]string{"Category", srcCategory})
+		}
+		if res.ASNReputation != nil {
+			rows = append(rows, [2]string{"Reputation", srcRep})
 		}
 		if len(res.Prefixes) > 0 {
 			src := srcRIB
@@ -269,6 +303,10 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Category:         "), st.category(res.Category)))
 	}
 
+	if res.Reputation != nil {
+		writeReputation(&b, st, res)
+	}
+
 	rows := [][2]string{{"ASN", srcRIB}}
 	if res.Name != "" {
 		rows = append(rows, [2]string{"Organization", srcASNames})
@@ -286,6 +324,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	}
 	if res.Category != "" {
 		rows = append(rows, [2]string{"Category", srcCategory})
+	}
+	if res.Reputation != nil {
+		rows = append(rows, [2]string{"Reputation", srcRep})
 	}
 	if res.RDNS != "" {
 		rows = append(rows, [2]string{"Reverse DNS", srcRDNS})
@@ -327,6 +368,12 @@ func FormatPrettyASNSearchOutput(res engine.ASNSearchResult, index, total int, c
 		b.WriteString("\n")
 		b.WriteString(fmt.Sprintf("  %s\n", st.section("Location:")))
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Country:          "), st.location(FormatCountryPretty(res.Country))))
+	}
+
+	if r := res.ASNReputation; r != nil {
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  %s\n", st.section("Reputation:")))
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("ASN:              "), st.reputation(r.String(), r.Listed())))
 	}
 
 	if len(res.Prefixes) > 0 {

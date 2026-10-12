@@ -382,13 +382,13 @@ func TestVersion(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &v))
 	assert.Equal(t, "dev", v.Version)
 	assert.Equal(t, 720.0, v.MaxAgeHours)
-	require.Len(t, v.Databases, 7)
+	require.Len(t, v.Databases, 8)
 	for _, db := range v.Databases {
 		switch db.Name {
 		case "Country":
 			assert.True(t, db.Stale)
 			assert.Greater(t, db.AgeSeconds, int64(39*24*3600))
-		case "Category":
+		case "Category", "Reputation":
 			assert.False(t, db.Present)
 			assert.Nil(t, db.Updated)
 		case "City":
@@ -533,8 +533,8 @@ func TestCSV(t *testing.T) {
 	require.NoError(t, err)
 	got := lines(out)
 	require.Len(t, got, 4, out)
-	assert.Equal(t, "type,asn,as_name,country,netname,org,range_start,range_end,version,cidrs,ipv4_prefixes,ipv6_prefixes", got[0])
-	assert.Equal(t, "asn,AS15169,\"GOOGLE - Google LLC, US\",\"US, United States\",,,,,,,8.8.8.0/24,", got[1])
+	assert.Equal(t, "type,asn,as_name,country,netname,org,range_start,range_end,version,cidrs,ipv4_prefixes,ipv6_prefixes,asn_reputation", got[0])
+	assert.Equal(t, "asn,AS15169,\"GOOGLE - Google LLC, US\",\"US, United States\",,,,,,,8.8.8.0/24,,", got[1])
 	assert.True(t, strings.HasPrefix(got[2], "netblock,"), got[2])
 
 	out, stderr, err := run(t, "search", "--dir", dir, "nothing-matches", "--csv")
@@ -545,8 +545,8 @@ func TestCSV(t *testing.T) {
 	out, _, err = run(t, "--dir", dir, "--no-update", "--no-whois", "8.8.8.8", "--csv")
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reverse_dns,prefixes,error",
-		"8.8.8.8,,8.8.8.8,4,AS15169,\"GOOGLE - Google LLC, US\",US,United States,,GOOGLE-DNS (Google LLC),offline,,,,",
+		"target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reputation,asn_reputation,reverse_dns,prefixes,error",
+		"8.8.8.8,,8.8.8.8,4,AS15169,\"GOOGLE - Google LLC, US\",US,United States,,GOOGLE-DNS (Google LLC),offline,,,,,,",
 	}, lines(out))
 
 	for _, args := range [][]string{
