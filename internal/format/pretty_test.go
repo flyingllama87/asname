@@ -46,6 +46,50 @@ func TestFormatPrettyLookupOutputPlain(t *testing.T) {
 	require.Contains(t, out, "Category:          cdn, hosting")
 }
 
+func TestFormatPrettyLookupOutputSources(t *testing.T) {
+	out := FormatPrettyLookupOutput(samplePrettyResult(), 0, 1, false)
+
+	require.Contains(t, out, "Country:           United States (US) [RIR registration]")
+	require.Contains(t, out, "City:              Mountain View, California [DB-IP geolocation]")
+	require.Contains(t, out, "Data Sources:")
+	require.Contains(t, out, "ASN:               "+srcRIB)
+	require.Contains(t, out, "Organization:      "+srcASNames)
+	require.Contains(t, out, "Country:           "+srcRIR)
+	require.Contains(t, out, "City:              "+srcCity)
+	require.Contains(t, out, "Netblock:          "+srcNetblock)
+	require.Contains(t, out, "Category:          "+srcCategory)
+	require.Contains(t, out, "Reverse DNS:       "+srcRDNS)
+}
+
+func TestFormatPrettyLookupOutputSourcesOmitAbsentFields(t *testing.T) {
+	res := samplePrettyResult()
+	res.City, res.Netblock, res.Category, res.RDNS = "", "", "", ""
+	out := FormatPrettyLookupOutput(res, 0, 1, false)
+
+	require.Contains(t, out, "Country:           "+srcRIR)
+	require.NotContains(t, out, srcCity)
+	require.NotContains(t, out, srcNetblock)
+	require.NotContains(t, out, srcCategory)
+	require.NotContains(t, out, srcRDNS)
+}
+
+func TestFormatPrettyASNOutputSources(t *testing.T) {
+	res := engine.LookupResult{
+		ASN:          "AS15169",
+		IsASN:        true,
+		Name:         "GOOGLE - Google LLC, US",
+		Country:      "US, United States",
+		Prefixes:     []string{"8.8.8.0/24"},
+		IPv4Prefixes: []string{"8.8.8.0/24"},
+		PrefixSource: "ripe-stat",
+	}
+	out := FormatPrettyLookupOutput(res, 0, 1, false)
+
+	require.Contains(t, out, "Country:           United States (US) [AS registration]")
+	require.Contains(t, out, "Country:           "+srcASNames)
+	require.Contains(t, out, "Prefixes:          "+srcRIPEStat)
+}
+
 func TestFormatPrettyLookupOutputColor(t *testing.T) {
 	res := samplePrettyResult()
 	out := FormatPrettyLookupOutput(res, 0, 1, true)
@@ -75,6 +119,7 @@ func TestFormatPrettyLookupOutputLiveWhois(t *testing.T) {
 
 	out := FormatPrettyLookupOutput(res, 0, 1, false)
 	require.Contains(t, out, "Source:            Live WHOIS")
+	require.Contains(t, out, "Netblock:          "+srcWhois)
 }
 
 func TestFormatPrettyLookupOutputMultiTargetIndex(t *testing.T) {

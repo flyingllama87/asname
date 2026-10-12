@@ -72,7 +72,12 @@ Target: 8.8.8.8
     Organization:      GOOGLE - Google LLC, US
 
   Location:
-    Country:           United States (US)
+    Country:           United States (US) [RIR registration]
+
+  Data Sources:
+    ASN:               BGP RIB dump (RouteViews or RIPE RIS), offline
+    Organization:      RIPE NCC AS names list (asn.txt), offline
+    Country:           RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline
 ────────────────────────────────────────────────────────────
 ```
 
@@ -90,8 +95,8 @@ Target: 13.32.0.1
     Organization:      AMAZON-02 - Amazon.com, Inc., US
 
   Location:
-    Country:           United States (US)
-    City:              Seattle, Washington
+    Country:           United States (US) [RIR registration]
+    City:              Seattle, Washington [DB-IP geolocation]
 
   Registry Netblock:
     Netname / Org:     AMAZON-CF (Amazon.com, Inc.)
@@ -99,6 +104,15 @@ Target: 13.32.0.1
 
   Network Classification:
     Category:          cdn, cloud:aws
+
+  Data Sources:
+    ASN:               BGP RIB dump (RouteViews or RIPE RIS), offline
+    Organization:      RIPE NCC AS names list (asn.txt), offline
+    Country:           RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline
+    City:              DB-IP City Lite geolocation, offline
+    Netblock:          RIR WHOIS dumps, offline
+    Category:          Cloud provider ranges, Tor exits, bgp.tools tags, PeeringDB, offline
+    Reverse DNS:       Live DNS PTR query
 ────────────────────────────────────────────────────────────
 ```
 

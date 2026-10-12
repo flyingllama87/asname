@@ -117,6 +117,30 @@ func (s prettyStyler) notice(str string) string {
 	return ansiYellow + str + ansiReset
 }
 
+// Where each field of a lookup comes from. Country and City answer different
+// questions: Country is where the block is registered, City is where DB-IP
+// places it, so the two can disagree.
+const (
+	srcRIB      = "BGP RIB dump (RouteViews or RIPE RIS), offline"
+	srcASNames  = "RIPE NCC AS names list (asn.txt), offline"
+	srcRIR      = "RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline"
+	srcCity     = "DB-IP City Lite geolocation, offline"
+	srcNetblock = "RIR WHOIS dumps, offline"
+	srcWhois    = "Live WHOIS (IANA referral to the RIR)"
+	srcCategory = "Cloud provider ranges, Tor exits, bgp.tools tags, PeeringDB, offline"
+	srcRDNS     = "Live DNS PTR query"
+	srcRIPEStat = "Live RIPEstat announced-prefixes API"
+)
+
+// writeSources writes the Data Sources section, one row per field shown.
+func writeSources(b *strings.Builder, st prettyStyler, rows [][2]string) {
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("  %s\n", st.section("Data Sources:")))
+	for _, r := range rows {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label(fmt.Sprintf("%-18s", r[0]+":")), st.value(r[1])))
+	}
+}
+
 // FormatPrettyLookupOutput formats a LookupResult into a multi-line card layout.
 func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored bool) string {
 	st := newPrettyStyler(colored)
@@ -138,7 +162,7 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Organization:     "), st.value(res.Name)))
 		}
 		formattedCountry := FormatCountryPretty(res.Country)
-		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Country:          "), st.location(formattedCountry)))
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(formattedCountry), st.notice("AS registration")))
 
 		if res.Category != "" {
 			b.WriteString("\n")
@@ -164,6 +188,19 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 				b.WriteString(fmt.Sprintf("    %s %s\n", st.label("•"), st.value(p)))
 			}
 		}
+
+		rows := [][2]string{{"Organization", srcASNames}, {"Country", srcASNames}}
+		if res.Category != "" {
+			rows = append(rows, [2]string{"Category", srcCategory})
+		}
+		if len(res.Prefixes) > 0 {
+			src := srcRIB
+			if res.PrefixSource == "ripe-stat" {
+				src = srcRIPEStat
+			}
+			rows = append(rows, [2]string{"Prefixes", src})
+		}
+		writeSources(&b, st, rows)
 
 		b.WriteString(borderLine + "\n\n")
 		return b.String()
@@ -210,9 +247,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 
 	b.WriteString(fmt.Sprintf("  %s\n", st.section("Location:")))
 	formattedCountry := FormatCountryPretty(res.Country)
-	b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Country:          "), st.location(formattedCountry)))
+	b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(formattedCountry), st.notice("RIR registration")))
 	if res.City != "" {
-		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("City:             "), st.location(res.City)))
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("City:             "), st.location(res.City), st.notice("DB-IP geolocation")))
 	}
 
 	if res.Netblock != "" {
@@ -231,6 +268,29 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		b.WriteString(fmt.Sprintf("  %s\n", st.section("Network Classification:")))
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Category:         "), st.category(res.Category)))
 	}
+
+	rows := [][2]string{{"ASN", srcRIB}}
+	if res.Name != "" {
+		rows = append(rows, [2]string{"Organization", srcASNames})
+	}
+	rows = append(rows, [2]string{"Country", srcRIR})
+	if res.City != "" {
+		rows = append(rows, [2]string{"City", srcCity})
+	}
+	if res.Netblock != "" {
+		src := srcNetblock
+		if res.NetblockLive {
+			src = srcWhois
+		}
+		rows = append(rows, [2]string{"Netblock", src})
+	}
+	if res.Category != "" {
+		rows = append(rows, [2]string{"Category", srcCategory})
+	}
+	if res.RDNS != "" {
+		rows = append(rows, [2]string{"Reverse DNS", srcRDNS})
+	}
+	writeSources(&b, st, rows)
 
 	b.WriteString(borderLine + "\n\n")
 	return b.String()

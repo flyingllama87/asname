@@ -584,8 +584,8 @@ Target: 8.8.8.8
     Organization:      GOOGLE - Google LLC, US
 
   Location:
-    Country:           United States (US)
-    City:              Mountain View, California
+    Country:           United States (US) [RIR registration]
+    City:              Mountain View, California [DB-IP geolocation]
 
   Registry Netblock:
     Netname / Org:     GOGL (Google LLC)
@@ -593,8 +593,18 @@ Target: 8.8.8.8
 
   Network Classification:
     Category:          cdn, content, hosting, vpn
+
+  Data Sources:
+    ASN:               BGP RIB dump (RouteViews or RIPE RIS), offline
+    Organization:      RIPE NCC AS names list (asn.txt), offline
+    Country:           RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline
+    City:              DB-IP City Lite geolocation, offline
+    Netblock:          Live WHOIS (IANA referral to the RIR)
+    Category:          Cloud provider ranges, Tor exits, bgp.tools tags, PeeringDB, offline
 ────────────────────────────────────────────────────────────
 ```
+
+Country and City come from different databases and can disagree. Country is the registration country from the RIR delegation stats; City is DB-IP's estimate of where the addresses are used. A block registered in one country and announced in another shows both, labelled. The Data Sources section lists the database or live query behind each field shown.
 
 Colors are enabled automatically on interactive terminals and suppressed when piped, unless forced with `--color`. Use `--no-color` (or set the `NO_COLOR` environment variable) to disable colors explicitly.
 
