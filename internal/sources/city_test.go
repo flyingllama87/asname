@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"net"
 	"path/filepath"
 	"testing"
 
@@ -44,4 +45,11 @@ func TestCityDBPresent(t *testing.T) {
 	path := filepath.Join(dir, "city.mmdb")
 	require.NoError(t, WriteFileAtomic(path, []byte("not really an mmdb")))
 	require.True(t, CityDBPresent(path))
+}
+
+func TestLookupCityIncludesGeolocatedCountry(t *testing.T) {
+	db := openTestCityDB(t)
+	require.Equal(t, "Brisbane, Queensland, Australia", LookupCity(db, net.ParseIP("1.0.0.1")))
+	require.Equal(t, "Munich, Bavaria, Germany", LookupCity(db, net.ParseIP("1.0.4.1")))
+	require.Equal(t, "", LookupCity(db, net.ParseIP("9.9.9.9")))
 }

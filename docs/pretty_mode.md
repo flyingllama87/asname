@@ -96,7 +96,7 @@ Target: 13.32.0.1
 
   Location:
     Country:           United States (US) [RIR registration]
-    City:              Seattle, Washington [DB-IP geolocation]
+    City:              Seattle, Washington, United States [DB-IP geolocation]
 
   Registry Netblock:
     Netname / Org:     AMAZON-CF (Amazon.com, Inc.)
@@ -134,7 +134,7 @@ Found 2 addresses:
 
   Location:
     Country:           United States (US)
-    City:              Mountain View, California
+    City:              Mountain View, California, United States
 
   Registry Netblock:
     Netname / Org:     GOGL (Google LLC)
@@ -153,7 +153,7 @@ Found 2 addresses:
 
   Location:
     Country:           United States (US)
-    City:              Mountain View, California
+    City:              Mountain View, California, United States
 
   Registry Netblock:
     Netname / Org:     GOGL (Google LLC)

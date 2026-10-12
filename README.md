@@ -234,7 +234,7 @@ large. Enable it once with `--city` (or `-c`), which downloads it:
 
 ```bash
 $ asname --city 8.8.8.8
-IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | City: Mountain View, California
+IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | City: Mountain View, California, United States
 ```
 
 After that the flag is not needed — the city is included whenever the database
@@ -585,7 +585,7 @@ Target: 8.8.8.8
 
   Location:
     Country:           United States (US) [RIR registration]
-    City:              Mountain View, California [DB-IP geolocation]
+    City:              Mountain View, California, United States [DB-IP geolocation]
 
   Registry Netblock:
     Netname / Org:     GOGL (Google LLC)
@@ -614,7 +614,7 @@ Add `--json` (or `-j`) to emit results in JSON Lines (`JSONL`) format, one JSON 
 
 ```bash
 $ asname --json 8.8.8.8
-{"target":"8.8.8.8","host":null,"ip":"8.8.8.8","version":4,"asn":{"number":15169,"asn_string":"AS15169","name":"GOOGLE - Google LLC, US","announced":true},"country":{"code":"US","name":"United States"},"city":{"name":"Mountain View, California","present":true},"category":{"tags":["cdn","content","hosting","vpn"],"raw":"cdn, content, hosting, vpn"}}
+{"target":"8.8.8.8","host":null,"ip":"8.8.8.8","version":4,"asn":{"number":15169,"asn_string":"AS15169","name":"GOOGLE - Google LLC, US","announced":true},"country":{"code":"US","name":"United States"},"city":{"name":"Mountain View, California, United States","present":true},"category":{"tags":["cdn","content","hosting","vpn"],"raw":"cdn, content, hosting, vpn"}}
 ```
 
 ### CSV mode
@@ -624,8 +624,8 @@ Add `--csv` to emit a header row and then one CSV row per result, ready for a sp
 ```bash
 $ asname --csv --v4-only dns.google
 target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reverse_dns,prefixes,error
-dns.google,dns.google,8.8.4.4,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California",Google LLC,offline,cdn content hosting vpn,,,
-dns.google,dns.google,8.8.8.8,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California",Google LLC,offline,cdn content hosting vpn,,,
+dns.google,dns.google,8.8.4.4,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California, United States",Google LLC,offline,cdn content hosting vpn,,,
+dns.google,dns.google,8.8.8.8,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California, United States",Google LLC,offline,cdn content hosting vpn,,,
 
 $ asname country --csv NZ | head -3
 country,cidr,version

@@ -21,6 +21,9 @@ type cityRecord struct {
 	Subdivisions []struct {
 		Names map[string]string `maxminddb:"names"`
 	} `maxminddb:"subdivisions"`
+	Country struct {
+		ISOCode string `maxminddb:"iso_code"`
+	} `maxminddb:"country"`
 }
 
 // LoadCityDB memory-maps the city database.
@@ -34,7 +37,9 @@ func CityDBPresent(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// LookupCity returns "City, Region", or whichever of the two the database knows.
+// LookupCity returns "City, Region, Country", leaving out any part the
+// database does not know. The country is DB-IP's geolocated country, which can
+// differ from the registration country LookupCountry returns.
 func LookupCity(db *maxminddb.Reader, ip net.IP) string {
 	addr, ok := netip.AddrFromSlice(ip)
 	if !ok {
@@ -53,7 +58,19 @@ func LookupCity(db *maxminddb.Reader, ip net.IP) string {
 	if len(rec.Subdivisions) > 0 {
 		region = PreferredName(rec.Subdivisions[0].Names)
 	}
-	return FormatCity(PreferredName(rec.City.Names), region)
+	place := FormatCity(PreferredName(rec.City.Names), region)
+	country := rec.Country.ISOCode
+	if name := CountryNames[country]; name != "" {
+		country = name
+	}
+	switch {
+	case place == "":
+		return country
+	case country == "":
+		return place
+	default:
+		return place + ", " + country
+	}
 }
 
 // FormatCity joins a city and its region.

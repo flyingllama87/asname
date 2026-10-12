@@ -46,7 +46,7 @@ Each line matches the following schema:
     "name": "United States"
   },
   "city": {
-    "name": "Mountain View, California",
+    "name": "Mountain View, California, United States",
     "present": true
   },
   "netblock": {
@@ -103,7 +103,7 @@ asname --json -r -c -n -C "https://dns.google/resolve"
 ```
 Output (single line):
 ```json
-{"target":"https://dns.google/resolve","host":"dns.google","ip":"2001:4860:4860::8888","version":6,"asn":{"number":15169,"asn_string":"AS15169","name":"GOOGLE - Google LLC, US","announced":true},"country":{"code":"US","name":"United States"},"city":{"name":"Mountain View, California","present":true},"netblock":{"handle":"GOGL","organization":"Google LLC","raw":"GOGL (Google LLC)","source":"whois","live_query":true},"category":{"tags":["cdn","hosting","vpn"],"raw":"cdn, hosting, vpn"},"reverse_dns":{"names":["dns.google"],"raw":"dns.google"}}
+{"target":"https://dns.google/resolve","host":"dns.google","ip":"2001:4860:4860::8888","version":6,"asn":{"number":15169,"asn_string":"AS15169","name":"GOOGLE - Google LLC, US","announced":true},"country":{"code":"US","name":"United States"},"city":{"name":"Mountain View, California, United States","present":true},"netblock":{"handle":"GOGL","organization":"Google LLC","raw":"GOGL (Google LLC)","source":"whois","live_query":true},"category":{"tags":["cdn","hosting","vpn"],"raw":"cdn, hosting, vpn"},"reverse_dns":{"names":["dns.google"],"raw":"dns.google"}}
 ```
 
 ### 4.3 Error Representation

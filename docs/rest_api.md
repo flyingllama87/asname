@@ -141,7 +141,7 @@ curl -s "http://127.0.0.1:8086/health"
         "name": "United States"
       },
       "city": {
-        "name": "Mountain View, California"
+        "name": "Mountain View, California, United States"
       },
       "netblock": {
         "handle": "GOGL",
