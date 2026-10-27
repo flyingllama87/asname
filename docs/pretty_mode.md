@@ -111,7 +111,7 @@ Target: 13.32.0.1
     Country:           RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline
     City:              DB-IP City Lite geolocation, offline
     Netblock:          RIR WHOIS dumps, offline
-    Category:          Cloud provider ranges, Tor exits, bgp.tools tags, PeeringDB, offline
+    Category:          Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline
     Reverse DNS:       Live DNS PTR query
 ────────────────────────────────────────────────────────────
 ```

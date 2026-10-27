@@ -2,7 +2,9 @@ package format
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/flyingllama87/asname/internal/engine"
@@ -139,7 +141,7 @@ const (
 	srcCity     = "DB-IP City Lite geolocation, offline"
 	srcNetblock = "RIR WHOIS dumps, offline"
 	srcWhois    = "Live WHOIS (IANA referral to the RIR)"
-	srcCategory = "Cloud provider ranges, Tor exits, bgp.tools tags, PeeringDB, offline"
+	srcCategory = "Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline"
 	srcRDNS     = "Live DNS PTR query"
 	srcRep      = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline"
 	srcRIPEStat = "Live RIPEstat announced-prefixes API"
@@ -324,6 +326,14 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	}
 	if res.Category != "" {
 		rows = append(rows, [2]string{"Category", srcCategory})
+	}
+	for _, tag := range slices.Sorted(maps.Keys(res.VPNLists)) {
+		list := res.VPNLists[tag]
+		src := list.Source + ", offline"
+		if !list.Date.IsZero() {
+			src = fmt.Sprintf("%s, as of %s, offline", list.Source, list.Date.Format("2006-01-02"))
+		}
+		rows = append(rows, [2]string{"VPN servers", src})
 	}
 	if res.Reputation != nil {
 		rows = append(rows, [2]string{"Reputation", srcRep})

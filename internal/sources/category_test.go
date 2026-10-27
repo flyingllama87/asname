@@ -200,6 +200,18 @@ func TestImportBGPToolsTagSendsTheContactAddress(t *testing.T) {
 	require.Equal(t, map[string]bool{"vpn": true}, b.asns[13335])
 }
 
+func TestCategoryLookupKeepsCoveringTags(t *testing.T) {
+	db := buildTestCategoryDB(t, func(b *categoryBuilder) {
+		b.addPrefix("45.32.0.0/16", "cloud:vultr")
+		b.addPrefix("45.32.1.1", "vpn:mullvad")
+		b.addPrefix("45.32.1.2", "tor-exit")
+	})
+
+	require.Equal(t, "cloud:vultr, vpn:mullvad", db.Lookup(net.ParseIP("45.32.1.1"), 0, false))
+	require.Equal(t, "cloud:vultr, tor-exit", db.Lookup(net.ParseIP("45.32.1.2"), 0, false))
+	require.Equal(t, "cloud:vultr", db.Lookup(net.ParseIP("45.32.1.3"), 0, false))
+}
+
 func TestImportPeeringDBMapsReportedTypes(t *testing.T) {
 	srv := serveFixture(t, `{"data":[
 		{"asn":1221,"info_type":"Cable/DSL/ISP"},

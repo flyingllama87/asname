@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"sort"
 	"strconv"
@@ -76,6 +77,7 @@ func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) er
 		{"Linode", func() (int, error) { return b.ImportCIDRList(linodeRanges, "", "cloud:linode") }},
 		{"Vultr", func() (int, error) { return b.ImportCIDRList(vultrRanges, "", "cloud:vultr") }},
 		{"Tor", func() (int, error) { return b.ImportCIDRList(torExitList, "", "tor-exit") }},
+		{"VPN providers", func() (int, error) { return b.ImportVPNServers(vpnAPIs, gluetunServerLists) }},
 		{"PeeringDB", b.importPeeringDB},
 	}
 	if email, ok := contact.Contact(); ok {
@@ -114,13 +116,20 @@ type categoryBuilder struct {
 	ctx      context.Context
 	prefixes map[string]map[string]bool
 	asns     map[uint32]map[string]bool
+	// vpnLists records where each vpn:<provider> tag's addresses came from.
+	vpnLists map[string]VPNList
+	// lookupHost resolves the hostnames some VPN providers list instead of
+	// addresses.
+	lookupHost func(ctx context.Context, host string) ([]string, error)
 }
 
 func newCategoryBuilder(ctx context.Context) *categoryBuilder {
 	return &categoryBuilder{
-		ctx:      ctx,
-		prefixes: make(map[string]map[string]bool),
-		asns:     make(map[uint32]map[string]bool),
+		ctx:        ctx,
+		prefixes:   make(map[string]map[string]bool),
+		asns:       make(map[uint32]map[string]bool),
+		vpnLists:   make(map[string]VPNList),
+		lookupHost: net.DefaultResolver.LookupHost,
 	}
 }
 
@@ -389,14 +398,30 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 		return i
 	}
 
-	var trie trieBuilder = database.NewBuilder()
+	// A VPN or Tor address inside a cloud range keeps the cloud's tags too.
+	prefixes := make(map[netip.Prefix]map[string]bool, len(b.prefixes))
 	for cidr, tags := range b.prefixes {
-		_, ipNet, err := net.ParseCIDR(cidr)
+		p, err := netip.ParsePrefix(cidr)
 		if err != nil {
 			continue
 		}
+		p = p.Masked()
+		set := prefixes[p]
+		if set == nil {
+			set = make(map[string]bool, len(tags))
+			prefixes[p] = set
+		}
+		for tag := range tags {
+			set[tag] = true
+		}
+	}
+	inheritCovering(prefixes)
+
+	var trie trieBuilder = database.NewBuilder()
+	for p, tags := range prefixes {
+		ipNet := &net.IPNet{IP: net.IP(p.Addr().AsSlice()), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}
 		if err := trie.InsertMapping(ipNet, intern(tags)); err != nil {
-			return nil, fmt.Errorf("inserting %s: %v", cidr, err)
+			return nil, fmt.Errorf("inserting %s: %v", p, err)
 		}
 	}
 	trie.SetFillFactor(OptimizationFillFactor)
@@ -423,6 +448,27 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 		asnEntries = append(asnEntries, entry[:]...)
 	}
 
+	// The VPN lists trail the ASN table, so a reader that predates them
+	// stops before reaching them.
+	listed := make([]string, 0, len(b.vpnLists))
+	for tag := range b.vpnLists {
+		listed = append(listed, tag)
+	}
+	sort.Strings(listed)
+	vpnLists := binary.LittleEndian.AppendUint32(nil, uint32(len(listed)))
+	for _, tag := range listed {
+		list := b.vpnLists[tag]
+		var unix int64
+		if !list.Date.IsZero() {
+			unix = list.Date.Unix()
+		}
+		vpnLists = append(vpnLists, tag...)
+		vpnLists = append(vpnLists, 0)
+		vpnLists = append(vpnLists, list.Source...)
+		vpnLists = append(vpnLists, 0)
+		vpnLists = binary.LittleEndian.AppendUint64(vpnLists, uint64(unix))
+	}
+
 	out := make([]byte, categoryHeaderSize, categoryHeaderSize+len(trieBytes)+len(asnEntries)+4096)
 	copy(out[:8], categoryMagic)
 	binary.LittleEndian.PutUint64(out[8:16], uint64(len(trieBytes)))
@@ -435,6 +481,7 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 		out = append(out, 0)
 	}
 	out = append(out, asnEntries...)
+	out = append(out, vpnLists...)
 	return out, nil
 }
 

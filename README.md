@@ -486,7 +486,7 @@ so it takes a couple of seconds.
 
 Who owns an address and what it is *for* are different questions. `--category`
 (or `-C`) answers the second: cloud, CDN, hosting, residential ISP, mobile,
-university, Tor exit and so on.
+university, Tor exit, a named VPN provider's server and so on.
 
 ```bash
 $ asname -C 13.32.0.1
@@ -494,11 +494,14 @@ IP: 13.32.0.1 | ASN: AS16509 | Name: AMAZON-02 - Amazon.com, Inc., US | Country:
 
 $ asname 139.130.4.5
 IP: 139.130.4.5 | ASN: AS1221 | Name: ASN-TELSTRA Telstra Limited, AU | Country: AU, Australia | Category: isp, mobile
+
+$ asname 104.156.233.174
+IP: 104.156.233.174 | ASN: AS20473 | Name: AS-VULTR - The Constant Company, LLC, US | Country: US, United States | Category: cloud:vultr, vpn:vpn-unlimited
 ```
 
 Like the other optional databases, the flag is needed once; after that its
 presence on disk is enough. `--no-category` suppresses it for a run. The
-database is small — under a megabyte — and builds in a few seconds.
+database is small, about 2.5 MB, and builds in under a minute.
 
 **The two halves of it are not equally trustworthy, and the difference matters.**
 
@@ -508,6 +511,27 @@ use, and AWS goes further and names the service, which is how `13.32.0.1` is
 reported as a CDN while `52.95.110.1` is just a machine. The Tor Project
 publishes its exit list the same way. When one of these names an address, that
 is the provider speaking about its own network and it settles the question.
+An address inside one of these ranges that is also a Tor exit or VPN server
+reports both, for example `cloud:vultr, vpn:vpn-unlimited`.
+
+*VPN servers* come from the providers' own server lists where they publish
+one without a login: NordVPN, Mullvad, Surfshark, Private Internet Access,
+IVPN, AirVPN, Windscribe and PrivadoVPN. Surfshark and IVPN list hostnames
+rather than addresses, so those are resolved at build time. The other
+providers, among them ProtonVPN, ExpressVPN, CyberGhost, IPVanish and PureVPN,
+come from the server lists that [gluetun](https://github.com/qdm12/gluetun-servers)
+maintains for its VPN client, which are only as fresh as gluetun's last update.
+A provider whose own list cannot be read, or whose hostnames mostly fail to
+resolve, falls back to gluetun's copy, so a network that filters VPN domains
+still gets a complete, if older, set. Each server address is tagged with its
+provider, as `vpn:nordvpn`, `vpn:private-internet-access` and so on, and
+`--pretty` shows under Data Sources which list it came from and its date.
+
+Two limits apply. The lists hold the addresses a client *connects to*, plus
+exit addresses where NordVPN and AirVPN list them; most providers send traffic
+out of the same address, but some, ProtonVPN among them, can exit from a
+different one, which these lists do not record. And they cover only those
+providers.
 
 *ASNs* come from bgp.tools' operator tags and PeeringDB's self-reported network
 type. These describe **the operator, not the address**: the tag means the AS is
@@ -526,12 +550,13 @@ on a quarter of the eyeball ISPs in their data, because subscribers run relays.
 something. `biznet` means the network sells business connectivity, which
 describes an ISP rather than the business at the far end.
 
-**What is missing is VPN and proxy detection**, beyond operators who run their
-own AS. Most consumer VPN exits are rented from ordinary cloud providers and
-are, from routing data alone, indistinguishable from any other virtual machine.
-Telling them apart takes active measurement — connecting to the service and
-watching where it comes out — which is why that data is sold rather than
-published. The Tor exit list is the one exact, free piece of it.
+**What is still missing is proxy detection, and VPNs beyond those lists.** A
+provider gluetun does not cover, a provider's exit addresses where they differ
+from its servers, and residential proxy networks, which route traffic through
+home connections, all look like ordinary hosting or ISP addresses from routing
+data alone. Finding them takes active measurement, connecting to the service
+and watching where it comes out, which is why that data is sold rather than
+published.
 
 #### The bgp.tools contact address
 
@@ -646,7 +671,7 @@ Target: 8.8.8.8
     Country:           RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline
     City:              DB-IP City Lite geolocation, offline
     Netblock:          Live WHOIS (IANA referral to the RIR)
-    Category:          Cloud provider ranges, Tor exits, bgp.tools tags, PeeringDB, offline
+    Category:          Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline
 ────────────────────────────────────────────────────────────
 ```
 
@@ -840,7 +865,10 @@ Category data comes from the providers' own published ranges ([AWS](https://ip-r
 [Google Cloud](https://www.gstatic.com/ipranges/cloud.json), [Oracle](https://docs.oracle.com/en-us/iaas/tools/public_ip_ranges.json),
 [Fastly](https://api.fastly.com/public-ip-list), [Cloudflare](https://www.cloudflare.com/ips-v4),
 DigitalOcean, Linode and Vultr), the [Tor Project](https://check.torproject.org/torbulkexitlist)
-exit list, [PeeringDB](https://www.peeringdb.com/) network types, and
+exit list, the server lists NordVPN, Mullvad, Surfshark, Private Internet
+Access, IVPN, AirVPN, Windscribe and PrivadoVPN publish for their apps,
+[gluetun's VPN server lists](https://github.com/qdm12/gluetun-servers)
+(MIT licence) for other providers, [PeeringDB](https://www.peeringdb.com/) network types, and
 [bgp.tools](https://bgp.tools/) operator tags.
 
 Reputation data comes from [Spamhaus DROP and ASN-DROP](https://www.spamhaus.org/blocklists/do-not-route-or-peer/), [IPsum](https://github.com/stamparm/ipsum) and [FireHOL](https://github.com/firehol/blocklist-ipsets) levels 2 and 3. Spamhaus DROP is free for any use under the [Spamhaus DROP terms](https://www.spamhaus.org/drop/terms/).

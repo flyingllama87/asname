@@ -175,6 +175,9 @@ type LookupResult struct {
 	Netblock     string
 	NetblockLive bool
 	Category     string
+	// VPNLists says, for each vpn:<provider> tag in Category, where its
+	// addresses came from and when that list was current.
+	VPNLists map[string]sources.VPNList
 	// Reputation names the blocklists listing the address itself, and
 	// ASNReputation what they say about its ASN. Both are empty without the
 	// reputation database; Reputation is a non-nil empty slice when the
@@ -341,6 +344,7 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		res.Category = "Unknown"
 		if c := e.categoryDB.Lookup(ip, asn, haveASN); c != "" {
 			res.Category = c
+			res.VPNLists = e.categoryDB.VPNLists(c)
 		}
 	}
 

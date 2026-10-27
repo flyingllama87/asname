@@ -3,10 +3,12 @@ package format
 import (
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/flyingllama87/asname/internal/engine"
+	"github.com/flyingllama87/asname/internal/sources"
 )
 
 func samplePrettyResult() engine.LookupResult {
@@ -59,6 +61,19 @@ func TestFormatPrettyLookupOutputSources(t *testing.T) {
 	require.Contains(t, out, "Netblock:          "+srcNetblock)
 	require.Contains(t, out, "Category:          "+srcCategory)
 	require.Contains(t, out, "Reverse DNS:       "+srcRDNS)
+}
+
+func TestFormatPrettyLookupOutputVPNList(t *testing.T) {
+	res := samplePrettyResult()
+	res.Category = "cloud:vultr, vpn:mullvad, vpn:private-internet-access"
+	res.VPNLists = map[string]sources.VPNList{
+		"vpn:private-internet-access": {Source: "PIA server list", Date: time.Date(2026, 10, 27, 4, 0, 0, 0, time.UTC)},
+		"vpn:mullvad":                 {Source: "gluetun server list for mullvad"},
+	}
+	out := FormatPrettyLookupOutput(res, 0, 1, false)
+
+	require.Contains(t, out, "VPN servers:       gluetun server list for mullvad, offline\n    VPN servers:       PIA server list, as of 2026-10-27, offline")
+	require.NotContains(t, FormatPrettyLookupOutput(samplePrettyResult(), 0, 1, false), "VPN servers:")
 }
 
 func TestFormatPrettyLookupOutputSourcesOmitAbsentFields(t *testing.T) {

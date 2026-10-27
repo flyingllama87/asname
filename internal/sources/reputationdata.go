@@ -297,17 +297,17 @@ func (b *reputationBuilder) Attribute(asnDB database.Database) {
 	}
 }
 
-// inheritCovering adds to each prefix the tags of every listed prefix that
+// inheritCovering adds to each prefix the tags of every prefix in the map that
 // covers it, since a trie lookup returns only the most specific match.
-func (b *reputationBuilder) inheritCovering() {
+func inheritCovering(prefixes map[netip.Prefix]map[string]bool) {
 	lengths := map[bool][]int{}
-	for p := range b.prefixes {
+	for p := range prefixes {
 		v4 := p.Addr().Is4()
 		if !slices.Contains(lengths[v4], p.Bits()) {
 			lengths[v4] = append(lengths[v4], p.Bits())
 		}
 	}
-	for p, set := range b.prefixes {
+	for p, set := range prefixes {
 		for _, bits := range lengths[p.Addr().Is4()] {
 			if bits >= p.Bits() {
 				continue
@@ -316,7 +316,7 @@ func (b *reputationBuilder) inheritCovering() {
 			if err != nil {
 				continue
 			}
-			for tag := range b.prefixes[parent] {
+			for tag := range prefixes[parent] {
 				set[tag] = true
 			}
 		}
@@ -325,7 +325,7 @@ func (b *reputationBuilder) inheritCovering() {
 
 // Marshal serialises the database; built is recorded as when the lists were read.
 func (b *reputationBuilder) Marshal(built time.Time) ([]byte, error) {
-	b.inheritCovering()
+	inheritCovering(b.prefixes)
 
 	sets := []string{""}
 	index := map[string]uint32{"": 0}

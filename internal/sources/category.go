@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/flyingllama87/asname/pkg/database"
 )
@@ -25,6 +26,14 @@ type CategoryDB struct {
 	prefixes database.Database
 	asns     map[uint32]uint32
 	sets     []string
+	vpnLists map[string]VPNList
+}
+
+// VPNList says where the addresses behind a vpn:<provider> tag came from, and
+// when that list was current. Date is zero when the source does not say.
+type VPNList struct {
+	Source string
+	Date   time.Time
 }
 
 // CategoryDBPresent reports whether the user has opted in to category lookups.
@@ -75,7 +84,47 @@ func OpenCategoryDB(path string) (*CategoryDB, error) {
 		entry := rest[i*8 : i*8+8]
 		db.asns[binary.LittleEndian.Uint32(entry[0:4])] = binary.LittleEndian.Uint32(entry[4:8])
 	}
+	rest = rest[asnCount*8:]
+
+	// Databases built before the VPN lists were recorded end here.
+	if len(rest) < 4 {
+		return db, nil
+	}
+	listCount := binary.LittleEndian.Uint32(rest[:4])
+	rest = rest[4:]
+	db.vpnLists = make(map[string]VPNList, listCount)
+	for range listCount {
+		tag, after, ok := bytes.Cut(rest, []byte{0})
+		if !ok {
+			return nil, fmt.Errorf("truncated database: VPN lists are short")
+		}
+		source, after, ok := bytes.Cut(after, []byte{0})
+		if !ok || len(after) < 8 {
+			return nil, fmt.Errorf("truncated database: VPN lists are short")
+		}
+		list := VPNList{Source: string(source)}
+		if unix := int64(binary.LittleEndian.Uint64(after[:8])); unix != 0 {
+			list.Date = time.Unix(unix, 0).UTC()
+		}
+		db.vpnLists[string(tag)] = list
+		rest = after[8:]
+	}
 	return db, nil
+}
+
+// VPNLists returns where the addresses behind each vpn:<provider> tag in tags
+// came from. tags is a Lookup result.
+func (d *CategoryDB) VPNLists(tags string) map[string]VPNList {
+	var out map[string]VPNList
+	for tag := range strings.SplitSeq(tags, ", ") {
+		if list, ok := d.vpnLists[tag]; ok {
+			if out == nil {
+				out = make(map[string]VPNList)
+			}
+			out[tag] = list
+		}
+	}
+	return out
 }
 
 // Lookup returns the categories known for an address and the AS announcing it.
