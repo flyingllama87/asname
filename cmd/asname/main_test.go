@@ -88,11 +88,17 @@ func writeFixtures(t *testing.T) string {
 // run runs the app with args and returns what it wrote to stdout and stderr.
 func run(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	return runWithStdin(t, "", args...)
+}
+
+// runWithStdin is run with stdin set to input.
+func runWithStdin(t *testing.T, input string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	t.Setenv("NO_COLOR", "1")
 	var out, errOut bytes.Buffer
 	app := newApp()
 	app.Writer, app.ErrWriter = &out, &errOut
-	app.Reader = strings.NewReader("")
+	app.Reader = strings.NewReader(input)
 	err = app.Run(context.Background(), append([]string{"asname"}, args...))
 	return out.String(), errOut.String(), err
 }
@@ -118,6 +124,26 @@ func TestSearchFindsASNsAndNetblocks(t *testing.T) {
 	assert.NotContains(t, out, "2001:4860")
 	assert.Contains(t, out, "GOOGLE-DNS")
 	assert.NotContains(t, out, "GOOGLE-V6")
+}
+
+func TestSearchReadsQueryFromStdin(t *testing.T) {
+	dir := writeFixtures(t)
+	want, _, err := run(t, "search", "--dir", dir, "google")
+	require.NoError(t, err)
+
+	got, _, err := runWithStdin(t, "google\n", "search", "--dir", dir)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+
+	got, _, err = runWithStdin(t, "\n  google  \n\n", "search", "--dir", dir, "-")
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+
+	_, _, err = runWithStdin(t, "google\nvalve\n", "search", "--dir", dir)
+	assert.ErrorContains(t, err, "more than one line")
+
+	_, _, err = runWithStdin(t, "", "search", "--dir", dir)
+	assert.ErrorContains(t, err, "requires an organization")
 }
 
 func TestSearchIsCaseInsensitive(t *testing.T) {

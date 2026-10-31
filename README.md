@@ -451,6 +451,9 @@ asname search --v6-only "Amazon"
 # CIDRs only, one per line (IPv4 unless --v6 or --v6-only)
 asname search --ips-only "Fastly"
 
+# Read the query from stdin when no argument (or -) is given
+shuf orgs.txt | head -n 1 | asname search
+
 # Output formats: pretty cards (--pretty), JSON Lines (--json) or CSV (--csv)
 asname search --pretty --limit 5 "Cloudflare"
 asname search --json "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + " " + .org'

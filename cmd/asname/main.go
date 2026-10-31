@@ -610,7 +610,7 @@ func searchCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "search",
 		Usage:     "search AS names and registry netblocks by organization name or netname",
-		ArgsUsage: "<organization-name>",
+		ArgsUsage: "<organization-name | ->",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:        "limit",
@@ -641,13 +641,56 @@ func searchCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if cmd.NArg() != 1 {
+			if cmd.NArg() > 1 {
 				cli.ShowSubcommandHelp(cmd)
-				return fmt.Errorf("search requires an organization or netname argument")
+				return fmt.Errorf("search takes one organization or netname; quote a query with spaces")
 			}
-			return runSearch(cmd, cmd.Args().First())
+			query := cmd.Args().First()
+			if query == "" || query == "-" {
+				r := cmd.Root().Reader
+				if f, ok := r.(*os.File); ok && query == "" && isTerminal(f) {
+					cli.ShowSubcommandHelp(cmd)
+					return fmt.Errorf("search requires an organization or netname argument, or one on stdin")
+				}
+				var err error
+				if query, err = readSearchQuery(r); err != nil {
+					return err
+				}
+			}
+			return runSearch(cmd, query)
 		},
 	}
+}
+
+// readSearchQuery reads one search query from r, such as a line piped in
+// with `echo Cloudflare | asname search`. Blank lines are ignored.
+func readSearchQuery(r io.Reader) (string, error) {
+	var query string
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		if query != "" {
+			return "", fmt.Errorf("search reads one query from stdin, but got more than one line")
+		}
+		query = line
+	}
+	if err := sc.Err(); err != nil {
+		return "", fmt.Errorf("reading search query from stdin: %w", err)
+	}
+	if query == "" {
+		return "", fmt.Errorf("search requires an organization or netname argument, or one on stdin")
+	}
+	return query, nil
+}
+
+// isTerminal reports whether f is an interactive terminal rather than a pipe
+// or file.
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 // anyBool reports whether the boolean flag name is set on cmd or a command
