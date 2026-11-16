@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 const OnlinePrefixConsentFilename = "online-prefixes-consent.json"
@@ -21,6 +22,7 @@ type PrefixAsker struct {
 	In       io.Reader
 	Terminal bool
 
+	mu      sync.Mutex // guards decided and allow
 	decided bool
 	allow   bool
 }
@@ -39,6 +41,8 @@ func (a *PrefixAsker) Allowed(asn uint32) bool {
 	if a == nil || a.Mode == WhoisNever {
 		return false
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.decided {
 		return a.allow
 	}

@@ -417,6 +417,10 @@ type JSONVersion struct {
 	// IPv6Routes reports whether ASN updates import IPv6 routes.
 	IPv6Routes bool         `json:"ipv6_routes"`
 	Databases  []JSONDBInfo `json:"databases"`
+	// MaxAgeSource says where MaxAgeHours came from: off (--no-update),
+	// flag (--max-age or ASNAME_MAX_AGE), saved (from the web UI) or
+	// default. Only the REST server's /v1/status sets it.
+	MaxAgeSource string `json:"max_age_source,omitempty"`
 }
 
 // JSONDBInfo describes one data file. Updated is when asname last wrote it;

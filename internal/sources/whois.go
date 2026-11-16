@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,6 +42,9 @@ type WhoisAsker struct {
 	In       io.Reader
 	Terminal bool
 
+	// mu guards the fields below: stream mode looks addresses up
+	// concurrently.
+	mu      sync.Mutex
 	decided bool
 	allow   bool
 	queries int
@@ -61,6 +65,8 @@ func (a *WhoisAsker) Allowed(ip net.IP) bool {
 	if a == nil || a.Mode == WhoisNever {
 		return false
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if !a.decide(ip) {
 		return false
 	}

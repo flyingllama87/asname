@@ -2,6 +2,7 @@ package engine
 
 import (
 	"net"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -32,5 +33,6 @@ func NewTestEngine(t *testing.T) *Engine {
 		db:        BuildTestDatabase(t, "8.8.8.0/24", 15169),
 		names:     map[uint32]string{15169: "GOOGLE - Google LLC, US"},
 		countryDB: BuildTestDatabase(t, "8.8.8.0/24", sources.EncodeCC("US")),
+		asnReps:   &sync.Map{},
 	}
 }

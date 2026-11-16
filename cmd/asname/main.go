@@ -89,7 +89,7 @@ DATA FILES & AUTO-UPDATE:
    --category-db file             IP->category database file (default: <dir>/category.db) [$ASNAME_CATEGORY]
    --reputation-db file           IP->reputation database file (default: <dir>/reputation.db) [$ASNAME_REPUTATION]
    --prefix-db file               ASN->prefix database file (default: <dir>/prefixes.db) [$ASNAME_PREFIXES]
-   --max-age duration             auto-refresh data older than this duration (0 disables) (default: 720h0m0s)
+   --max-age duration             auto-refresh data older than this duration (0 disables); without it, the age saved in the web UI, or 30 days (default: 720h0m0s) [$ASNAME_MAX_AGE]
    --no-update                    never auto-refresh data before a lookup
    --contact-email address        address to identify with when fetching bgp.tools' operator tags [$ASNAME_CONTACT_EMAIL]
    --help, -h                     show help{{end}}
@@ -341,10 +341,11 @@ func newApp() *cli.Command {
 				Usage:   "ASN->prefix database `file` (default: <dir>/" + sources.PrefixFilename + ")",
 			},
 			&cli.DurationFlag{
-				Name:  "max-age",
-				Value: sources.DefaultMaxAge,
-				Usage: "auto-refresh data older than this `duration` (0 disables)",
-				Local: true,
+				Name:    "max-age",
+				Value:   sources.DefaultMaxAge,
+				Sources: cli.EnvVars("ASNAME_MAX_AGE"),
+				Usage:   "auto-refresh data older than this `duration` (0 disables); without it, the age saved in the web UI, or 30 days",
+				Local:   true,
 			},
 			&cli.BoolFlag{
 				Name:  "no-update",
@@ -417,6 +418,7 @@ func newConfig(cmd *cli.Command) sources.Config {
 	c.ContactPath = filepath.Join(dir, sources.ContactFilename)
 	c.PrefixConsentPath = filepath.Join(dir, sources.OnlinePrefixConsentFilename)
 	c.IPv6Path = filepath.Join(dir, sources.IPv6MarkerFilename)
+	c.SettingsPath = filepath.Join(dir, sources.SettingsFilename)
 	c.IPv6 = sources.IPv6RoutesEnabled(c)
 	return c
 }
@@ -485,7 +487,7 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 
 	if !cmd.Bool("no-update") {
 		contact := sources.NewContactAsker(cfg.ContactPath, cmd.String("contact-email"))
-		if err := sources.AutoUpdate(sources.WithLog(ctx, cmd.Root().ErrWriter), cfg, cmd.Duration("max-age"), wantCity, wantNetblock, wantCategory, wantReputation, contact); err != nil {
+		if err := sources.AutoUpdate(sources.WithLog(ctx, cmd.Root().ErrWriter), cfg, effectiveMaxAge(cmd, cfg).Age, wantCity, wantNetblock, wantCategory, wantReputation, contact); err != nil {
 			fmt.Fprintln(cmd.Root().ErrWriter, "asname: auto-update failed:", err)
 		}
 	}
@@ -1289,13 +1291,21 @@ func restOptions(cmd *cli.Command, whois, onlinePrefixes sources.WhoisMode) rest
 		Version:    version,
 		WebDir:     cmd.String("web-dir"),
 	}
-	maxAge := cmd.Duration("max-age")
-	if cmd.Bool("no-update") {
-		maxAge = 0
+	// Online lookups: whois and RIPEstat answer a request that asks for
+	// them unless turned off for the server; --whois and --online-prefixes
+	// make them the default.
+	opts.Online = rest.OnlineOptions{
+		WhoisAvailable:    !cmd.Bool("no-whois") && !cmd.Bool("no-netblock"),
+		WhoisDefault:      whois == sources.WhoisAlways,
+		PrefixesAvailable: !cmd.Bool("no-online-prefixes"),
+		PrefixesDefault:   onlinePrefixes == sources.WhoisAlways,
 	}
 	opts.Status = func() any {
 		cfg := newConfig(cmd)
-		return format.NewJSONVersion(version, cmd.String("dir"), maxAge, cfg.IPv6, sources.DatabaseStatus(cfg), time.Now())
+		age := effectiveMaxAge(cmd, cfg)
+		v := format.NewJSONVersion(version, cmd.String("dir"), age.Age, cfg.IPv6, sources.DatabaseStatus(cfg), time.Now())
+		v.MaxAgeSource = age.Source
+		return v
 	}
 	if !cmd.Bool("allow-updates") {
 		return opts
@@ -1313,6 +1323,7 @@ func restOptions(cmd *cli.Command, whois, onlinePrefixes sources.WhoisMode) rest
 	opts.Update = func(ctx context.Context, req rest.UpdateRequest, log io.Writer) error {
 		cfg := newConfig(cmd)
 		if req.StaleOnly {
+			maxAge := effectiveMaxAge(cmd, cfg).Age
 			if maxAge <= 0 {
 				return nil
 			}
@@ -1343,10 +1354,83 @@ func restOptions(cmd *cli.Command, whois, onlinePrefixes sources.WhoisMode) rest
 		eng.SetOnlinePrefixes(onlinePrefixes)
 		return eng, nil
 	}
-	if maxAge > 0 {
-		opts.RefreshEvery = restRefreshEvery
+	// The refresh age can change while the server runs (it is saved from
+	// the web UI), so the check runs regardless and looks it up each time.
+	opts.RefreshEvery = restRefreshEvery
+	opts.NeedsRefresh = func() bool {
+		cfg := newConfig(cmd)
+		maxAge := effectiveMaxAge(cmd, cfg).Age
+		if maxAge <= 0 {
+			return false
+		}
+		now := time.Now()
+		for _, db := range sources.DatabaseStatus(cfg) {
+			if (!db.Present && !db.Optional) || (db.Present && now.Sub(db.Updated) > maxAge) {
+				return true
+			}
+		}
+		return false
+	}
+	opts.SaveSettings = func(req rest.SettingsRequest) error {
+		cfg := newConfig(cmd)
+		if req.MaxAgeHours != nil {
+			if src := effectiveMaxAge(cmd, cfg).Source; src == maxAgeFromFlag || src == maxAgeOff {
+				return rest.ErrSettingFixed("the refresh age is set on the server's command line (--max-age, ASNAME_MAX_AGE or --no-update); change it there")
+			}
+			hours := *req.MaxAgeHours
+			if hours < 0 || hours > 24*3650 {
+				return rest.ErrSettingInvalid("max_age_hours must be between 0 (never) and 87600")
+			}
+			s, err := sources.LoadSettings(cfg.SettingsPath)
+			if err != nil {
+				return err
+			}
+			s.MaxAge = (time.Duration(hours * float64(time.Hour))).String()
+			if err := sources.SaveSettings(cfg.SettingsPath, s); err != nil {
+				return err
+			}
+		}
+		if req.IPv6Routes != nil {
+			if err := sources.SetIPv6Routes(cfg, *req.IPv6Routes); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return opts
+}
+
+// Where the refresh age came from, as /v1/status reports it.
+const (
+	maxAgeOff      = "off"     // --no-update
+	maxAgeFromFlag = "flag"    // --max-age or ASNAME_MAX_AGE
+	maxAgeSaved    = "saved"   // saved in the data directory from the web UI
+	maxAgeDefault  = "default" // 30 days
+)
+
+type maxAgeSetting struct {
+	Age    time.Duration
+	Source string
+}
+
+// effectiveMaxAge is the age at which databases are refreshed: off with
+// --no-update, else --max-age or ASNAME_MAX_AGE when given, else the age
+// saved in the data directory, else the 30-day default.
+func effectiveMaxAge(cmd *cli.Command, cfg sources.Config) maxAgeSetting {
+	if anyBool(cmd, "no-update") {
+		return maxAgeSetting{0, maxAgeOff}
+	}
+	for _, c := range cmd.Lineage() {
+		if c.IsSet("max-age") {
+			return maxAgeSetting{c.Duration("max-age"), maxAgeFromFlag}
+		}
+	}
+	if s, err := sources.LoadSettings(cfg.SettingsPath); err == nil {
+		if age, ok := s.SavedMaxAge(); ok {
+			return maxAgeSetting{age, maxAgeSaved}
+		}
+	}
+	return maxAgeSetting{sources.DefaultMaxAge, maxAgeDefault}
 }
 
 // updateSelection says which databases runDatabaseUpdate rebuilds.
@@ -1496,10 +1580,7 @@ func versionCommand() *cli.Command {
 func versionAction(ctx context.Context, cmd *cli.Command) error {
 	cfg := newConfig(cmd)
 	dbs := sources.DatabaseStatus(cfg)
-	maxAge := cmd.Duration("max-age")
-	if cmd.Bool("no-update") {
-		maxAge = 0
-	}
+	maxAge := effectiveMaxAge(cmd, cfg).Age
 	now := time.Now()
 
 	if cmd.Bool("json") {

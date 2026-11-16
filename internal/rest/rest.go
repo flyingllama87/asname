@@ -71,6 +71,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/v1/bulk", s.handleBulk)
 	mux.HandleFunc("/v1/status", s.handleStatus)
 	mux.HandleFunc("/v1/update", s.handleUpdate)
+	mux.HandleFunc("/v1/settings", s.handleSettings)
 	if s.opts.WebDir != "" {
 		mux.Handle("/", webHandler(s.opts.WebDir))
 	}
@@ -200,7 +201,7 @@ func (s *Server) handleLookupQueryOrPost(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		wantRDNS := s.wantsReverseDNS(r)
-		s.lookupSingle(w, r.Context(), query, wantRDNS)
+		s.lookupSingle(w, r, query, wantRDNS)
 	case http.MethodPost:
 		s.handleBulk(w, r)
 	default:
@@ -234,7 +235,7 @@ func (s *Server) handleLookupPath(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wantRDNS := s.wantsReverseDNS(r)
-	s.lookupSingle(w, r.Context(), targetStr, wantRDNS)
+	s.lookupSingle(w, r, targetStr, wantRDNS)
 }
 
 type lookupResponse struct {
@@ -258,9 +259,28 @@ type bulkRequestBody struct {
 	Targets    []string `json:"targets"`
 	Target     string   `json:"target,omitempty"`
 	ReverseDNS *bool    `json:"reverse_dns,omitempty"`
+	// Whois and OnlinePrefixes ask for, or turn off, the online lookups;
+	// Online sets both. Absent leaves the server's default.
+	Whois          *bool `json:"whois,omitempty"`
+	OnlinePrefixes *bool `json:"online_prefixes,omitempty"`
+	Online         *bool `json:"online,omitempty"`
 }
 
-func (s *Server) lookupSingle(w http.ResponseWriter, ctx context.Context, rawTarget string, wantRDNS bool) {
+func boolParam(b *bool) string {
+	if b == nil {
+		return ""
+	}
+	return strconv.FormatBool(*b)
+}
+
+func (s *Server) lookupSingle(w http.ResponseWriter, r *http.Request, rawTarget string, wantRDNS bool) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	online, err := s.online(q.Get("whois"), q.Get("online_prefixes"), q.Get("online"))
+	if err != nil {
+		writeJSONError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	t := engine.NewTarget(rawTarget)
 	if t.Err != nil {
 		writeJSONError(w, http.StatusBadRequest, t.Err.Error())
@@ -276,7 +296,7 @@ func (s *Server) lookupSingle(w http.ResponseWriter, ctx context.Context, rawTar
 		}
 	}
 
-	results, err := s.engine().LookupTarget(t)
+	results, err := s.engine().WithOnline(online).LookupTargetContext(ctx, t)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -308,6 +328,8 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 	var targetStrings []string
 	wantRDNS := s.wantsReverseDNS(r)
+	q := r.URL.Query()
+	whoisParam, prefixesParam, onlineParam := q.Get("whois"), q.Get("online_prefixes"), q.Get("online")
 
 	bodyReader := http.MaxBytesReader(w, r.Body, 10*1024*1024)
 	bodyBytes, err := io.ReadAll(bodyReader)
@@ -329,6 +351,9 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 		if req.ReverseDNS != nil {
 			wantRDNS = *req.ReverseDNS
 		}
+		whoisParam = firstNonEmpty(boolParam(req.Whois), whoisParam)
+		prefixesParam = firstNonEmpty(boolParam(req.OnlinePrefixes), prefixesParam)
+		onlineParam = firstNonEmpty(boolParam(req.Online), onlineParam)
 	} else {
 		lines := strings.Split(string(bodyBytes), "\n")
 		for _, l := range lines {
@@ -351,16 +376,24 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 
 	engine.ResolveTargets(r.Context(), targets)
 
+	online, err := s.online(whoisParam, prefixesParam, onlineParam)
+	if err != nil {
+		writeJSONError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
 	var allResults []engine.LookupResult
 	var errorDetails []jsonErrorDetail
-	eng := s.engine()
+	// One view for the whole batch, so its whois queries share one
+	// allowance (MaxWhoisQueries).
+	eng := s.engine().WithOnline(online)
 
 	for _, t := range targets {
 		if t.Err != nil {
 			errorDetails = append(errorDetails, jsonErrorDetail{Target: t.Raw, Error: t.Err.Error()})
 			continue
 		}
-		found, err := eng.LookupTarget(t)
+		found, err := eng.LookupTargetContext(r.Context(), t)
 		if err != nil {
 			errorDetails = append(errorDetails, jsonErrorDetail{Target: t.Raw, Error: err.Error()})
 			continue

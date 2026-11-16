@@ -650,3 +650,25 @@ func TestPrettyIsDefaultAndOnelineOptsOut(t *testing.T) {
 	_, _, err = run(t, "search", "-o", "-p", "--dir", dir, "google")
 	assert.ErrorContains(t, err, "mutually exclusive")
 }
+
+func TestMaxAgeSavedFlagEnvAndOff(t *testing.T) {
+	dir := writeFixtures(t)
+	maxAge := func(args ...string) float64 {
+		t.Helper()
+		out, _, err := run(t, append(args, "version", "--dir", dir, "-j")...)
+		require.NoError(t, err)
+		var v format.JSONVersion
+		require.NoError(t, json.Unmarshal([]byte(out), &v))
+		return v.MaxAgeHours
+	}
+
+	assert.Equal(t, 720.0, maxAge(), "30 days by default")
+
+	require.NoError(t, sources.SaveSettings(filepath.Join(dir, sources.SettingsFilename), sources.Settings{MaxAge: "168h"}))
+	assert.Equal(t, 168.0, maxAge(), "the age saved from the web UI")
+	assert.Equal(t, 24.0, maxAge("--max-age", "24h"), "--max-age overrides the saved age")
+	assert.Equal(t, 0.0, maxAge("--no-update"), "--no-update turns refreshing off")
+
+	t.Setenv("ASNAME_MAX_AGE", "48h")
+	assert.Equal(t, 48.0, maxAge(), "ASNAME_MAX_AGE overrides the saved age")
+}

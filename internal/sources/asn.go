@@ -42,6 +42,8 @@ type Config struct {
 	PrefixConsentPath string
 	// IPv6Path marks that IPv6 routes were opted into; see IPv6RoutesEnabled.
 	IPv6Path string
+	// SettingsPath holds settings saved for the data directory; see Settings.
+	SettingsPath string
 	// IPv6 makes UpdateDatabase import IPv6 routes as well as IPv4.
 	IPv6 bool
 }

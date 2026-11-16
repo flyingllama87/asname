@@ -30,7 +30,8 @@ type Engine struct {
 	reputationDB *sources.ReputationDB
 	// asnReps caches asnReputation's results, as counting an ASN's announced
 	// space reads all of its prefixes; stream and REST lookups run concurrently.
-	asnReps  sync.Map
+	// It is shared by the views WithOnline returns.
+	asnReps  *sync.Map
 	prefixDB *sources.PrefixDB
 	log      io.Writer
 
@@ -127,7 +128,40 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		prefixDB:       prefixDB,
 		log:            log,
 		onlinePrefixes: sources.NewPrefixAsker(cfg.PrefixConsentPath, sources.WhoisNever),
+		asnReps:        &sync.Map{},
 	}, nil
+}
+
+// Online says whether a lookup may go to the network for what the offline
+// databases lack: whois for an address's netblock, and RIPEstat for an
+// ASN's announced prefixes.
+type Online struct {
+	Whois    bool
+	Prefixes bool
+}
+
+// WithOnline returns a view of e whose lookups query whois and RIPEstat as
+// online says, instead of as e was opened. The view shares e's databases;
+// it has its own allowance of whois queries (MaxWhoisQueries), so each
+// request to a long-running server gets a fresh one. Close e, not the view.
+func (e *Engine) WithOnline(online Online) *Engine {
+	v := *e
+	whois := sources.WhoisNever
+	if online.Whois {
+		whois = sources.WhoisAlways
+	}
+	v.whois = sources.NewWhoisAsker("", whois)
+	v.whois.Out = e.log
+	// Asking for whois shows the netblock even without the netblock
+	// database, as --whois does.
+	v.showNetblock = e.showNetblock || online.Whois
+	prefixes := sources.WhoisNever
+	if online.Prefixes {
+		prefixes = sources.WhoisAlways
+	}
+	v.onlinePrefixes = sources.NewPrefixAsker("", prefixes)
+	v.onlinePrefixes.Out = e.log
+	return &v
 }
 
 // OnlinePrefixMode reports how LookupASN treats prefixes the database lacks.

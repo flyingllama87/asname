@@ -44,7 +44,51 @@ type Options struct {
 	// older than --max-age and refreshes them, as a lookup on the command
 	// line would. Zero turns it off.
 	RefreshEvery time.Duration
+
+	// NeedsRefresh reports whether any database is due for a refresh, so
+	// the periodic check starts an update only when one is. Nil means
+	// always try.
+	NeedsRefresh func() bool
+
+	// SaveSettings changes the settings kept in the data directory, for
+	// PUT /v1/settings. Nil disables it; it also needs Update.
+	SaveSettings func(SettingsRequest) error
+
+	// Online says whether lookups may query whois and RIPEstat.
+	Online OnlineOptions
 }
+
+// OnlineOptions says which online lookups a request may ask for (with
+// whois=true or online_prefixes=true), and which it gets by default.
+type OnlineOptions struct {
+	WhoisAvailable    bool `json:"whois_available"`
+	WhoisDefault      bool `json:"whois_default"`
+	PrefixesAvailable bool `json:"prefixes_available"`
+	PrefixesDefault   bool `json:"prefixes_default"`
+}
+
+// SettingsRequest is the body of PUT /v1/settings; absent fields are left
+// as they are.
+type SettingsRequest struct {
+	// MaxAgeHours is the age at which databases are refreshed; 0 is never.
+	MaxAgeHours *float64 `json:"max_age_hours,omitempty"`
+	// IPv6Routes says whether ASN updates import IPv6 routes.
+	IPv6Routes *bool `json:"ipv6_routes,omitempty"`
+}
+
+// settingError is a SaveSettings failure that is the request's fault.
+type settingError struct {
+	code int
+	msg  string
+}
+
+func (e settingError) Error() string { return e.msg }
+
+// ErrSettingFixed reports a setting the server's command line fixes.
+func ErrSettingFixed(msg string) error { return settingError{http.StatusConflict, msg} }
+
+// ErrSettingInvalid reports a setting value out of range.
+func ErrSettingInvalid(msg string) error { return settingError{http.StatusBadRequest, msg} }
 
 // UpdateRequest is the body of POST /v1/update.
 type UpdateRequest struct {
@@ -200,17 +244,21 @@ func (s *Server) autoRefresh(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			s.startUpdate("auto", UpdateRequest{StaleOnly: true})
+			if s.opts.NeedsRefresh == nil || s.opts.NeedsRefresh() {
+				s.startUpdate("auto", UpdateRequest{StaleOnly: true})
+			}
 		}
 	}
 }
 
 type statusResponse struct {
-	Version        string          `json:"version"`
-	UpdatesEnabled bool            `json:"updates_enabled"`
-	Loaded         map[string]bool `json:"loaded"`
-	Store          any             `json:"store,omitempty"`
-	Update         jobState        `json:"update"`
+	Version          string          `json:"version"`
+	UpdatesEnabled   bool            `json:"updates_enabled"`
+	Loaded           map[string]bool `json:"loaded"`
+	Store            any             `json:"store,omitempty"`
+	Update           jobState        `json:"update"`
+	Online           OnlineOptions   `json:"online"`
+	SettingsEditable bool            `json:"settings_editable"`
 }
 
 // handleStatus answers GET /v1/status: the databases on disk, which ones
@@ -234,7 +282,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"category":   eng != nil && eng.HasCategoryDB(),
 			"reputation": eng != nil && eng.HasReputationDB(),
 		},
-		Update: s.job.snapshot(),
+		Update:           s.job.snapshot(),
+		Online:           s.opts.Online,
+		SettingsEditable: s.opts.Update != nil && s.opts.SaveSettings != nil,
 	}
 	if s.opts.Status != nil {
 		resp.Store = s.opts.Status()
@@ -290,6 +340,75 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, s.job.snapshot())
+}
+
+// handleSettings answers PUT /v1/settings, which changes the settings kept
+// in the data directory, and replies with the new status.
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed, use PUT")
+		return
+	}
+	if s.opts.Update == nil || s.opts.SaveSettings == nil {
+		writeJSONError(w, http.StatusForbidden, "settings cannot be changed through the API; start the server with --allow-updates")
+		return
+	}
+	if err := checkLocalWrite(r); err != nil {
+		writeJSONError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	var req SettingsRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON payload: %v", err))
+		return
+	}
+	if err := s.opts.SaveSettings(req); err != nil {
+		var se settingError
+		if errors.As(err, &se) {
+			writeJSONError(w, se.code, se.msg)
+		} else {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	s.handleStatus(w, &http.Request{Method: http.MethodGet})
+}
+
+// online decides which online lookups one request makes: whois=true and
+// online_prefixes=true (or online=true for both) ask for them, false turns
+// them off, and absent leaves the server's default. Asking for one the
+// server has turned off is an error.
+func (s *Server) online(whois, prefixes, both string) (engine.Online, error) {
+	o := s.opts.Online
+	out := engine.Online{Whois: o.WhoisDefault, Prefixes: o.PrefixesDefault}
+	if both != "" {
+		whois, prefixes = firstNonEmpty(whois, both), firstNonEmpty(prefixes, both)
+	}
+	for _, p := range []struct {
+		name, val string
+		avail     bool
+		dst       *bool
+	}{
+		{"whois", whois, o.WhoisAvailable, &out.Whois},
+		{"online_prefixes", prefixes, o.PrefixesAvailable, &out.Prefixes},
+	} {
+		if p.val == "" {
+			continue
+		}
+		on := p.val == "1" || strings.EqualFold(p.val, "true")
+		if on && !p.avail {
+			return out, fmt.Errorf("%s lookups are turned off on this server", p.name)
+		}
+		*p.dst = on
+	}
+	return out, nil
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // checkLocalWrite refuses a request that changes the server unless it came

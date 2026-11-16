@@ -200,3 +200,92 @@ func TestWebUIServedWithoutListing(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, get("/assets/").Code, "no directory listing")
 	assert.Equal(t, http.StatusOK, get("/health").Code, "the API still answers")
 }
+
+func putSettings(t *testing.T, h http.Handler, body string, header map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPut, "http://127.0.0.1:8086/v1/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+func TestSettings(t *testing.T) {
+	noop := func(context.Context, UpdateRequest, io.Writer) error { return nil }
+
+	t.Run("disabled without --allow-updates", func(t *testing.T) {
+		s := NewServerWithOptions(engine.NewTestEngine(t), Options{SaveSettings: func(SettingsRequest) error { return nil }})
+		assert.Equal(t, http.StatusForbidden, putSettings(t, s.Routes(), `{"ipv6_routes":true}`, nil).Code)
+	})
+
+	t.Run("saves and reports the status", func(t *testing.T) {
+		var got SettingsRequest
+		s := NewServerWithOptions(engine.NewTestEngine(t), Options{
+			Update:       noop,
+			SaveSettings: func(r SettingsRequest) error { got = r; return nil },
+		})
+		w := putSettings(t, s.Routes(), `{"max_age_hours":168,"ipv6_routes":true}`, map[string]string{"Origin": "http://127.0.0.1:8086"})
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.NotNil(t, got.MaxAgeHours)
+		assert.Equal(t, 168.0, *got.MaxAgeHours)
+		require.NotNil(t, got.IPv6Routes)
+		assert.True(t, *got.IPv6Routes)
+		var st statusResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &st))
+		assert.True(t, st.SettingsEditable)
+	})
+
+	t.Run("a fixed setting is a conflict", func(t *testing.T) {
+		s := NewServerWithOptions(engine.NewTestEngine(t), Options{
+			Update:       noop,
+			SaveSettings: func(SettingsRequest) error { return ErrSettingFixed("set by --max-age") },
+		})
+		w := putSettings(t, s.Routes(), `{"max_age_hours":1}`, nil)
+		assert.Equal(t, http.StatusConflict, w.Code)
+		assert.Contains(t, w.Body.String(), "--max-age")
+	})
+
+	t.Run("cross-site requests are refused", func(t *testing.T) {
+		called := false
+		s := NewServerWithOptions(engine.NewTestEngine(t), Options{
+			Update:       noop,
+			SaveSettings: func(SettingsRequest) error { called = true; return nil },
+		})
+		w := putSettings(t, s.Routes(), `{"ipv6_routes":true}`, map[string]string{"Origin": "https://evil.example"})
+		assert.Equal(t, http.StatusForbidden, w.Code)
+		assert.False(t, called)
+	})
+}
+
+func TestOnlineLookupsPerRequest(t *testing.T) {
+	get := func(s *Server, url string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		s.Routes().ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
+		return w
+	}
+
+	off := NewServerWithOptions(engine.NewTestEngine(t), Options{})
+	w := get(off, "/v1/lookup?q=8.8.8.8&whois=true")
+	assert.Equal(t, http.StatusForbidden, w.Code, "whois turned off on the server")
+	assert.Contains(t, w.Body.String(), "whois")
+	assert.Equal(t, http.StatusOK, get(off, "/v1/lookup?q=8.8.8.8&whois=false").Code, "asking for it off is fine")
+
+	on := NewServerWithOptions(engine.NewTestEngine(t), Options{Online: OnlineOptions{WhoisAvailable: true, PrefixesAvailable: true}})
+	got, err := on.online("", "", "true")
+	require.NoError(t, err)
+	assert.Equal(t, engine.Online{Whois: true, Prefixes: true}, got, "online=true asks for both")
+	got, err = on.online("false", "", "true")
+	require.NoError(t, err)
+	assert.Equal(t, engine.Online{Whois: false, Prefixes: true}, got, "a specific answer beats online")
+	got, err = on.online("", "", "")
+	require.NoError(t, err)
+	assert.Equal(t, engine.Online{}, got, "off by default")
+
+	var st statusResponse
+	require.NoError(t, json.Unmarshal(get(on, "/v1/status").Body.Bytes(), &st))
+	assert.True(t, st.Online.WhoisAvailable)
+	assert.False(t, st.Online.WhoisDefault)
+}
