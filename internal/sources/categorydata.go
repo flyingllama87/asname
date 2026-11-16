@@ -59,7 +59,10 @@ var peeringDBTypes = map[string][]string{
 }
 
 // UpdateCategoryDB builds the category database and atomically replaces cfg.CategoryPath.
-func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) error {
+func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) (err error) {
+	ctx, done := beginUpdate(ctx, cfg, KeyCategory)
+	defer func() { done(err) }()
+
 	logf(ctx, "asname: building IP->category database\n")
 	b := newCategoryBuilder(ctx)
 
@@ -89,6 +92,7 @@ func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) er
 		n, err := src.import_()
 		if err != nil {
 			logf(ctx, "asname: warning: %s: %v\n", src.name, err)
+			noteFailed(ctx, src.name)
 			continue
 		}
 		logf(ctx, "asname: %s: %d entries\n", src.name, n)
@@ -324,6 +328,7 @@ func (b *categoryBuilder) importBGPTools(email string) (int, error) {
 		n, err := b.importBGPToolsTag(name, bgpToolsTagNames[name], agent)
 		if err != nil {
 			logf(b.ctx, "asname: warning: bgp.tools %s: %v\n", name, err)
+			noteFailed(b.ctx, "bgp.tools "+name)
 			continue
 		}
 		total += n

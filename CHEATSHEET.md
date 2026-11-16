@@ -228,6 +228,9 @@ asname update --netblock-only   # RIR inetnum whois dump index
 asname update --category-only   # Provider prefixes & ASN category tags
 asname update --reputation-only # Spamhaus, IPsum & FireHOL blocklists
 
+# Retry only the databases the last update failed or left a source out of
+asname update --incremental
+
 # Include IPv6 routes in the ASN and prefix databases (off by default; remembered)
 asname update --ipv6
 asname update --no-ipv6         # back to IPv4 only

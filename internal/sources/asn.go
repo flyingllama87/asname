@@ -34,6 +34,9 @@ type Config struct {
 	ConsentPath    string
 	ContactPath    string
 	CachePath      string
+	// UpdateRecordPath records which sources each database update could not read;
+	// see LoadUpdateRecord. Empty disables the record.
+	UpdateRecordPath string
 
 	// PrefixConsentPath remembers whether online prefix lookups were allowed.
 	PrefixConsentPath string

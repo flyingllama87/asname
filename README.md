@@ -122,6 +122,12 @@ err := asname.Update(ctx, asname.UpdateOptions{Log: os.Stderr})
 
 // Refresh only what is missing or older than 30 days, and see what changed.
 refreshed, err := asname.UpdateStale(ctx, asname.UpdateOptions{City: true, Netblock: true}, 720*time.Hour)
+
+// Rebuild only what the last update failed or left a source out of.
+refreshed, err := asname.UpdateIncomplete(ctx, asname.UpdateOptions{All: true})
+
+// Which databases are incomplete, and the sources each is missing.
+missing := asname.Incomplete("")
 ```
 
 A throttled or failing download (HTTP 429 or 5xx) is retried with backoff, honouring `Retry-After`. A database that still cannot be rebuilt keeps its existing file, and the other databases are still updated; the returned error names each failure. The country database is only rewritten when every registry answered, because one missing registry would leave a whole region without countries. Cancelling `ctx` abandons the download in progress. The partial file is kept and resumed next time, and no further database is started. A category update identifies itself to bgp.tools with `UpdateOptions.ContactEmail`, then `$ASNAME_CONTACT_EMAIL`. With neither, it skips the bgp.tools tags rather than asking.
@@ -776,6 +782,17 @@ asname update
 
 You can also update specific databases using the `--db-only`, `--names-only`, `--country-only`, `--city-only`, `--netblock-only`, `--category-only` or `--reputation-only` flags.
 
+#### Incremental updates
+
+Some databases are built from several sources and are still written when one of them cannot be read: the netblock database without a registry whose dump was cut off, the category database without the Tor exit list, or with gluetun's copy of a VPN provider's server list instead of the provider's own. Each update records what it could not read in `~/.asname/update-record.json`, and when anything was left out it ends with a line such as:
+
+```
+asname: incomplete: netblock (missing RIPE), category (missing Tor, NordVPN server API)
+asname: run `asname update --incremental` to retry only these
+```
+
+`asname update --incremental` (or `-i`) rebuilds only the databases whose last update failed or left a source out, plus any missing core database. Source files that did download are reused from the cache for 24 hours and an interrupted download resumes where it stopped, so a retry within that window fetches only what failed. After 24 hours the retry downloads that database's sources again in full. Combine it with the `--*-only` flags to limit the retry to those databases. When nothing is incomplete it says so and downloads nothing.
+
 `asname version` shows when each database was last updated, its size, and whether it is due for a refresh. The update time is when `asname` last wrote the file, which is also what `--max-age` is measured against; the city database also records when DB-IP built its data. Add `-j` for JSON.
 
 ```bash
@@ -842,6 +859,7 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/online-prefixes-consent.json`: The same, for looking up an ASN's prefixes on RIPEstat.
 - `~/.asname/ipv6-routes`: Present when `asname update --ipv6` opted into IPv6 routes; see [IPv6 routes](#ipv6-routes).
 - `~/.asname/contact.json`: The contact address sent to bgp.tools, or a note that you declined. Delete it to be asked again.
+- `~/.asname/update-record.json`: When each database was last updated and which of its sources could not be read; see [Incremental updates](#incremental-updates).
 - `~/.asname/cache/`: The source files downloaded to build the databases above (BGP RIB dump, RIR delegation and whois dumps, and so on). Entries are reused for 24 hours and deleted once older than that, so an update that fails partway through does not download the same files again on the next attempt. An interrupted download is resumed where it stopped rather than restarted. The directory is safe to delete at any time.
 
 You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_PREFIXES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, `ASNAME_CATEGORY` and `ASNAME_REPUTATION` environment variables or their respective flags.

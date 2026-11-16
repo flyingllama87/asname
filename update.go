@@ -54,7 +54,7 @@ type UpdateOptions struct {
 // downloads: cancelling it abandons the one in progress (a partial download is
 // kept and resumed by the next update) and stops before the next database.
 func Update(ctx context.Context, opts UpdateOptions) error {
-	_, err := runUpdate(ctx, opts, func(string) bool { return true })
+	_, err := runUpdate(ctx, opts, func(updateStep) bool { return true })
 	return err
 }
 
@@ -63,18 +63,54 @@ func Update(ctx context.Context, opts UpdateOptions) error {
 // missing files. It returns the paths it rewrote, in update order, including
 // when some other database failed.
 func UpdateStale(ctx context.Context, opts UpdateOptions, maxAge time.Duration) ([]string, error) {
-	return runUpdate(ctx, opts, func(path string) bool { return sources.Stale(path, maxAge) })
+	return runUpdate(ctx, opts, func(s updateStep) bool { return sources.Stale(s.path, maxAge) })
+}
+
+// UpdateIncomplete rebuilds only the selected databases whose last update
+// failed or could not read one of its sources (a registry dump cut off
+// mid-download, say), plus any missing core database. Downloads that did
+// succeed are reused from the cache for 24 hours, so a retry soon after
+// fetches only what failed. It returns the paths it rewrote.
+func UpdateIncomplete(ctx context.Context, opts UpdateOptions) ([]string, error) {
+	rec := sources.LoadUpdateRecord(resolveConfig(opts.DataDir, opts.Paths).UpdateRecordPath)
+	return runUpdate(ctx, opts, func(s updateStep) bool {
+		if rec[s.key].Incomplete() {
+			return true
+		}
+		switch s.key {
+		case sources.KeyASN, sources.KeyNames, sources.KeyCountry:
+			return sources.Stale(s.path, 0)
+		}
+		return false
+	})
+}
+
+// Incomplete reports, for each database whose last update failed or left a
+// source out, the sources it could not read. A database that failed outright
+// lists the error instead.
+func Incomplete(dataDir string) map[string][]string {
+	out := map[string][]string{}
+	rec := sources.LoadUpdateRecord(resolveConfig(dataDir, CustomPaths{}).UpdateRecordPath)
+	for _, key := range rec.Incomplete() {
+		if o := rec[key]; o.Error != "" {
+			out[key] = []string{o.Error}
+		} else {
+			out[key] = o.Failed
+		}
+	}
+	return out
 }
 
 // updateStep is one database: where it lives and how to rebuild it.
 type updateStep struct {
+	key  string
 	name string
 	path string
 	run  func(context.Context, sources.Config) error
 }
 
 // runUpdate rebuilds each selected database for which want reports true.
-func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) bool) ([]string, error) {
+func runUpdate(ctx context.Context, opts UpdateOptions, want func(updateStep) bool) ([]string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -95,30 +131,30 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) b
 
 	var steps []updateStep
 	if asn {
-		steps = append(steps, updateStep{"ASN", cfg.DBPath, func(ctx context.Context, cfg sources.Config) error {
+		steps = append(steps, updateStep{sources.KeyASN, "ASN", cfg.DBPath, func(ctx context.Context, cfg sources.Config) error {
 			return sources.UpdateDatabase(ctx, cfg, "")
 		}})
 	}
 	if names {
-		steps = append(steps, updateStep{"names", cfg.NamesPath, sources.UpdateNames})
+		steps = append(steps, updateStep{sources.KeyNames, "names", cfg.NamesPath, sources.UpdateNames})
 	}
 	if country {
-		steps = append(steps, updateStep{"country", cfg.CountryPath, sources.UpdateCountryDB})
+		steps = append(steps, updateStep{sources.KeyCountry, "country", cfg.CountryPath, sources.UpdateCountryDB})
 	}
 	if opts.City || all {
-		steps = append(steps, updateStep{"city", cfg.CityPath, sources.UpdateCityDB})
+		steps = append(steps, updateStep{sources.KeyCity, "city", cfg.CityPath, sources.UpdateCityDB})
 	}
 	if opts.Netblock || all {
-		steps = append(steps, updateStep{"netblock", cfg.NetblockPath, sources.UpdateNetblockDB})
+		steps = append(steps, updateStep{sources.KeyNetblock, "netblock", cfg.NetblockPath, sources.UpdateNetblockDB})
 	}
 	if opts.Category || all {
-		steps = append(steps, updateStep{"category", cfg.CategoryPath, func(ctx context.Context, cfg sources.Config) error {
+		steps = append(steps, updateStep{sources.KeyCategory, "category", cfg.CategoryPath, func(ctx context.Context, cfg sources.Config) error {
 			return sources.UpdateCategoryDB(ctx, cfg, libraryContact(cfg, contactEmail(opts.ContactEmail), opts.Log))
 		}})
 	}
 
 	if opts.Reputation || all {
-		steps = append(steps, updateStep{"reputation", cfg.ReputationPath, sources.UpdateReputationDB})
+		steps = append(steps, updateStep{sources.KeyReputation, "reputation", cfg.ReputationPath, sources.UpdateReputationDB})
 	}
 
 	// A database that fails keeps its previous file and does not stop the
@@ -127,7 +163,7 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(path string) b
 	var refreshed []string
 	var errs []error
 	for _, s := range steps {
-		if !want(s.path) {
+		if !want(s) {
 			continue
 		}
 		if err := ctx.Err(); err != nil {

@@ -35,7 +35,10 @@ const (
 // database and atomically replaces cfg.ReputationPath. Per-ASN counts are
 // attributed with the ASN database at cfg.DBPath; without it they are
 // skipped and only the ASN-DROP list is recorded per ASN.
-func UpdateReputationDB(ctx context.Context, cfg Config) error {
+func UpdateReputationDB(ctx context.Context, cfg Config) (err error) {
+	ctx, done := beginUpdate(ctx, cfg, KeyReputation)
+	defer func() { done(err) }()
+
 	logf(ctx, "asname: building IP->reputation database\n")
 	b := newReputationBuilder(ctx)
 
@@ -57,6 +60,7 @@ func UpdateReputationDB(ctx context.Context, cfg Config) error {
 		n, err := src.import_()
 		if err != nil {
 			logf(ctx, "asname: warning: %s: %v\n", src.name, err)
+			noteFailed(ctx, src.name)
 			continue
 		}
 		logf(ctx, "asname: %s: %d entries\n", src.name, n)
@@ -68,11 +72,13 @@ func UpdateReputationDB(ctx context.Context, cfg Config) error {
 
 	if f, err := os.Open(cfg.DBPath); err != nil {
 		logf(ctx, "asname: warning: ASN database unavailable, skipping per-ASN counts: %v\n", err)
+		noteFailed(ctx, "per-ASN counts")
 	} else {
 		asnDB, err := database.NewFromDump(f)
 		f.Close()
 		if err != nil {
 			logf(ctx, "asname: warning: ASN database unreadable, skipping per-ASN counts: %v\n", err)
+			noteFailed(ctx, "per-ASN counts")
 		} else {
 			b.Attribute(asnDB)
 		}

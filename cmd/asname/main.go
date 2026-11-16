@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/urfave/cli/v3"
@@ -392,6 +393,7 @@ func newConfig(cmd *cli.Command) sources.Config {
 		c.PrefixPath = filepath.Join(dir, sources.PrefixFilename)
 	}
 	c.CachePath = filepath.Join(dir, sources.CacheDirName)
+	c.UpdateRecordPath = filepath.Join(dir, sources.UpdateRecordFilename)
 	c.ConsentPath = filepath.Join(dir, sources.WhoisConsentFilename)
 	c.ContactPath = filepath.Join(dir, sources.ContactFilename)
 	c.PrefixConsentPath = filepath.Join(dir, sources.OnlinePrefixConsentFilename)
@@ -1130,6 +1132,11 @@ func updateCommand() *cli.Command {
 				Name:  "no-ipv6",
 				Usage: "import IPv4 routes only, undoing an earlier --ipv6",
 			},
+			&cli.BoolFlag{
+				Name:    "incremental",
+				Aliases: []string{"i"},
+				Usage:   "only rebuild databases whose last update failed or left a source out, reusing downloads from the last 24 hours",
+			},
 		},
 		Action: updateAction,
 	}
@@ -1163,47 +1170,109 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 	reputationOnly := cmd.Bool("reputation-only")
 	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly && !netblockOnly && !categoryOnly && !reputationOnly
 
+	run := map[string]bool{
+		sources.KeyASN:        all || dbOnly,
+		sources.KeyNames:      all || namesOnly,
+		sources.KeyCountry:    all || countryOnly,
+		sources.KeyCity:       cityOnly || cmd.Bool("city") || (all && sources.CityDBPresent(cfg.CityPath)),
+		sources.KeyNetblock:   netblockOnly || cmd.Bool("netblock") || (all && sources.NetblockDBPresent(cfg.NetblockPath)),
+		sources.KeyCategory:   categoryOnly || cmd.Bool("category") || (all && sources.CategoryDBPresent(cfg.CategoryPath)),
+		sources.KeyReputation: reputationOnly || cmd.Bool("reputation") || (all && sources.ReputationDBPresent(cfg.ReputationPath)),
+	}
+	errOut := cmd.Root().ErrWriter
+	if cmd.Bool("incremental") {
+		// Keep only what the last update left incomplete, plus any core
+		// database that is missing altogether.
+		rec := sources.LoadUpdateRecord(cfg.UpdateRecordPath)
+		missing := map[string]string{
+			sources.KeyASN:     cfg.DBPath,
+			sources.KeyNames:   cfg.NamesPath,
+			sources.KeyCountry: cfg.CountryPath,
+		}
+		var retry []string
+		for _, key := range sources.UpdateKeys {
+			if !run[key] {
+				continue
+			}
+			path, core := missing[key]
+			switch {
+			case rec[key].Incomplete():
+				retry = append(retry, describeOutcome(key, rec[key]))
+			case core && sources.Stale(path, 0):
+				retry = append(retry, key+" (missing)")
+			default:
+				run[key] = false
+			}
+		}
+		if len(retry) == 0 {
+			fmt.Fprintln(errOut, "asname: the last update of every selected database completed; nothing to retry")
+			return nil
+		}
+		fmt.Fprintf(errOut, "asname: retrying %s\n", strings.Join(retry, ", "))
+	}
+
 	// A database that fails keeps its existing file; the others are still
 	// rebuilt, since they come from different hosts.
 	var failed []error
-	if all || dbOnly {
+	if run[sources.KeyASN] {
 		if err := sources.UpdateDatabase(rctx, cfg, cmd.String("rib-url")); err != nil {
 			failed = append(failed, fmt.Errorf("updating ASN database: %v", err))
 		}
 	}
-	if all || namesOnly {
+	if run[sources.KeyNames] {
 		if err := sources.UpdateNames(rctx, cfg); err != nil {
 			failed = append(failed, fmt.Errorf("updating name database: %v", err))
 		}
 	}
-	if all || countryOnly {
+	if run[sources.KeyCountry] {
 		if err := sources.UpdateCountryDB(rctx, cfg); err != nil {
 			failed = append(failed, fmt.Errorf("updating country database: %v", err))
 		}
 	}
-	if cityOnly || cmd.Bool("city") || (all && sources.CityDBPresent(cfg.CityPath)) {
+	if run[sources.KeyCity] {
 		if err := sources.UpdateCityDB(rctx, cfg); err != nil {
 			failed = append(failed, fmt.Errorf("updating city database: %v", err))
 		}
 	}
-	if netblockOnly || cmd.Bool("netblock") || (all && sources.NetblockDBPresent(cfg.NetblockPath)) {
+	if run[sources.KeyNetblock] {
 		if err := sources.UpdateNetblockDB(rctx, cfg); err != nil {
 			failed = append(failed, fmt.Errorf("updating netblock database: %v", err))
 		}
 	}
-	if categoryOnly || cmd.Bool("category") || (all && sources.CategoryDBPresent(cfg.CategoryPath)) {
+	if run[sources.KeyCategory] {
 		contact := sources.NewContactAsker(cfg.ContactPath, cmd.String("contact-email"))
 		if err := sources.UpdateCategoryDB(rctx, cfg, contact); err != nil {
 			failed = append(failed, fmt.Errorf("updating category database: %v", err))
 		}
 	}
 	// Built last, so its per-ASN counts use the ASN database just refreshed.
-	if reputationOnly || cmd.Bool("reputation") || (all && sources.ReputationDBPresent(cfg.ReputationPath)) {
+	if run[sources.KeyReputation] {
 		if err := sources.UpdateReputationDB(rctx, cfg); err != nil {
 			failed = append(failed, fmt.Errorf("updating reputation database: %v", err))
 		}
 	}
+
+	if ctx.Err() == nil {
+		rec := sources.LoadUpdateRecord(cfg.UpdateRecordPath)
+		var incomplete []string
+		for _, key := range sources.UpdateKeys {
+			if run[key] && rec[key].Incomplete() {
+				incomplete = append(incomplete, describeOutcome(key, rec[key]))
+			}
+		}
+		if len(incomplete) > 0 {
+			fmt.Fprintf(errOut, "asname: incomplete: %s\nasname: run `asname update --incremental` to retry only these\n", strings.Join(incomplete, ", "))
+		}
+	}
 	return errors.Join(failed...)
+}
+
+// describeOutcome names a database and what its last update left out.
+func describeOutcome(key string, o sources.UpdateOutcome) string {
+	if o.Error != "" {
+		return key + " (failed, previous file kept)"
+	}
+	return key + " (missing " + strings.Join(o.Failed, ", ") + ")"
 }
 
 func versionCommand() *cli.Command {

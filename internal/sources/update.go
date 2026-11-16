@@ -193,7 +193,10 @@ func Stale(path string, maxAge time.Duration) bool {
 // cfg.DBPath. With no ribURL given it works through ribSources in order, moving
 // on to the next archive whenever one cannot be listed, downloaded or parsed.
 // IPv6 routes are imported only when cfg.IPv6 is set.
-func UpdateDatabase(ctx context.Context, cfg Config, ribURL string) error {
+func UpdateDatabase(ctx context.Context, cfg Config, ribURL string) (err error) {
+	ctx, done := beginUpdate(ctx, cfg, KeyASN)
+	defer func() { done(err) }()
+
 	cache := cfg.CacheDir()
 
 	if ribURL != "" {
@@ -278,6 +281,7 @@ func buildFromRIB(ctx context.Context, cfg Config, cache string, ribURLs ...stri
 	if cfg.PrefixPath != "" {
 		if n, err := prefixBuilder.Write(cfg.PrefixPath); err != nil {
 			logf(ctx, "asname: warning: failed to write prefix database: %v\n", err)
+			noteFailed(ctx, "prefix database")
 		} else {
 			logf(ctx, "asname: wrote %s (%d bytes)\n", cfg.PrefixPath, n)
 		}
@@ -319,7 +323,10 @@ func importRIB(ctx context.Context, builder mrtImporter, cache, ribURL string) e
 }
 
 // UpdateNames downloads the RIPE asn.txt list and writes it to cfg.NamesPath.
-func UpdateNames(ctx context.Context, cfg Config) error {
+func UpdateNames(ctx context.Context, cfg Config) (err error) {
+	ctx, done := beginUpdate(ctx, cfg, KeyNames)
+	defer func() { done(err) }()
+
 	src, err := openCached(ctx, cfg.CacheDir(), ripeASNames, "")
 	if err != nil {
 		return err
@@ -349,7 +356,10 @@ func UpdateNames(ctx context.Context, cfg Config) error {
 }
 
 // UpdateCityDB downloads the DB-IP Lite city database and decompresses it into cfg.CityPath.
-func UpdateCityDB(ctx context.Context, cfg Config) error {
+func UpdateCityDB(ctx context.Context, cfg Config) (err error) {
+	ctx, done := beginUpdate(ctx, cfg, KeyCity)
+	defer func() { done(err) }()
+
 	cache := cfg.CacheDir()
 	now := time.Now().UTC()
 	var lastErr error

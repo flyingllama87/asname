@@ -68,6 +68,7 @@ func (b *categoryBuilder) ImportVPNServers(apis []vpnAPI, gluetunURL string) (in
 		addrs, err := b.readVPNAPI(api)
 		if err != nil {
 			logf(b.ctx, "asname: warning: %s: %v; using gluetun's copy\n", api.source, err)
+			noteFailed(b.ctx, api.source)
 			continue
 		}
 		total += b.addVPNServers(api.provider, VPNList{Source: api.source, Date: now}, addrs)
@@ -80,6 +81,7 @@ func (b *categoryBuilder) ImportVPNServers(apis []vpnAPI, gluetunURL string) (in
 			return 0, err
 		}
 		logf(b.ctx, "asname: warning: gluetun server lists: %v\n", err)
+		noteFailed(b.ctx, "gluetun server lists")
 	}
 	total += n
 	if total == 0 {
@@ -183,6 +185,7 @@ func (b *categoryBuilder) importGluetun(listURL string, skip map[string]bool) (i
 		n, err := b.ImportGluetunProviderFrom(file.DownloadURL, provider)
 		if err != nil {
 			logf(b.ctx, "asname: warning: gluetun server list for %s: %v\n", provider, err)
+			noteFailed(b.ctx, "gluetun "+provider)
 			continue
 		}
 		total += n

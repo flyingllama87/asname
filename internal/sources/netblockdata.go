@@ -95,7 +95,10 @@ func arinNetblockSource(apiKey string) netblockSource {
 
 // UpdateNetblockDB downloads every available registry dump, flattens ranges
 // into disjoint segments and atomically replaces cfg.NetblockPath.
-func UpdateNetblockDB(ctx context.Context, cfg Config) error {
+func UpdateNetblockDB(ctx context.Context, cfg Config) (err error) {
+	ctx, done := beginUpdate(ctx, cfg, KeyNetblock)
+	defer func() { done(err) }()
+
 	logf(ctx, "asname: building IP->netblock database from RIR whois dumps\n")
 
 	// Bulk Whois is the better ARIN source where a key is available: it names
@@ -120,6 +123,7 @@ func UpdateNetblockDB(ctx context.Context, cfg Config) error {
 		n, err := b.importSource(ctx, src, cache)
 		if err != nil {
 			logf(ctx, "asname: warning: %s: %v\n", src.name, err)
+			noteFailed(ctx, src.name)
 			continue
 		}
 		logf(ctx, "asname: %s: %d ranges\n", src.name, n)

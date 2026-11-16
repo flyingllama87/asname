@@ -179,11 +179,13 @@ func importARINDelegatedInto(ctx context.Context, b *netblockBuilder, cfg Config
 	names, err := LoadNames(cfg.NamesPath)
 	if err != nil {
 		logf(ctx, "asname: warning: ARIN: delegated statistics need the AS name database: %v\n", err)
+		noteFailed(ctx, "ARIN (delegated statistics)")
 		return 0
 	}
 	n, err := importARINDelegated(ctx, b, cache, names)
 	if err != nil {
 		logf(ctx, "asname: warning: ARIN: %v\n", err)
+		noteFailed(ctx, "ARIN (delegated statistics)")
 		return 0
 	}
 	logf(ctx, "asname: ARIN (delegated statistics): %d ranges\n", n)

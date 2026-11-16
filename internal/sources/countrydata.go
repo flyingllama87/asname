@@ -32,7 +32,10 @@ type trieBuilder interface {
 
 // UpdateCountryDB downloads every RIR delegation file, builds an IP->country
 // LC-trie and atomically replaces cfg.CountryPath.
-func UpdateCountryDB(ctx context.Context, cfg Config) error {
+func UpdateCountryDB(ctx context.Context, cfg Config) (err error) {
+	ctx, done := beginUpdate(ctx, cfg, KeyCountry)
+	defer func() { done(err) }()
+
 	logf(ctx, "asname: building IP->country database from RIR delegation stats\n")
 	var b trieBuilder = database.NewBuilder()
 
