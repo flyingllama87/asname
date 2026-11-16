@@ -73,7 +73,7 @@ func TestFormatCSVSearchOutput(t *testing.T) {
 	asn := parseCSVRow(t, SearchCSVHeader, FormatCSVASNSearchOutput(engine.ASNSearchResult{
 		Number: 64500, ASN: "AS64500", Name: "VALVE-CORP - Valve Corporation, US", Country: "US",
 		IPv4Prefixes: []string{"208.64.200.0/22", "103.28.54.0/24"},
-	}))
+	}, ""))
 	assert.Equal(t, "asn", asn["type"])
 	assert.Equal(t, "208.64.200.0/22 103.28.54.0/24", asn["ipv4_prefixes"])
 
@@ -81,11 +81,15 @@ func TestFormatCSVSearchOutput(t *testing.T) {
 	nb.RangeStart, nb.RangeEnd = net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255")
 	nb.CIDRs, nb.Netname, nb.Org = []string{"8.8.8.0/24"}, "GOGL", "Google LLC"
 	nb.ASN, nb.ASName, nb.Country = "AS15169", "GOOGLE", "US"
-	row := parseCSVRow(t, SearchCSVHeader, FormatCSVNetblockOutput(nb))
+	row := parseCSVRow(t, SearchCSVHeader, FormatCSVNetblockOutput(nb, ""))
 	assert.Equal(t, "netblock", row["type"])
 	assert.Equal(t, "8.8.8.0/24", row["cidrs"])
 	assert.Equal(t, "4", row["version"])
 	assert.Equal(t, "Google LLC", row["org"])
+
+	row = parseCSVRow(t, SearchQueryCSVHeader, FormatCSVNetblockOutput(nb, "google"))
+	assert.Equal(t, "google", row["query"])
+	assert.Equal(t, "8.8.8.0/24", row["cidrs"])
 }
 
 func TestFormatCSVBlocks(t *testing.T) {

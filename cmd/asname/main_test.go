@@ -139,8 +139,25 @@ func TestSearchReadsQueryFromStdin(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 
-	_, _, err = runWithStdin(t, "google\nvalve\n", "search", "--dir", dir)
-	assert.ErrorContains(t, err, "more than one line")
+	valve, _, err := run(t, "search", "--dir", dir, "valve")
+	require.NoError(t, err)
+	got, _, err = runWithStdin(t, "google\n\nvalve\n", "search", "--dir", dir)
+	require.NoError(t, err)
+	assert.Equal(t, want+valve, got)
+
+	csv, _, err := runWithStdin(t, "google\nvalve\n", "search", "--dir", dir, "--csv")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(csv, "query,type,asn,"), csv)
+	assert.Contains(t, csv, "\ngoogle,")
+	assert.Contains(t, csv, "\nvalve,")
+
+	jsonOut, _, err := runWithStdin(t, "google\n", "search", "--dir", dir, "--json")
+	require.NoError(t, err)
+	assert.Contains(t, jsonOut, `{"query":"google","type":`)
+
+	csv, _, err = run(t, "search", "--dir", dir, "--csv", "google")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(csv, "type,asn,"), csv)
 
 	_, _, err = runWithStdin(t, "", "search", "--dir", dir)
 	assert.ErrorContains(t, err, "requires an organization")

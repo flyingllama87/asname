@@ -27,6 +27,19 @@ var SearchCSVHeader = []string{
 	"version", "cidrs", "ipv4_prefixes", "ipv6_prefixes", "asn_reputation",
 }
 
+// SearchQueryCSVHeader is SearchCSVHeader with a leading query column, used
+// when several queries are read from stdin so each row names its query.
+var SearchQueryCSVHeader = append([]string{"query"}, SearchCSVHeader...)
+
+// searchCSVHeader returns the search header for query: with a query column
+// unless query is empty.
+func searchCSVHeader(query string) []string {
+	if query == "" {
+		return SearchCSVHeader
+	}
+	return SearchQueryCSVHeader
+}
+
 // CountryCSVHeader names the columns of FormatCSVCountryPrefix.
 var CountryCSVHeader = []string{"country", "cidr", "version"}
 
@@ -96,14 +109,16 @@ func FormatCSVError(target, errStr string) string {
 	return formatCSVColumns(LookupCSVHeader, map[string]string{"target": target, "error": errStr})
 }
 
-// FormatCSVASNSearchOutput renders an AS name match as a SearchCSVHeader row.
-func FormatCSVASNSearchOutput(res engine.ASNSearchResult) string {
-	j := NewJSONASNSearchResult(res)
+// FormatCSVASNSearchOutput renders an AS name match as a SearchCSVHeader row,
+// or a SearchQueryCSVHeader row when query is not empty.
+func FormatCSVASNSearchOutput(res engine.ASNSearchResult, query string) string {
+	j := NewJSONASNSearchResult(res, query)
 	rep := ""
 	if j.Reputation != nil {
 		rep = j.Reputation.Summary
 	}
-	return formatCSVColumns(SearchCSVHeader, map[string]string{
+	return formatCSVColumns(searchCSVHeader(query), map[string]string{
+		"query":          query,
 		"asn_reputation": rep,
 		"type":           j.Type,
 		"asn":            j.ASN,
@@ -114,10 +129,12 @@ func FormatCSVASNSearchOutput(res engine.ASNSearchResult) string {
 	})
 }
 
-// FormatCSVNetblockOutput renders a netblock match as a SearchCSVHeader row.
-func FormatCSVNetblockOutput(res engine.NetblockEnrichedResult) string {
-	j := NewJSONNetblockSearchResult(res)
-	return formatCSVColumns(SearchCSVHeader, map[string]string{
+// FormatCSVNetblockOutput renders a netblock match as a SearchCSVHeader row,
+// or a SearchQueryCSVHeader row when query is not empty.
+func FormatCSVNetblockOutput(res engine.NetblockEnrichedResult, query string) string {
+	j := NewJSONNetblockSearchResult(res, query)
+	return formatCSVColumns(searchCSVHeader(query), map[string]string{
+		"query":       query,
 		"type":        j.Type,
 		"asn":         j.ASN,
 		"as_name":     j.ASName,

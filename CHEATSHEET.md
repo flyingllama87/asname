@@ -81,8 +81,10 @@ asname search --v6-only "Amazon"
 # CIDRs only, one per line
 asname search --ips-only "Fastly"
 
-# Read the query from stdin when no argument (or -) is given
-shuf orgs.txt | head -n 1 | asname search
+# Read queries from stdin, one per line, when no argument (or -) is given
+cat orgs.txt | asname search
+# ...with --csv or --json, each row starts with the query it matched
+cat orgs.txt | asname search --csv > results.csv
 
 # Formats: pretty cards or JSON Lines
 asname search -p --limit 5 "Cloudflare"

@@ -433,7 +433,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	asnResults := make([]format.JSONASNSearchResult, 0)
 	if scope != "netblocks" {
 		for _, res := range s.eng.SearchASNs(query, limit, v4Only, v6Only) {
-			asnResults = append(asnResults, format.NewJSONASNSearchResult(res))
+			asnResults = append(asnResults, format.NewJSONASNSearchResult(res, ""))
 		}
 	}
 
@@ -451,7 +451,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, res := range results {
-			jsonResults = append(jsonResults, format.NewJSONNetblockSearchResult(res))
+			jsonResults = append(jsonResults, format.NewJSONNetblockSearchResult(res, ""))
 		}
 	}
 

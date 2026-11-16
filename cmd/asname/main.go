@@ -421,7 +421,7 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	if cmd.String("org") != "" {
-		return runSearch(cmd, cmd.String("org"))
+		return runSearch(cmd, []string{cmd.String("org")}, false)
 	}
 
 	if cmd.Bool("rest") && cmd.Bool("stream") {
@@ -652,38 +652,34 @@ func searchCommand() *cli.Command {
 					cli.ShowSubcommandHelp(cmd)
 					return fmt.Errorf("search requires an organization or netname argument, or one on stdin")
 				}
-				var err error
-				if query, err = readSearchQuery(r); err != nil {
+				queries, err := readSearchQueries(r)
+				if err != nil {
 					return err
 				}
+				return runSearch(cmd, queries, true)
 			}
-			return runSearch(cmd, query)
+			return runSearch(cmd, []string{query}, false)
 		},
 	}
 }
 
-// readSearchQuery reads one search query from r, such as a line piped in
-// with `echo Cloudflare | asname search`. Blank lines are ignored.
-func readSearchQuery(r io.Reader) (string, error) {
-	var query string
+// readSearchQueries reads search queries from r, one per line, such as a
+// list piped in with `cat orgs.txt | asname search`. Blank lines are ignored.
+func readSearchQueries(r io.Reader) ([]string, error) {
+	var queries []string
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
+		if line := strings.TrimSpace(sc.Text()); line != "" {
+			queries = append(queries, line)
 		}
-		if query != "" {
-			return "", fmt.Errorf("search reads one query from stdin, but got more than one line")
-		}
-		query = line
 	}
 	if err := sc.Err(); err != nil {
-		return "", fmt.Errorf("reading search query from stdin: %w", err)
+		return nil, fmt.Errorf("reading search queries from stdin: %w", err)
 	}
-	if query == "" {
-		return "", fmt.Errorf("search requires an organization or netname argument, or one on stdin")
+	if len(queries) == 0 {
+		return nil, fmt.Errorf("search requires an organization or netname argument, or one on stdin")
 	}
-	return query, nil
+	return queries, nil
 }
 
 // isTerminal reports whether f is an interactive terminal rather than a pipe
@@ -751,7 +747,9 @@ func searchAddressFamily(cmd *cli.Command) (v4Only, v6Only bool, err error) {
 	return v4Only, v6Only, nil
 }
 
-func runSearch(cmd *cli.Command, query string) error {
+// runSearch searches for each query in turn. With fromStdin, CSV and JSON
+// output name the query each row matched.
+func runSearch(cmd *cli.Command, queries []string, fromStdin bool) error {
 	outputFlags := 0
 	if cmd.Bool("pretty") {
 		outputFlags++
@@ -814,61 +812,84 @@ func runSearch(cmd *cli.Command, query string) error {
 	defer eng.Close()
 
 	limit := nearestInt(cmd, "limit")
-
-	var asns []engine.ASNSearchResult
-	if !netblocksOnly {
-		asns = eng.SearchASNs(query, limit, v4Only, v6Only)
-	}
-
-	var netblocks []engine.NetblockEnrichedResult
-	if wantNetblock {
-		netblocks, err = eng.SearchNetblocks(query, sources.NetblockSearchOptions{
-			Limit:  limit,
-			V4Only: v4Only,
-			V6Only: v6Only,
-		})
-		if err != nil {
-			return err
-		}
-	}
-
 	isJSON, isCSV := cmd.Bool("json"), cmd.Bool("csv")
 	out := bufio.NewWriter(cmd.Root().Writer)
 	if isCSV {
-		fmt.Fprint(out, format.FormatCSVRow(format.SearchCSVHeader))
-	}
-	total := len(asns) + len(netblocks)
-	if total == 0 {
-		if isJSON || isCSV {
-			return out.Flush()
+		header := format.SearchCSVHeader
+		if fromStdin {
+			header = format.SearchQueryCSVHeader
 		}
-		what := "ASNs or netblocks"
-		if asnsOnly || !wantNetblock {
-			what = "ASNs"
-		} else if netblocksOnly {
-			what = "netblocks"
+		fmt.Fprint(out, format.FormatCSVRow(header))
+	}
+	// --ips-only prints each CIDR once, even when several queries match it.
+	seenCIDRs := make(map[string]struct{})
+
+	for _, query := range queries {
+		var asns []engine.ASNSearchResult
+		if !netblocksOnly {
+			asns = eng.SearchASNs(query, limit, v4Only, v6Only)
 		}
-		fmt.Fprintf(cmd.Root().ErrWriter, "asname: no %s found matching %q\n", what, query)
-		return nil
-	}
 
-	if ipsOnly {
-		return writeSearchCIDRs(out, cmd.Root().ErrWriter, query, asns, netblocks)
-	}
+		var netblocks []engine.NetblockEnrichedResult
+		if wantNetblock {
+			netblocks, err = eng.SearchNetblocks(query, sources.NetblockSearchOptions{
+				Limit:  limit,
+				V4Only: v4Only,
+				V6Only: v6Only,
+			})
+			if err != nil {
+				return err
+			}
+		}
 
+		total := len(asns) + len(netblocks)
+		if total == 0 {
+			if isJSON || isCSV {
+				continue
+			}
+			what := "ASNs or netblocks"
+			if asnsOnly || !wantNetblock {
+				what = "ASNs"
+			} else if netblocksOnly {
+				what = "netblocks"
+			}
+			fmt.Fprintf(cmd.Root().ErrWriter, "asname: no %s found matching %q\n", what, query)
+			continue
+		}
+
+		if ipsOnly {
+			writeSearchCIDRs(out, cmd.Root().ErrWriter, query, seenCIDRs, asns, netblocks)
+			continue
+		}
+		label := ""
+		if fromStdin {
+			label = query
+		}
+		if err := writeSearchResults(cmd, out, label, asns, netblocks); err != nil {
+			return err
+		}
+	}
+	return out.Flush()
+}
+
+// writeSearchResults writes one query's matches in the chosen output format.
+// A non-empty query is added to CSV and JSON rows.
+func writeSearchResults(cmd *cli.Command, out *bufio.Writer, query string, asns []engine.ASNSearchResult, netblocks []engine.NetblockEnrichedResult) error {
+	isJSON, isCSV := cmd.Bool("json"), cmd.Bool("csv")
 	uniform := anyBool(cmd, "uniform")
 	isPretty := cmd.Bool("pretty")
 	useColor := shouldColorize(cmd)
+	total := len(asns) + len(netblocks)
 
 	for i, res := range asns {
 		if isJSON {
-			line, err := format.FormatJSONASNSearchOutput(res)
+			line, err := format.FormatJSONASNSearchOutput(res, query)
 			if err != nil {
 				return err
 			}
 			fmt.Fprint(out, line)
 		} else if isCSV {
-			fmt.Fprint(out, format.FormatCSVASNSearchOutput(res))
+			fmt.Fprint(out, format.FormatCSVASNSearchOutput(res, query))
 		} else if isPretty {
 			fmt.Fprint(out, format.FormatPrettyASNSearchOutput(res, i, total, useColor))
 		} else {
@@ -877,36 +898,36 @@ func runSearch(cmd *cli.Command, query string) error {
 	}
 	for i, res := range netblocks {
 		if isJSON {
-			line, err := format.FormatJSONNetblockOutput(res)
+			line, err := format.FormatJSONNetblockOutput(res, query)
 			if err != nil {
 				return err
 			}
 			fmt.Fprint(out, line)
 		} else if isCSV {
-			fmt.Fprint(out, format.FormatCSVNetblockOutput(res))
+			fmt.Fprint(out, format.FormatCSVNetblockOutput(res, query))
 		} else if isPretty {
 			fmt.Fprint(out, format.FormatPrettyNetblockOutput(res, len(asns)+i, total, useColor))
 		} else {
 			fmt.Fprint(out, format.FormatNetblockOutput(res, uniform))
 		}
 	}
-	return out.Flush()
+	return nil
 }
 
-func writeSearchCIDRs(out *bufio.Writer, errOut io.Writer, query string, asns []engine.ASNSearchResult, netblocks []engine.NetblockEnrichedResult) error {
-	seen := make(map[string]struct{})
+// writeSearchCIDRs writes one query's CIDRs, skipping any already in seen.
+func writeSearchCIDRs(out *bufio.Writer, errOut io.Writer, query string, seen map[string]struct{}, asns []engine.ASNSearchResult, netblocks []engine.NetblockEnrichedResult) {
 	n := 0
 	write := func(cidrs []string) {
 		for _, cidr := range cidrs {
 			if cidr == "" {
 				continue
 			}
+			n++
 			if _, ok := seen[cidr]; ok {
 				continue
 			}
 			seen[cidr] = struct{}{}
 			fmt.Fprintln(out, cidr)
-			n++
 		}
 	}
 	for _, res := range asns {
@@ -918,7 +939,6 @@ func writeSearchCIDRs(out *bufio.Writer, errOut io.Writer, query string, asns []
 	if n == 0 {
 		fmt.Fprintf(errOut, "asname: no CIDRs found matching %q\n", query)
 	}
-	return out.Flush()
 }
 
 func countryCommand() *cli.Command {

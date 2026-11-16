@@ -137,7 +137,7 @@ func TestFormatASNSearchOutput(t *testing.T) {
 	res := engine.ASNSearchResult{Number: 15169, ASN: "AS15169", Name: "GOOGLE - Google LLC, US", Country: "US, United States"}
 	require.Equal(t, "ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States\n", FormatASNSearchOutput(res))
 
-	line, err := FormatJSONASNSearchOutput(res)
+	line, err := FormatJSONASNSearchOutput(res, "")
 	require.NoError(t, err)
 	require.Equal(t, `{"type":"asn","asn":"AS15169","name":"GOOGLE - Google LLC, US","country":"US, United States"}`+"\n", line)
 
@@ -151,7 +151,7 @@ func TestFormatASNSearchOutputWithPrefixes(t *testing.T) {
 	}
 	require.Equal(t, "ASN: AS32590 | Name: VALVE-CORPORATION - Valve Corporation, US | Country: US, United States | Prefixes: 45.121.184.0/24, 2a01:bc80::/29\n", FormatASNSearchOutput(res))
 
-	line, err := FormatJSONASNSearchOutput(res)
+	line, err := FormatJSONASNSearchOutput(res, "")
 	require.NoError(t, err)
 	require.Contains(t, line, `"ipv4_prefixes":["45.121.184.0/24"],"ipv6_prefixes":["2a01:bc80::/29"]`)
 

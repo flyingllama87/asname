@@ -300,7 +300,9 @@ func FormatJSONError(target, errStr string) (string, error) {
 
 // JSONASNSearchResult is one AS name search match. Type is always "asn", so
 // a JSON Lines consumer can tell it from a JSONNetblockSearchResult.
+// Query is set when several queries are read from stdin.
 type JSONASNSearchResult struct {
+	Query        string             `json:"query,omitempty"`
 	Type         string             `json:"type"`
 	ASN          string             `json:"asn"`
 	Name         string             `json:"name"`
@@ -311,8 +313,9 @@ type JSONASNSearchResult struct {
 }
 
 // NewJSONASNSearchResult converts an engine AS name match for JSON output.
-func NewJSONASNSearchResult(res engine.ASNSearchResult) JSONASNSearchResult {
+func NewJSONASNSearchResult(res engine.ASNSearchResult, query string) JSONASNSearchResult {
 	return JSONASNSearchResult{
+		Query:        query,
 		Type:         "asn",
 		ASN:          res.ASN,
 		Name:         res.Name,
@@ -323,8 +326,8 @@ func NewJSONASNSearchResult(res engine.ASNSearchResult) JSONASNSearchResult {
 	}
 }
 
-func FormatJSONASNSearchOutput(res engine.ASNSearchResult) (string, error) {
-	data, err := json.Marshal(NewJSONASNSearchResult(res))
+func FormatJSONASNSearchOutput(res engine.ASNSearchResult, query string) (string, error) {
+	data, err := json.Marshal(NewJSONASNSearchResult(res, query))
 	if err != nil {
 		return "", err
 	}
@@ -364,8 +367,9 @@ func FormatJSONCityPrefix(p sources.CityPlace, cidr string, isV6 bool) (string, 
 }
 
 // JSONNetblockSearchResult is one netblock search match. Type is always
-// "netblock".
+// "netblock". Query is set when several queries are read from stdin.
 type JSONNetblockSearchResult struct {
+	Query      string   `json:"query,omitempty"`
 	Type       string   `json:"type"`
 	RangeStart string   `json:"range_start"`
 	RangeEnd   string   `json:"range_end"`
@@ -379,8 +383,9 @@ type JSONNetblockSearchResult struct {
 }
 
 // NewJSONNetblockSearchResult converts an engine netblock match for JSON output.
-func NewJSONNetblockSearchResult(res engine.NetblockEnrichedResult) JSONNetblockSearchResult {
+func NewJSONNetblockSearchResult(res engine.NetblockEnrichedResult, query string) JSONNetblockSearchResult {
 	return JSONNetblockSearchResult{
+		Query:      query,
 		Type:       "netblock",
 		RangeStart: res.RangeStart.String(),
 		RangeEnd:   res.RangeEnd.String(),
@@ -394,8 +399,8 @@ func NewJSONNetblockSearchResult(res engine.NetblockEnrichedResult) JSONNetblock
 	}
 }
 
-func FormatJSONNetblockOutput(res engine.NetblockEnrichedResult) (string, error) {
-	data, err := json.Marshal(NewJSONNetblockSearchResult(res))
+func FormatJSONNetblockOutput(res engine.NetblockEnrichedResult, query string) (string, error) {
+	data, err := json.Marshal(NewJSONNetblockSearchResult(res, query))
 	if err != nil {
 		return "", err
 	}
