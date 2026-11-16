@@ -353,7 +353,11 @@ func readWindscribe(b *categoryBuilder, url string) (addrs, hosts []string, err 
 			} `json:"groups"`
 		} `json:"data"`
 	}
-	if err := fetchJSON(b.ctx, url+strconv.FormatInt(time.Now().Unix(), 10), "", &doc); err != nil {
+	// The trailing number defeats caches upstream. The start of the current
+	// UTC day keeps it stable within one update window, so asname's own
+	// cache can still serve a retry.
+	day := time.Now().UTC().Truncate(24 * time.Hour).Unix()
+	if err := fetchJSON(b.ctx, url+strconv.FormatInt(day, 10), "", &doc); err != nil {
 		return nil, nil, err
 	}
 	for _, region := range doc.Data {

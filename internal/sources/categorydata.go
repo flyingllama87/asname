@@ -64,6 +64,7 @@ func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) (e
 	defer func() { done(err) }()
 
 	logf(ctx, "asname: building IP->category database\n")
+	ctx, cache := withSourceCache(ctx, cfg.CacheDir())
 	b := newCategoryBuilder(ctx)
 
 	type source struct {
@@ -89,8 +90,10 @@ func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) (e
 
 	imported := 0
 	for _, src := range sources {
+		cache.begin()
 		n, err := src.import_()
 		if err != nil {
+			cache.discard()
 			logf(ctx, "asname: warning: %s: %v\n", src.name, err)
 			noteFailed(ctx, src.name)
 			continue
@@ -518,6 +521,10 @@ func fetchJSON(ctx context.Context, url, userAgent string, into any) error {
 	}
 	defer resp.Body.Close()
 	if err := json.NewDecoder(bufio.NewReaderSize(resp.Body, 1<<20)).Decode(into); err != nil {
+		// A cached payload that will not decode must not be served again.
+		if sc, ok := ctx.Value(sourceCacheKey{}).(*sourceCache); ok {
+			dropCached(sc.dir, url)
+		}
 		return fmt.Errorf("decoding %s: %v", url, err)
 	}
 	return nil
@@ -526,6 +533,9 @@ func fetchJSON(ctx context.Context, url, userAgent string, into any) error {
 // httpGetUA issues a GET bound to ctx, sending userAgent when it is set, and
 // treats any status but 200 as an error.
 func httpGetUA(ctx context.Context, url, userAgent string) (*http.Response, error) {
+	if sc, ok := ctx.Value(sourceCacheKey{}).(*sourceCache); ok {
+		return sc.get(ctx, url, userAgent)
+	}
 	resp, err := doWithRetry(ctx, url, func() (*http.Request, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {

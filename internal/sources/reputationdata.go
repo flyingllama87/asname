@@ -40,6 +40,7 @@ func UpdateReputationDB(ctx context.Context, cfg Config) (err error) {
 	defer func() { done(err) }()
 
 	logf(ctx, "asname: building IP->reputation database\n")
+	ctx, cache := withSourceCache(ctx, cfg.CacheDir())
 	b := newReputationBuilder(ctx)
 
 	type source struct {
@@ -57,8 +58,10 @@ func UpdateReputationDB(ctx context.Context, cfg Config) (err error) {
 
 	imported := 0
 	for _, src := range srcs {
+		cache.begin()
 		n, err := src.import_()
 		if err != nil {
+			cache.discard()
 			logf(ctx, "asname: warning: %s: %v\n", src.name, err)
 			noteFailed(ctx, src.name)
 			continue
