@@ -106,6 +106,28 @@ import {
 } from './help.js';
 
 const THEME_KEY = 'asname.theme';
+
+// Preferences saved in this browser from Settings: the address family every
+// screen starts with ('any', 'v4' or 'v6'), and whether lookups ask for
+// reverse DNS by default.
+const PREFS_KEY = 'asname.prefs';
+const FAMILY_NAMES = { any: 'IPv4 and IPv6', v4: 'IPv4 only', v6: 'IPv6 only' };
+function loadPrefs() {
+  const prefs = { family: 'v4', rdns: false };
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+    if (FAMILY_NAMES[saved.family]) prefs.family = saved.family;
+    prefs.rdns = !!saved.rdns;
+  } catch {}
+  return prefs;
+}
+function savePrefs(prefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch {}
+}
+const prefs = loadPrefs();
+DEFAULT_FILTERS.family = prefs.family;
 const PREFIX_PREVIEW = 50;
 
 // Rough download sizes, shown for optional databases not yet built.
@@ -158,7 +180,7 @@ const state = {
   statusError: '',
   lookup: {
     input: '',
-    rdns: false,
+    rdns: prefs.rdns,
     online: null, // null: the server's default
     loading: false,
     error: '',
@@ -176,7 +198,7 @@ const state = {
     q: '',
     scope: 'all',
     limit: 500,
-    family: 'any',
+    family: prefs.family,
     loading: false,
     error: '',
     data: null,
@@ -188,7 +210,7 @@ const state = {
     copied: '',
   },
   db: { selected: new Set(), busy: false, error: '', notice: '', saving: '', settingsError: '', openSources: new Set() },
-  settings: { open: false, base: getApiBase(), testing: false, result: null },
+  settings: { open: false, base: getApiBase(), testing: false, result: null, family: prefs.family, rdns: prefs.rdns },
   api: { open: false, copied: '' },
   help: { open: false },
   glossary: { filter: '' },
@@ -327,8 +349,8 @@ async function runLookup(text) {
   try {
     const data =
       targets.length === 1
-        ? await api.lookup(targets[0], { reverseDNS: l.rdns, online, signal })
-        : await api.bulk(targets, { reverseDNS: l.rdns, online, signal });
+        ? await api.lookup(targets[0], { reverseDNS: l.rdns, online, family: prefs.family, signal })
+        : await api.bulk(targets, { reverseDNS: l.rdns, online, family: prefs.family, signal });
     l.results = data?.results || [];
     l.errors = data?.errors || [];
   } catch (err) {
@@ -709,6 +731,9 @@ function lookupView() {
             }, CONTROL_HELP.online)
           : switchWithTip('Online lookups', false, () => {}, CONTROL_HELP.onlineOff, true)}
         <cds-button @click=${submit} ?disabled=${l.loading}>Look up</cds-button>
+        ${prefs.family !== 'any'
+          ? html`<span class="meta">Hostnames: ${FAMILY_NAMES[prefs.family]} <a href="#" @click=${(e) => (e.preventDefault(), openSettings())}>(Settings)</a></span>`
+          : nothing}
         ${l.loading ? html`<cds-inline-loading status="active">Looking up…</cds-inline-loading>` : nothing}
       </div>
     </div>
@@ -1581,6 +1606,7 @@ function repCell(r) {
   if (rep.spamhaus_asn_drop) flags.push(['red', 'ASN-DROP']);
   if (rep.firehol_level2) flags.push(['red', 'FireHOL L2']);
   else if (rep.firehol_level3) flags.push(['magenta', 'FireHOL L3']);
+  for (const fam of rep.c2 || []) flags.push(['red', `C2 · ${fam}`]);
   const facts = [];
   if (rep.listed_ips) {
     facts.push(`${rep.listed_ips.toLocaleString()} listed`);
@@ -2055,7 +2081,7 @@ function jobView(job) {
 // Settings
 
 function openSettings() {
-  Object.assign(state.settings, { open: true, base: getApiBase(), testing: false, result: null });
+  Object.assign(state.settings, { open: true, base: getApiBase(), testing: false, result: null, family: prefs.family, rdns: prefs.rdns });
   update();
 }
 
@@ -2080,6 +2106,18 @@ function saveSettings() {
   const s = state.settings;
   s.base = document.getElementById('api-base')?.value ?? s.base;
   setApiBase(s.base);
+  // The family is every screen's starting point: apply it now too.
+  if (s.family !== prefs.family) {
+    prefs.family = s.family;
+    DEFAULT_FILTERS.family = s.family;
+    state.search.family = s.family;
+    state.explore.f.family = s.family;
+  }
+  if (s.rdns !== prefs.rdns) {
+    prefs.rdns = s.rdns;
+    state.lookup.rdns = s.rdns;
+  }
+  savePrefs(prefs);
   s.open = false;
   state.status = null;
   update();
@@ -2463,6 +2501,19 @@ function settingsView() {
           <cds-button kind="tertiary" size="sm" @click=${testSettings} ?disabled=${s.testing}>Test connection</cds-button>
           ${s.testing ? html`<cds-inline-loading status="active">Testing…</cds-inline-loading>` : nothing}
           ${s.result ? html`<cds-inline-loading status=${s.result.ok ? 'finished' : 'error'}>${s.result.text}</cds-inline-loading>` : nothing}
+        </div>
+        <div class="settings-prefs">
+          <cds-select
+            label-text="Address family"
+            helper-text="Every screen starts with this. Lookups keep only these addresses of a hostname (an address you paste is always looked up); Search and Explore start on it and can still switch."
+            value=${s.family}
+            @cds-select-selected=${(e) => (s.family = e.target.value)}>
+            ${Object.entries(FAMILY_NAMES).map(([v, label]) => html`<cds-select-item value=${v}>${label}</cds-select-item>`)}
+          </cds-select>
+          <cds-toggle
+            label-text="Reverse DNS by default"
+            ?checked=${s.rdns}
+            @cds-toggle-changed=${(e) => (s.rdns = e.target.checked)}></cds-toggle>
         </div>
         <p class="hint" style="margin-top: 1rem">
           Saved in this browser, along with the theme. The refresh age and IPv6 routes are server settings, on the Databases tab.

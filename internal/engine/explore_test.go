@@ -132,3 +132,16 @@ func TestSearchByASNumber(t *testing.T) {
 	require.Equal(t, "AS13335", asns[0].ASN)
 	require.Empty(t, eng.SearchASNsWith("AS13335", ASNSearchOptions{Country: "AU"}))
 }
+
+func TestC2Families(t *testing.T) {
+	spans := []repSpan{
+		{start: a16("10.0.0.5"), end: a16("10.0.0.5"), flags: exC2, listed: true, c2: []string{"Sliver"}},
+		{start: a16("10.0.0.9"), end: a16("10.0.0.9"), flags: exC2, listed: true, c2: []string{"Cobalt Strike", "Sliver"}},
+		{start: a16("10.0.1.9"), end: a16("10.0.1.9"), flags: exC2, listed: true, c2: []string{"QakBot"}},
+	}
+	require.Equal(t, []string{"Cobalt Strike", "Sliver"}, c2Families(spans, a16("10.0.0.0"), a16("10.0.0.255")))
+	flags, _, listed, _ := scanSpans(spans, a16("10.0.0.0"), a16("10.0.0.255"), true)
+	require.NotZero(t, flags&exC2)
+	require.Equal(t, uint32(2), listed)
+	require.True(t, ValidExploreReputation("c2"))
+}

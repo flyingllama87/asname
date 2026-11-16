@@ -304,6 +304,20 @@ type bulkRequestBody struct {
 	Whois          *bool `json:"whois,omitempty"`
 	OnlinePrefixes *bool `json:"online_prefixes,omitempty"`
 	Online         *bool `json:"online,omitempty"`
+	// V4Only and V6Only keep one address family of each hostname's
+	// addresses; addresses given as such are always looked up.
+	V4Only bool `json:"v4_only,omitempty"`
+	V6Only bool `json:"v6_only,omitempty"`
+}
+
+// hostFamily keeps only the addresses of one family that a hostname
+// resolved to, as v4_only or v6_only ask; an address given as such is left
+// alone.
+func hostFamily(t engine.Target, v4Only, v6Only bool) engine.Target {
+	if t.Host == "" {
+		return t
+	}
+	return t.OnlyFamily(v4Only, v6Only)
 }
 
 func boolParam(b *bool) string {
@@ -336,6 +350,11 @@ func (s *Server) lookupSingle(w http.ResponseWriter, r *http.Request, rawTarget 
 			return
 		}
 		t.Served = engine.DetectCDN(ctx, t.Host)
+	}
+	t = hostFamily(t, q.Get("v4_only") == "true", q.Get("v6_only") == "true")
+	if t.Err != nil {
+		writeJSONError(w, http.StatusBadRequest, t.Err.Error())
+		return
 	}
 
 	results, err := s.engine().WithOnline(online).LookupTargetContext(ctx, t)
@@ -377,6 +396,7 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 	withText := wantsText(r)
 	q := r.URL.Query()
 	whoisParam, prefixesParam, onlineParam := q.Get("whois"), q.Get("online_prefixes"), q.Get("online")
+	v4Only, v6Only := q.Get("v4_only") == "true", q.Get("v6_only") == "true"
 
 	bodyReader := http.MaxBytesReader(w, r.Body, 10*1024*1024)
 	bodyBytes, err := io.ReadAll(bodyReader)
@@ -401,6 +421,7 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 		whoisParam = firstNonEmpty(boolParam(req.Whois), whoisParam)
 		prefixesParam = firstNonEmpty(boolParam(req.OnlinePrefixes), prefixesParam)
 		onlineParam = firstNonEmpty(boolParam(req.Online), onlineParam)
+		v4Only, v6Only = v4Only || req.V4Only, v6Only || req.V6Only
 	} else {
 		// Every target in the text, repeats kept, so results line up with
 		// what was sent.
@@ -435,6 +456,7 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 	eng := s.engine().WithOnline(online)
 
 	for _, t := range targets {
+		t = hostFamily(t, v4Only, v6Only)
 		if t.Err != nil {
 			errorDetails = append(errorDetails, jsonErrorDetail{Target: t.Raw, Error: t.Err.Error()})
 			continue

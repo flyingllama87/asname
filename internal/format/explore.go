@@ -27,9 +27,11 @@ type JSONExploreReputation struct {
 	SpamhausDrop   bool     `json:"spamhaus_drop"`
 	DropInside     bool     `json:"spamhaus_drop_inside"`
 	SBL            []string `json:"sbl,omitempty"`
-	ASNDrop        bool     `json:"spamhaus_asn_drop"`
-	FireHOLLevel2  bool     `json:"firehol_level2"`
-	FireHOLLevel3  bool     `json:"firehol_level3"`
+	// C2 is the malware families of the C2 servers inside the prefix.
+	C2            []string `json:"c2,omitempty"`
+	ASNDrop       bool     `json:"spamhaus_asn_drop"`
+	FireHOLLevel2 bool     `json:"firehol_level2"`
+	FireHOLLevel3 bool     `json:"firehol_level3"`
 }
 
 // JSONExploreFacet counts the matching prefixes with one value.
@@ -85,6 +87,7 @@ func NewJSONExplore(res engine.ExploreResult, offset int) JSONExplore {
 				SpamhausDrop:   p.Drop,
 				DropInside:     p.DropInside,
 				SBL:            p.SBL,
+				C2:             p.C2,
 				ASNDrop:        p.ASNDrop,
 				FireHOLLevel2:  p.FireHOL2,
 				FireHOLLevel3:  p.FireHOL3,

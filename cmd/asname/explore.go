@@ -32,7 +32,7 @@ func exploreCommand() *cli.Command {
 			&cli.StringFlag{Name: "as-in", Usage: "only prefixes whose origin AS is registered in `country`"},
 			&cli.StringFlag{Name: "asn", Usage: "only prefixes announced by `AS`"},
 			&cli.StringSliceFlag{Name: "tag", Usage: "only prefixes with any of these kinds of network (`tag`: hosting, vpn, isp...); repeat or separate with commas"},
-			&cli.StringFlag{Name: "reputation", Usage: "`filter`: listed, clean, drop (all of the prefix), drop-inside, asn-drop, firehol2, firehol3"},
+			&cli.StringFlag{Name: "reputation", Usage: "`filter`: listed, clean, drop (all of the prefix), drop-inside, asn-drop, firehol2, firehol3, c2 (malware command-and-control)"},
 			&cli.IntFlag{Name: "min-ipsum", Usage: "only prefixes holding an address on at least `N` IPsum feeds"},
 			&cli.FloatFlag{Name: "min-listed-pct", Usage: "only prefixes with at least `P` percent of their addresses listed"},
 			&cli.StringFlag{Name: "sort", Value: "address", Usage: "address, size (largest first), listed or share"},
@@ -88,7 +88,7 @@ func exploreAction(ctx context.Context, cmd *cli.Command) error {
 	}
 	o.Reputation = cmd.String("reputation")
 	if !engine.ValidExploreReputation(o.Reputation) {
-		return fmt.Errorf("--reputation must be listed, clean, drop, drop-inside, asn-drop, firehol2 or firehol3")
+		return fmt.Errorf("--reputation must be listed, clean, drop, drop-inside, asn-drop, firehol2, firehol3 or c2")
 	}
 	o.MinIPsum = int(cmd.Int("min-ipsum"))
 	o.MinListedPct = cmd.Float("min-listed-pct")

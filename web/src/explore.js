@@ -32,6 +32,7 @@ export const REPUTATIONS = [
   ['asn-drop', 'Origin AS on ASN-DROP'],
   ['firehol2', 'FireHOL L2: attacks, 48 h'],
   ['firehol3', 'FireHOL L3: attacks, 30 d'],
+  ['c2', 'Malware C2 (Feodo, C2IntelFeeds, ThreatFox)'],
 ];
 
 export const SORTS = [
@@ -76,6 +77,7 @@ export function repText(r) {
   if (rep.spamhaus_asn_drop) parts.push('origin AS on ASN-DROP');
   if (rep.firehol_level2) parts.push('FireHOL L2');
   else if (rep.firehol_level3) parts.push('FireHOL L3');
+  if (rep.c2?.length) parts.push(`C2: ${rep.c2.join(', ')}`);
   if (rep.listed_ips) {
     const share = r.addresses ? ` (${fmtPct(rep.listed_share_pct)})` : '';
     parts.push(`${rep.listed_ips.toLocaleString()} listed${share}${rep.max_ipsum ? `, IPsum max ${rep.max_ipsum}` : ''}`);
@@ -102,7 +104,7 @@ const csvCell = (v) => {
 };
 
 export function exploreCSV(rows) {
-  const head = ['prefix', 'addresses', 'asn', 'as_name', 'country', 'as_country', 'tags', 'spamhaus_drop', 'contains_drop', 'sbl', 'asn_drop', 'firehol_level2', 'firehol_level3', 'listed_ips', 'listed_share_pct', 'max_ipsum'];
+  const head = ['prefix', 'addresses', 'asn', 'as_name', 'country', 'as_country', 'tags', 'spamhaus_drop', 'contains_drop', 'sbl', 'asn_drop', 'firehol_level2', 'firehol_level3', 'c2', 'listed_ips', 'listed_share_pct', 'max_ipsum'];
   const out = [head];
   for (const r of rows) {
     const rep = r.reputation || {};
@@ -120,6 +122,7 @@ export function exploreCSV(rows) {
       rep.spamhaus_asn_drop ? 'yes' : '',
       rep.firehol_level2 ? 'yes' : '',
       rep.firehol_level3 ? 'yes' : '',
+      (rep.c2 || []).join('; '),
       rep.listed_ips || 0,
       rep.listed_share_pct ? rep.listed_share_pct.toFixed(4) : 0,
       rep.max_ipsum || 0,

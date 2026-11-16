@@ -6,6 +6,7 @@ import (
 	"math"
 	"net"
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,8 +36,8 @@ type ExploreOptions struct {
 	// "tor-exit"...); a tag ending in ":" or "*" matches its family
 	// ("vpn:" matches every vpn:<provider>).
 	Tags []string
-	// Reputation is one of "", "listed", "clean", "drop", "asn-drop",
-	// "firehol2", "firehol3".
+	// Reputation is one of "", "listed", "clean", "drop", "drop-inside",
+	// "asn-drop", "firehol2", "firehol3", "c2".
 	Reputation string
 	// MinIPsum keeps prefixes holding an address on at least that many
 	// IPsum feeds; MinListedPct those with at least that share listed.
@@ -70,6 +71,9 @@ type ExplorePrefix struct {
 	FireHOL3       bool
 	// SBL holds the Spamhaus DROP record IDs inside it.
 	SBL []string
+	// C2 holds the malware families of the C2 servers inside it (Feodo
+	// Tracker, C2IntelFeeds, ThreatFox).
+	C2 []string
 }
 
 // ExploreFacet counts the matching prefixes per value.
@@ -103,6 +107,7 @@ type exploreRow struct {
 	maxIPsum  uint8
 	flags     uint8
 	sbl       uint16 // index into exploreIndex.sblSets
+	c2        uint16 // index into exploreIndex.c2Sets
 	addresses uint64
 }
 
@@ -112,6 +117,7 @@ const (
 	exFH2
 	exFH3
 	exDropInside // some of it is
+	exC2         // some of it is a malware C2 (Feodo, C2IntelFeeds, ThreatFox)
 )
 
 type exploreIndex struct {
@@ -120,6 +126,7 @@ type exploreIndex struct {
 	rows    []exploreRow
 	tagSets [][]string
 	sblSets [][]string
+	c2Sets  [][]string
 	allTags []string
 	built   time.Time
 }
@@ -131,6 +138,7 @@ type repSpan struct {
 	flags      uint8
 	listed     bool // on IPsum or FireHOL, so counted as listed addresses
 	sbl        string
+	c2         []string // the malware families of its C2 entries
 }
 
 func (e *Engine) exploreIndex() (*exploreIndex, error) {
@@ -167,6 +175,12 @@ func (e *Engine) buildExplore(x *exploreIndex) error {
 						s.ipsum = uint8(min(n, 255))
 					}
 					s.listed = true
+				case "feodo", "c2intel", "threatfox":
+					s.flags |= exC2
+					s.listed = true
+					if detail != "" && !slices.Contains(s.c2, detail) {
+						s.c2 = append(s.c2, detail)
+					}
 				}
 			}
 			spans = append(spans, s)
@@ -181,6 +195,8 @@ func (e *Engine) buildExplore(x *exploreIndex) error {
 	x.tagSets = [][]string{nil}
 	sblIndex := map[string]uint16{"": 0}
 	x.sblSets = [][]string{nil}
+	c2Index := map[string]uint16{"": 0}
+	x.c2Sets = [][]string{nil}
 	allTags := map[string]bool{}
 	asTags := map[uint32]string{}
 
@@ -231,6 +247,17 @@ func (e *Engine) buildExplore(x *exploreIndex) error {
 						x.sblSets = append(x.sblSets, sbls)
 					}
 					r.sbl = id
+				}
+				if flags&exC2 != 0 {
+					fams := c2Families(spans, first.As16(), lastAddr16(p))
+					key := strings.Join(fams, "\x00")
+					id, ok := c2Index[key]
+					if !ok && len(x.c2Sets) < math.MaxUint16 {
+						id = uint16(len(x.c2Sets))
+						c2Index[key] = id
+						x.c2Sets = append(x.c2Sets, fams)
+					}
+					r.c2 = id
 				}
 			}
 			x.rows = append(x.rows, r)
@@ -326,6 +353,22 @@ func scanSpans(spans []repSpan, lo, hi [16]byte, v4 bool) (flags, maxIPsum uint8
 	return flags, maxIPsum, listed, sbls
 }
 
+// c2Families is the malware families of the C2 entries inside [lo, hi],
+// sorted.
+func c2Families(spans []repSpan, lo, hi [16]byte) []string {
+	var out []string
+	i := sort.Search(len(spans), func(k int) bool { return bytes.Compare(spans[k].end[:], lo[:]) >= 0 })
+	for ; i < len(spans) && bytes.Compare(spans[i].start[:], hi[:]) <= 0; i++ {
+		for _, f := range spans[i].c2 {
+			if !slices.Contains(out, f) {
+				out = append(out, f)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // lastAddr16 is lastAddr as 16 bytes, IPv4-mapped for IPv4.
 func lastAddr16(p netip.Prefix) [16]byte {
 	return lastAddr(p).As16()
@@ -417,7 +460,7 @@ func (o ExploreOptions) match(x *exploreIndex, r *exploreRow) bool {
 	if o.ASCountry != "" && string(r.ascc[:]) != o.ASCountry {
 		return false
 	}
-	listed := r.listed > 0 || r.flags&(exDrop|exDropInside|exFH2|exFH3) != 0 || r.maxIPsum > 0
+	listed := r.listed > 0 || r.flags&(exDrop|exDropInside|exFH2|exFH3|exC2) != 0 || r.maxIPsum > 0
 	switch o.Reputation {
 	case "listed":
 		if !listed && r.flags&exASNDrop == 0 {
@@ -447,6 +490,10 @@ func (o ExploreOptions) match(x *exploreIndex, r *exploreRow) bool {
 		if r.flags&(exFH2|exFH3) == 0 {
 			return false
 		}
+	case "c2":
+		if r.flags&exC2 == 0 {
+			return false
+		}
 	}
 	if o.MinIPsum > 0 && int(r.maxIPsum) < o.MinIPsum {
 		return false
@@ -461,7 +508,7 @@ func (o ExploreOptions) match(x *exploreIndex, r *exploreRow) bool {
 // knows.
 func ValidExploreReputation(s string) bool {
 	switch s {
-	case "", "listed", "clean", "drop", "drop-inside", "asn-drop", "firehol2", "firehol3":
+	case "", "listed", "clean", "drop", "drop-inside", "asn-drop", "firehol2", "firehol3", "c2":
 		return true
 	}
 	return false
@@ -534,6 +581,7 @@ func (e *Engine) Explore(opts ExploreOptions) (ExploreResult, error) {
 			FireHOL2:       r.flags&exFH2 != 0,
 			FireHOL3:       r.flags&exFH3 != 0,
 			SBL:            x.sblSets[r.sbl],
+			C2:             x.c2Sets[r.c2],
 		}
 		res.Prefixes = append(res.Prefixes, p)
 	}

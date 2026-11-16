@@ -657,7 +657,7 @@ registry country, kind of network and blocklist hits, filtered by any mix of:
 | `--as-in AU` | prefixes whose origin AS is registered there |
 | `--asn AS13335` | one origin AS |
 | `--tag hosting,vpn` | any of these kinds of network; a tag counts when both ends of the prefix carry it, or its AS does, so one Tor exit does not label its /24 |
-| `--reputation listed\|clean\|drop\|drop-inside\|asn-drop\|firehol2\|firehol3` | `drop` is a prefix wholly on Spamhaus DROP; `drop-inside` one containing a DROP block |
+| `--reputation listed\|clean\|drop\|drop-inside\|asn-drop\|firehol2\|firehol3\|c2` | `drop` is a prefix wholly on Spamhaus DROP; `drop-inside` one containing a DROP block; `c2` one containing a malware C2 (Feodo, C2IntelFeeds, ThreatFox), with the families named |
 | `--min-ipsum N` | an address on N or more IPsum feeds |
 | `--min-listed-pct P` | P% or more of its IPv4 addresses on IPsum or FireHOL |
 
@@ -1201,6 +1201,12 @@ curl -s -X POST http://127.0.0.1:8086/v1/bulk \
   -H "Content-Type: application/json" \
   -d '{"targets": ["8.8.8.8", "AS15169", "dns.google"], "reverse_dns": true}'
 
+# Only the IPv4 addresses of each hostname (v6_only for IPv6); addresses
+# given as such are always looked up. Also v4_only=true on /v1/lookup.
+curl -s -X POST http://127.0.0.1:8086/v1/bulk \
+  -H "Content-Type: application/json" \
+  -d '{"targets": ["dns.google", "2001:4860:4860::8888"], "v4_only": true}'
+
 # Which databases are on disk and loaded, how old they are, and the last update
 curl -s http://127.0.0.1:8086/v1/status
 ```
@@ -1320,7 +1326,11 @@ asname --rest --allow-updates --web-dir web/dist
 ```
 
 It has four tabs, and **Help** (how to read the answers) and **API** (every
-endpoint, with a curl example to copy) buttons in the header:
+endpoint, with a curl example to copy) buttons in the header. **Settings** (the
+gear) picks the address family every screen starts with (IPv4 only by default:
+Lookup keeps only those addresses of a hostname, Search and Explore start on it)
+and whether lookups ask for reverse DNS by default; both are saved in the
+browser.
 
 - **Lookup**: IPs, hostnames, URLs or ASNs, one per line, each shown as a card
   with the fields `asname -p` shows: ASN, country, city, netblock, category,

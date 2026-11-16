@@ -1367,3 +1367,9 @@ a.header-api {
     margin: 0 $spacing-02 0 0;
   }
 }
+
+.settings-prefs {
+  display: grid;
+  gap: 1.5rem;
+  margin-top: 2rem;
+}

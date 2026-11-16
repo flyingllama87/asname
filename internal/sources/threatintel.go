@@ -39,6 +39,14 @@ func familyTag(prefix, family string) string {
 	return prefix + ":" + family
 }
 
+// c2IntelNames spells C2IntelFeeds' framework names the way ThreatFox and
+// the vendors do, so one framework is not listed twice.
+var c2IntelNames = map[string]string{
+	"cobaltstrike": "Cobalt Strike",
+	"bruteratel":   "Brute Ratel C4",
+	"posh":         "PoshC2",
+}
+
 // ImportC2IntelFrom reads a C2IntelFeeds IP list: "ip,ioc", where ioc reads
 // "Possible Cobaltstrike C2 IP". Each address is tagged c2intel:<framework>.
 func (b *reputationBuilder) ImportC2IntelFrom(url string) (int, error) {
@@ -51,6 +59,9 @@ func (b *reputationBuilder) ImportC2IntelFrom(url string) (int, error) {
 		}
 		family := strings.TrimPrefix(strings.TrimSpace(ioc), "Possible ")
 		family = strings.TrimSuffix(strings.TrimSuffix(family, " IP"), " C2")
+		if canon, ok := c2IntelNames[strings.ToLower(family)]; ok {
+			family = canon
+		}
 		b.addPrefix(p, familyTag("c2intel", family))
 		b.listed[p] = true
 		count++

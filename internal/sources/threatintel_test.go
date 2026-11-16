@@ -18,7 +18,7 @@ func TestImportC2Intel(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, n)
 	p, _ := parsePrefix("1.117.74.144")
-	require.True(t, b.prefixes[p]["c2intel:Cobaltstrike"])
+	require.True(t, b.prefixes[p]["c2intel:Cobalt Strike"])
 	p, _ = parsePrefix("203.0.113.5")
 	require.True(t, b.prefixes[p]["c2intel:Sliver"])
 }

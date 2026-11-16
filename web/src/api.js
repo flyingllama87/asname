@@ -65,19 +65,29 @@ export const api = {
   status: () => request('/v1/status'),
   // online is {whois, prefixes}; a key left undefined keeps the server's
   // default, as asking for a lookup the server has turned off is an error.
-  lookup: (target, { reverseDNS, online = {}, signal } = {}) => {
+  // family is 'v4' or 'v6' to keep one family of a hostname's addresses.
+  lookup: (target, { reverseDNS, online = {}, family, signal } = {}) => {
     // text=true: each result also comes as the command line prints it, for
     // Copy summary.
     const p = new URLSearchParams({ q: target, text: 'true' });
     if (reverseDNS) p.set('reverse_dns', 'true');
     if (online.whois !== undefined) p.set('whois', String(online.whois));
     if (online.prefixes !== undefined) p.set('online_prefixes', String(online.prefixes));
+    if (family === 'v4') p.set('v4_only', 'true');
+    if (family === 'v6') p.set('v6_only', 'true');
     return request(`/v1/lookup?${p}`, { signal });
   },
-  bulk: (targets, { reverseDNS, online = {}, signal } = {}) =>
+  bulk: (targets, { reverseDNS, online = {}, family, signal } = {}) =>
     request('/v1/bulk?text=true', {
       method: 'POST',
-      body: { targets, reverse_dns: !!reverseDNS, whois: online.whois, online_prefixes: online.prefixes },
+      body: {
+        targets,
+        reverse_dns: !!reverseDNS,
+        whois: online.whois,
+        online_prefixes: online.prefixes,
+        v4_only: family === 'v4' || undefined,
+        v6_only: family === 'v6' || undefined,
+      },
       signal,
     }),
   saveSettings: (body) => request('/v1/settings', { method: 'PUT', body }),
