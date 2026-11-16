@@ -236,6 +236,10 @@ type SearchOptions struct {
 	V4Only bool
 	V6Only bool
 	Scope  SearchScope
+	// Fuzzy also finds names that match ignoring spaces and punctuation, or
+	// word by word in any order, with company suffixes left out and common
+	// abbreviations expanded. Results come best match first.
+	Fuzzy bool
 }
 
 // SearchResults holds the matches of Search: the Autonomous Systems whose

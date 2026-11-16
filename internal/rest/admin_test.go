@@ -289,3 +289,34 @@ func TestOnlineLookupsPerRequest(t *testing.T) {
 	assert.True(t, st.Online.WhoisAvailable)
 	assert.False(t, st.Online.WhoisDefault)
 }
+
+func TestUpdateProgressIsEchoed(t *testing.T) {
+	var echoed strings.Builder
+	s := NewServerWithOptions(engine.NewTestEngine(t), Options{
+		Update: func(ctx context.Context, req UpdateRequest, log io.Writer) error {
+			fmt.Fprintf(log, "asname: downloading reputation lists\nlast line")
+			return nil
+		},
+	})
+	s.job.echo = &echoed
+	require.Equal(t, http.StatusAccepted, postUpdate(t, s.Routes(), `{"databases":["reputation"]}`, nil).Code)
+	waitForUpdate(t, s)
+	got := echoed.String()
+	assert.Contains(t, got, "[REST] api update started: reputation")
+	assert.Contains(t, got, "[update] asname: downloading reputation lists\n")
+	assert.Contains(t, got, "[update] last line\n", "the unterminated last line too")
+}
+
+func TestRequestLogDetail(t *testing.T) {
+	assert.True(t, quietPath("/v1/status"))
+	assert.True(t, quietPath("/assets/index.js"), "the web UI's files")
+	assert.False(t, quietPath("/v1/lookup"))
+	assert.False(t, quietPath("/v1/search"))
+
+	assert.Equal(t, "targets=8.8.8.8,AS13335", targetsNote([]string{"8.8.8.8", "AS13335"}))
+	many := make([]string, 25)
+	for i := range many {
+		many[i] = fmt.Sprintf("10.0.0.%d", i)
+	}
+	assert.True(t, strings.HasSuffix(targetsNote(many), "10.0.0.19 (+5 more)"))
+}

@@ -464,6 +464,17 @@ type ASNSearchResult struct {
 	IPv6Prefixes []string
 	// ASNReputation is nil without the reputation database.
 	ASNReputation *sources.ASNReputation
+	// Match is how the name matched, as sources.NameMatcher ranks it.
+	Match int
+}
+
+// ASNSearchOptions are SearchASNsWith's options.
+type ASNSearchOptions struct {
+	Limit          int
+	V4Only, V6Only bool
+	// Fuzzy also finds names that match ignoring spaces and punctuation, or
+	// word by word (see sources.NameMatcher), best match first.
+	Fuzzy bool
 }
 
 // SearchASNs returns the ASNs whose name contains query, ignoring case, in
@@ -474,18 +485,33 @@ type ASNSearchResult struct {
 // does not match every AS registered in the United States. v4Only and v6Only
 // keep only the prefixes of that family; the ASNs themselves are kept.
 func (e *Engine) SearchASNs(query string, limit int, v4Only, v6Only bool) []ASNSearchResult {
-	query = strings.ToLower(strings.TrimSpace(query))
+	return e.SearchASNsWith(query, ASNSearchOptions{Limit: limit, V4Only: v4Only, V6Only: v6Only})
+}
+
+// SearchASNsWith is SearchASNs with options; with opts.Fuzzy the results
+// come best match first, then in ASN order.
+func (e *Engine) SearchASNsWith(query string, opts ASNSearchOptions) []ASNSearchResult {
+	limit, v4Only, v6Only := opts.Limit, opts.V4Only, opts.V6Only
+	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil
 	}
+	m := sources.NewNameMatcher(query, opts.Fuzzy)
 	var matched []uint32
+	rank := make(map[uint32]int)
 	for asn, name := range e.names {
 		org, _ := splitNameCountry(name)
-		if strings.Contains(strings.ToLower(org), query) {
+		if r := m.Rank([]byte(org)); r != sources.MatchNone {
 			matched = append(matched, asn)
+			rank[asn] = r
 		}
 	}
-	sort.Slice(matched, func(i, j int) bool { return matched[i] < matched[j] })
+	sort.Slice(matched, func(i, j int) bool {
+		if ri, rj := rank[matched[i]], rank[matched[j]]; ri != rj {
+			return ri < rj
+		}
+		return matched[i] < matched[j]
+	})
 	if limit > 0 && len(matched) > limit {
 		matched = matched[:limit]
 	}
@@ -498,6 +524,9 @@ func (e *Engine) SearchASNs(query string, limit int, v4Only, v6Only bool) []ASNS
 			country = "Unknown"
 		}
 		results[i] = ASNSearchResult{Number: asn, ASN: fmt.Sprintf("AS%d", asn), Name: name, Country: country}
+		if opts.Fuzzy {
+			results[i].Match = rank[asn]
+		}
 		if e.prefixDB != nil {
 			if pr, err := e.prefixDB.Lookup(asn); err == nil {
 				if v4Only {

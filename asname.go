@@ -207,7 +207,7 @@ func (c *Client) Search(query string, opts SearchOptions) (SearchResults, error)
 
 	var out SearchResults
 	if opts.Scope != SearchNetblocksOnly {
-		for _, r := range c.eng.SearchASNs(query, opts.Limit, opts.V4Only, opts.V6Only) {
+		for _, r := range c.eng.SearchASNsWith(query, engine.ASNSearchOptions{Limit: opts.Limit, V4Only: opts.V4Only, V6Only: opts.V6Only, Fuzzy: opts.Fuzzy}) {
 			out.ASNs = append(out.ASNs, asnResultFromEngine(r))
 		}
 	}
@@ -278,6 +278,7 @@ func (c *Client) searchNetblocks(query string, opts SearchOptions) ([]NetblockRe
 		Limit:  opts.Limit,
 		V4Only: opts.V4Only,
 		V6Only: opts.V6Only,
+		Fuzzy:  opts.Fuzzy,
 	})
 	if err != nil {
 		return nil, err

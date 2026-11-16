@@ -72,6 +72,7 @@ SEARCH:
    --limit value                  maximum number of ASNs, and of netblocks, to display (default: unlimited)
    --asns-only                    only search AS names
    --netblocks-only               only search registry netblocks
+   --fuzzy                        also find names that match ignoring spaces and punctuation, or word by word in any order; best matches first
    --ips-only                     only print matching CIDRs, one per line
    --v6                           also include IPv6 (search is IPv4 only unless this or --v6-only)
 
@@ -267,6 +268,11 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{
 				Name:  "asns-only",
 				Usage: "only search AS names",
+				Local: true,
+			},
+			&cli.BoolFlag{
+				Name:  "fuzzy",
+				Usage: "also find names that match ignoring spaces and punctuation, or word by word in any order (company suffixes left out, abbreviations such as Univ expanded); best matches first",
 				Local: true,
 			},
 			&cli.BoolFlag{
@@ -652,6 +658,10 @@ func searchCommand() *cli.Command {
 				Usage: "only search registry netblocks",
 			},
 			&cli.BoolFlag{
+				Name:  "fuzzy",
+				Usage: "also find names that match ignoring spaces and punctuation, or word by word in any order (company suffixes left out, abbreviations such as Univ expanded); best matches first",
+			},
+			&cli.BoolFlag{
 				Name:  "ips-only",
 				Usage: "only print matching CIDRs, one per line",
 			},
@@ -865,7 +875,7 @@ func runSearch(cmd *cli.Command, queries []string, fromStdin bool) error {
 	for _, query := range queries {
 		var asns []engine.ASNSearchResult
 		if !netblocksOnly {
-			asns = eng.SearchASNs(query, limit, v4Only, v6Only)
+			asns = eng.SearchASNsWith(query, engine.ASNSearchOptions{Limit: limit, V4Only: v4Only, V6Only: v6Only, Fuzzy: anyBool(cmd, "fuzzy")})
 		}
 
 		var netblocks []engine.NetblockEnrichedResult
@@ -874,6 +884,7 @@ func runSearch(cmd *cli.Command, queries []string, fromStdin bool) error {
 				Limit:  limit,
 				V4Only: v4Only,
 				V6Only: v6Only,
+				Fuzzy:  anyBool(cmd, "fuzzy"),
 			})
 			if err != nil {
 				return err

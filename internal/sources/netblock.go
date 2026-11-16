@@ -9,6 +9,7 @@ import (
 	"math/bits"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -252,6 +253,8 @@ type NetblockSearchResult struct {
 	Netname    string
 	Org        string
 	IsV6       bool
+	// Match is how the netname or org matched, as NameMatcher ranks it.
+	Match int
 }
 
 // NetblockSearchOptions controls search filters and limits.
@@ -259,6 +262,9 @@ type NetblockSearchOptions struct {
 	Limit  int
 	V4Only bool
 	V6Only bool
+	// Fuzzy also finds names that match ignoring spaces and punctuation, or
+	// word by word; see NameMatcher. Results come best match first.
+	Fuzzy bool
 }
 
 // SearchOrg searches the netblock database for ranges matching query in either org name or netname.
@@ -271,7 +277,7 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 		return nil, nil
 	}
 
-	matchedOffsets, err := d.searchStrings(query)
+	matchedOffsets, err := d.searchStrings(NewNameMatcher(query, opts.Fuzzy))
 	if err != nil {
 		return nil, fmt.Errorf("searching netblock strings: %v", err)
 	}
@@ -279,7 +285,23 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 		return nil, nil
 	}
 
+	// full reports whether the search can stop. A plain search stops at the
+	// limit; a fuzzy one ranks its results, so it stops only once the limit
+	// is filled with exact matches, which nothing else outranks.
 	var results []NetblockSearchResult
+	exactFound := 0
+	full := func(r NetblockSearchResult) bool {
+		if r.Match == MatchExact {
+			exactFound++
+		}
+		if opts.Limit <= 0 {
+			return false
+		}
+		if opts.Fuzzy {
+			return exactFound >= opts.Limit
+		}
+		return len(results) >= opts.Limit
+	}
 
 	// 1. Search IPv4 segments
 	if !opts.V6Only && d.v4Count > 0 {
@@ -304,8 +326,9 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 				netnameOff := binary.LittleEndian.Uint32(rec[4:8])
 				orgOff := binary.LittleEndian.Uint32(rec[8:12])
 
-				orgName, orgMatch := matchedOffsets[orgOff]
-				netName, netMatch := matchedOffsets[netnameOff]
+				org, orgMatch := matchedOffsets[orgOff]
+				nn, netMatch := matchedOffsets[netnameOff]
+				orgName, netName := org.s, nn.s
 
 				if orgMatch || netMatch {
 					startInt := binary.LittleEndian.Uint32(rec[0:4])
@@ -343,10 +366,11 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 						Netname:    netName,
 						Org:        orgName,
 						IsV6:       false,
+						Match:      bestMatch(org, orgMatch, nn, netMatch),
 					})
 
-					if opts.Limit > 0 && len(results) >= opts.Limit {
-						return results, nil
+					if full(results[len(results)-1]) {
+						return rankResults(results, opts), nil
 					}
 				}
 			}
@@ -380,8 +404,9 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 				netnameOff := binary.LittleEndian.Uint32(rec[16:20])
 				orgOff := binary.LittleEndian.Uint32(rec[20:24])
 
-				orgName, orgMatch := matchedOffsets[orgOff]
-				netName, netMatch := matchedOffsets[netnameOff]
+				org, orgMatch := matchedOffsets[orgOff]
+				nn, netMatch := matchedOffsets[netnameOff]
+				orgName, netName := org.s, nn.s
 
 				if orgMatch || netMatch {
 					var startBytes, endBytes [16]byte
@@ -421,10 +446,11 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 						Netname:    netName,
 						Org:        orgName,
 						IsV6:       true,
+						Match:      bestMatch(org, orgMatch, nn, netMatch),
 					})
 
-					if opts.Limit > 0 && len(results) >= opts.Limit {
-						return results, nil
+					if full(results[len(results)-1]) {
+						return rankResults(results, opts), nil
 					}
 				}
 			}
@@ -435,12 +461,46 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 		}
 	}
 
-	return results, nil
+	return rankResults(results, opts), nil
 }
 
-func (d *NetblockDB) searchStrings(query string) (map[uint32]string, error) {
-	m := newFoldMatcher(query)
-	matched := make(map[uint32]string)
+// matchedString is a string from the netblock string table that matched a
+// search, and how.
+type matchedString struct {
+	s    string
+	rank int
+}
+
+// bestMatch is the better of how a range's org and netname matched.
+func bestMatch(org matchedString, orgOK bool, net matchedString, netOK bool) int {
+	switch {
+	case orgOK && netOK:
+		return min(org.rank, net.rank)
+	case orgOK:
+		return org.rank
+	}
+	return net.rank
+}
+
+// rankResults puts a fuzzy search's results best match first, keeping the
+// address order within each rank, and applies the limit.
+func rankResults(results []NetblockSearchResult, opts NetblockSearchOptions) []NetblockSearchResult {
+	if opts.Fuzzy {
+		sort.SliceStable(results, func(i, j int) bool { return results[i].Match < results[j].Match })
+	} else {
+		// How a plain search matched goes without saying.
+		for i := range results {
+			results[i].Match = MatchNone
+		}
+	}
+	if opts.Limit > 0 && len(results) > opts.Limit {
+		results = results[:opts.Limit]
+	}
+	return results
+}
+
+func (d *NetblockDB) searchStrings(m *NameMatcher) (map[uint32]matchedString, error) {
+	matched := make(map[uint32]matchedString)
 
 	buf := make([]byte, 1024*1024)
 	var curStr []byte
@@ -470,8 +530,8 @@ func (d *NetblockDB) searchStrings(query string) (map[uint32]string, error) {
 				curStr = append(curStr, str...)
 				str = curStr
 			}
-			if m.match(str) {
-				matched[strStartOff] = string(str)
+			if rank := m.Rank(str); rank != MatchNone {
+				matched[strStartOff] = matchedString{string(str), rank}
 			}
 			idx += nullIdx + 1
 			strStartOff = uint32(filePos + int64(idx))

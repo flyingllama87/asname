@@ -25,6 +25,9 @@ type JSONLookupResult struct {
 	ReverseDNS *JSONReverseDNS `json:"reverse_dns,omitempty"`
 	Prefixes   *JSONPrefixes   `json:"prefixes,omitempty"`
 	Error      string          `json:"error,omitempty"`
+	// Text is the result as `asname -p` prints it, when asked for with
+	// text=true on the REST API, for copying into a ticket.
+	Text string `json:"text,omitempty"`
 }
 
 type JSONPrefixes struct {
@@ -310,6 +313,8 @@ type JSONASNSearchResult struct {
 	IPv4Prefixes []string           `json:"ipv4_prefixes,omitempty"`
 	IPv6Prefixes []string           `json:"ipv6_prefixes,omitempty"`
 	Reputation   *JSONASNReputation `json:"reputation,omitempty"`
+	// Match is how a fuzzy search matched: exact, compact or words.
+	Match string `json:"match,omitempty"`
 }
 
 // NewJSONASNSearchResult converts an engine AS name match for JSON output.
@@ -323,6 +328,7 @@ func NewJSONASNSearchResult(res engine.ASNSearchResult, query string) JSONASNSea
 		IPv4Prefixes: res.IPv4Prefixes,
 		IPv6Prefixes: res.IPv6Prefixes,
 		Reputation:   newJSONASNReputation(res.ASNReputation),
+		Match:        sources.MatchName(res.Match),
 	}
 }
 
@@ -380,6 +386,8 @@ type JSONNetblockSearchResult struct {
 	ASN        string   `json:"asn,omitempty"`
 	ASName     string   `json:"as_name,omitempty"`
 	Country    string   `json:"country,omitempty"`
+	// Match is how a fuzzy search matched: exact, compact or words.
+	Match string `json:"match,omitempty"`
 }
 
 // NewJSONNetblockSearchResult converts an engine netblock match for JSON output.
@@ -396,6 +404,7 @@ func NewJSONNetblockSearchResult(res engine.NetblockEnrichedResult, query string
 		ASN:        res.ASN,
 		ASName:     res.ASName,
 		Country:    res.Country,
+		Match:      sources.MatchName(res.Match),
 	}
 }
 

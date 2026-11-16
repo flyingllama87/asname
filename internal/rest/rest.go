@@ -50,6 +50,7 @@ func NewServerWithOptions(eng *engine.Engine, opts Options) *Server {
 		reverseDNS: opts.ReverseDNS,
 		version:    opts.Version,
 		opts:       opts,
+		job:        updateJob{echo: os.Stdout},
 	}
 }
 
@@ -96,20 +97,57 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// loggingMiddleware logs each request with its query string, so the log
+// shows what was looked up and searched for; a bulk lookup adds its targets.
+// The web UI's polling of /v1/status and /v1/update, and the UI's own
+// files, are left out when they succeed, or they would drown the rest.
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rw := &responseWriterTracker{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		duration := time.Since(start)
-		fmt.Fprintf(os.Stdout, "[REST] %s %s %d %v (%s)\n",
-			r.Method, r.URL.Path, rw.statusCode, duration, r.RemoteAddr)
+		if rw.statusCode < 400 && r.Method == http.MethodGet && quietPath(r.URL.Path) {
+			return
+		}
+		note := ""
+		if rw.note != "" {
+			note = " " + rw.note
+		}
+		fmt.Fprintf(os.Stdout, "[REST] %s %s %d %v (%s)%s\n",
+			r.Method, r.URL.RequestURI(), rw.statusCode, time.Since(start), r.RemoteAddr, note)
 	})
+}
+
+// quietPath reports whether a successful GET of path goes unlogged.
+func quietPath(path string) bool {
+	switch path {
+	case "/v1/status", "/v1/update", "/health":
+		return true
+	}
+	return !strings.HasPrefix(path, "/v1/")
+}
+
+// logNote adds detail to a request's log line, such as a bulk lookup's
+// targets, which are in its body rather than its URL.
+func logNote(w http.ResponseWriter, note string) {
+	if rw, ok := w.(*responseWriterTracker); ok {
+		rw.note = note
+	}
+}
+
+// targetsNote lists the first targets of a bulk lookup for the log.
+func targetsNote(targets []string) string {
+	const shown = 20
+	if len(targets) <= shown {
+		return "targets=" + strings.Join(targets, ",")
+	}
+	return fmt.Sprintf("targets=%s (+%d more)", strings.Join(targets[:shown], ","), len(targets)-shown)
 }
 
 type responseWriterTracker struct {
 	http.ResponseWriter
 	statusCode int
+	note       string
 }
 
 func (w *responseWriterTracker) WriteHeader(code int) {
@@ -276,6 +314,7 @@ func boolParam(b *bool) string {
 func (s *Server) lookupSingle(w http.ResponseWriter, r *http.Request, rawTarget string, wantRDNS bool) {
 	ctx := r.Context()
 	q := r.URL.Query()
+	withText := wantsText(r)
 	online, err := s.online(q.Get("whois"), q.Get("online_prefixes"), q.Get("online"))
 	if err != nil {
 		writeJSONError(w, http.StatusForbidden, err.Error())
@@ -308,7 +347,11 @@ func (s *Server) lookupSingle(w http.ResponseWriter, r *http.Request, rawTarget 
 
 	jsonResults := make([]format.JSONLookupResult, 0, len(results))
 	for _, res := range results {
-		jsonResults = append(jsonResults, format.ToJSONResult(res))
+		j := format.ToJSONResult(res)
+		if withText {
+			j.Text = format.FormatPrettyLookupOutput(res, 0, 1, false)
+		}
+		jsonResults = append(jsonResults, j)
 	}
 
 	resp := lookupResponse{
@@ -328,6 +371,7 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-Type")
 	var targetStrings []string
 	wantRDNS := s.wantsReverseDNS(r)
+	withText := wantsText(r)
 	q := r.URL.Query()
 	whoisParam, prefixesParam, onlineParam := q.Get("whois"), q.Get("online_prefixes"), q.Get("online")
 
@@ -368,6 +412,7 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "no targets provided in request body")
 		return
 	}
+	logNote(w, targetsNote(targetStrings))
 
 	targets := make([]engine.Target, 0, len(targetStrings))
 	for _, raw := range targetStrings {
@@ -407,7 +452,11 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 
 	jsonResults := make([]format.JSONLookupResult, 0, len(allResults))
 	for _, res := range allResults {
-		jsonResults = append(jsonResults, format.ToJSONResult(res))
+		j := format.ToJSONResult(res)
+		if withText {
+			j.Text = format.FormatPrettyLookupOutput(res, 0, 1, false)
+		}
+		jsonResults = append(jsonResults, j)
 	}
 
 	resp := bulkResponse{
@@ -416,6 +465,13 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 		Errors:  errorDetails,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// wantsText reports whether a lookup asked, with text=true, for each result
+// as the command line prints it too.
+func wantsText(r *http.Request) bool {
+	v := r.URL.Query().Get("text")
+	return v == "1" || strings.EqualFold(v, "true")
 }
 
 func (s *Server) wantsReverseDNS(r *http.Request) bool {
@@ -499,10 +555,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fuzzyParam := r.URL.Query().Get("fuzzy")
+	fuzzy := fuzzyParam == "1" || strings.EqualFold(fuzzyParam, "true")
+
 	eng := s.engine()
 	asnResults := make([]format.JSONASNSearchResult, 0)
 	if scope != "netblocks" {
-		for _, res := range eng.SearchASNs(query, limit, v4Only, v6Only) {
+		for _, res := range eng.SearchASNsWith(query, engine.ASNSearchOptions{Limit: limit, V4Only: v4Only, V6Only: v6Only, Fuzzy: fuzzy}) {
 			asnResults = append(asnResults, format.NewJSONASNSearchResult(res, ""))
 		}
 	}
@@ -515,6 +574,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			Limit:  limit,
 			V4Only: v4Only,
 			V6Only: v6Only,
+			Fuzzy:  fuzzy,
 		})
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())

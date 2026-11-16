@@ -119,6 +119,9 @@ type jobState struct {
 const maxJobLogLines = 2000
 
 type updateJob struct {
+	// echo, when set, also gets each line of progress, so the server's own
+	// log (the journal, under systemd) keeps every update's.
+	echo    io.Writer
 	mu      sync.Mutex
 	state   jobState
 	partial string
@@ -135,6 +138,9 @@ func (j *updateJob) Write(p []byte) (int, error) {
 	for _, line := range lines[:len(lines)-1] {
 		if line = strings.TrimRight(line, "\r"); line != "" {
 			j.state.Log = append(j.state.Log, line)
+			if j.echo != nil {
+				fmt.Fprintf(j.echo, "[update] %s\n", line)
+			}
 		}
 	}
 	if over := len(j.state.Log) - maxJobLogLines; over > 0 {
@@ -177,6 +183,9 @@ func (s *Server) startUpdate(trigger string, req UpdateRequest) bool {
 	j.partial = ""
 	j.cancel = cancel
 	j.mu.Unlock()
+	if j.echo != nil {
+		fmt.Fprintf(j.echo, "[REST] %s update started: %s\n", trigger, describeUpdate(req))
+	}
 
 	go func() {
 		defer cancel()
@@ -203,11 +212,27 @@ func (s *Server) startUpdate(trigger string, req UpdateRequest) bool {
 		}
 		if j.partial != "" {
 			j.state.Log = append(j.state.Log, j.partial)
+			if j.echo != nil {
+				fmt.Fprintf(j.echo, "[update] %s\n", j.partial)
+			}
 			j.partial = ""
 		}
 		j.cancel = nil
 	}()
 	return true
+}
+
+// describeUpdate says what an update request rebuilds, for the log.
+func describeUpdate(req UpdateRequest) string {
+	switch {
+	case len(req.Databases) > 0:
+		return strings.Join(req.Databases, ", ")
+	case req.StaleOnly:
+		return "databases older than the refresh age"
+	case req.Incremental:
+		return "what the last update left out"
+	}
+	return "every database on disk"
 }
 
 // engineCloseDelay lets requests still using a replaced engine finish
@@ -483,6 +508,11 @@ func webHandler(dir string) http.Handler {
 		h.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' http: https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
+		// The page itself must be revalidated, so a reload after `make web`
+		// gets the new build; its scripts and styles have hashed names.
+		if !strings.HasPrefix(r.URL.Path, "/assets/") {
+			h.Set("Cache-Control", "no-cache")
+		}
 		files.ServeHTTP(w, r)
 	})
 }
