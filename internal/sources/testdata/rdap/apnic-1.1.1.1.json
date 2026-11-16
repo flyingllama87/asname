@@ -1,0 +1,132 @@
+{
+ "objectClassName": "ip network",
+ "handle": "1.1.1.0 - 1.1.1.255",
+ "startAddress": "1.1.1.0",
+ "endAddress": "1.1.1.255",
+ "ipVersion": "v4",
+ "name": "APNIC-LABS",
+ "type": "ASSIGNED PORTABLE",
+ "country": "AU",
+ "events": [
+  {
+   "eventAction": "registration",
+   "eventDate": "2011-08-10T23:12:35Z"
+  },
+  {
+   "eventAction": "last changed",
+   "eventDate": "2023-04-26T22:57:58Z"
+  }
+ ],
+ "remarks": [
+  {
+   "title": "description",
+   "description": [
+    "APNIC and Cloudflare DNS Resolver project",
+    "Routed globally by AS13335/Cloudflare",
+    "Research prefix for APNIC Labs"
+   ]
+  },
+  {
+   "title": "remarks",
+   "description": [
+    "---------------",
+    "All Cloudflare abuse reporting can be done via",
+    "resolver-abuse@cloudflare.com",
+    "---------------"
+   ]
+  }
+ ],
+ "entities": [
+  {
+   "objectClassName": "entity",
+   "handle": "AIC3-AP",
+   "roles": [
+    "technical",
+    "administrative"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "APNICRANDNET Infrastructure Contact"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "group"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "IRT-APNICRANDNET-AU",
+   "roles": [
+    "abuse"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "IRT-APNICRANDNET-AU"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "group"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "ORG-ARAD1-AP",
+   "roles": [
+    "registrant"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "APNIC Research and Development"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "org"
+     ]
+    ]
+   ]
+  }
+ ]
+}

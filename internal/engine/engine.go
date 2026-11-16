@@ -2,10 +2,12 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -26,6 +28,9 @@ type Engine struct {
 	netblockDB   *sources.NetblockDB
 	showNetblock bool
 	whois        *sources.WhoisAsker
+	// rdap answers the online netblock lookup, falling back to whois. It
+	// is shared by the views WithOnline returns.
+	rdap         *sources.RDAPClient
 	categoryDB   *sources.CategoryDB
 	reputationDB *sources.ReputationDB
 	// asnReps caches asnReputation's results, as counting an ASN's announced
@@ -123,6 +128,7 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		netblockDB:     nbDB,
 		showNetblock:   showNetblock,
 		whois:          whoisAsker,
+		rdap:           sources.NewRDAPClient(rdapCacheDir(cfg.ConsentPath)),
 		categoryDB:     catDB,
 		reputationDB:   repDB,
 		prefixDB:       prefixDB,
@@ -208,6 +214,10 @@ type LookupResult struct {
 	City         string
 	Netblock     string
 	NetblockLive bool
+	// NetblockSource says which service answered a live netblock lookup:
+	// "rdap" or "whois" (sources.OnlineSource*). Empty when NetblockLive is
+	// false.
+	NetblockSource string
 	// NetblockCountry is the country the registry range itself names, as
 	// "US, United States"; Country is the RIR delegation of its parent
 	// allocation. NetblockCreated is when the range was registered,
@@ -372,12 +382,23 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 	if e.showNetblock {
 		res.Netblock = "Unknown"
 		if nb.Empty() && res.Country != "Unknown" && e.whois.Allowed(res.IP) {
-			online, err := sources.LookupWhoisNetblock(res.IP)
-			if err != nil {
-				fmt.Fprintf(e.log, "asname: whois lookup for %s failed: %v\n", res.IP, err)
-			} else if !online.Empty() {
+			online, src, rdapErr, err := e.rdap.LookupOnlineNetblock(context.Background(), res.IP)
+			switch {
+			case err != nil:
+				fmt.Fprintf(e.log, "asname: online netblock lookup for %s failed: %v\n", res.IP, err)
+			case !online.Empty():
+				if rdapErr != nil && !errors.Is(rdapErr, sources.ErrRDAPNotFound) {
+					fmt.Fprintf(e.log, "asname: RDAP lookup for %s failed, used whois: %v\n", res.IP, rdapErr)
+				}
 				nb = online
 				res.NetblockLive = true
+				res.NetblockSource = src
+				if res.NetblockCountry == "" && nb.Country != "" {
+					res.NetblockCountry = sources.CountryLabel(nb.Country)
+				}
+				if res.NetblockCreated == "" {
+					res.NetblockCreated = nb.Created
+				}
 			}
 		}
 		if !nb.Empty() {
@@ -633,4 +654,14 @@ func OnlyFamilyPrefixes(results []LookupResult, v4Only, v6Only bool) {
 			r.Prefixes = append(append([]string(nil), r.IPv4Prefixes...), r.IPv6Prefixes...)
 		}
 	}
+}
+
+// rdapCacheDir is where the RDAP bootstrap files are kept: the data
+// directory, which also holds the whois consent file. Empty (in memory
+// only) when there is none.
+func rdapCacheDir(consentPath string) string {
+	if consentPath == "" {
+		return ""
+	}
+	return filepath.Dir(consentPath)
 }

@@ -176,7 +176,8 @@ func WithReverseDNS(enable bool) Option {
 	}
 }
 
-// WithWhois sets the whois fallback policy.
+// WithWhois sets the policy for asking the registry online (RDAP, falling
+// back to whois) about an address the netblock database cannot name.
 func WithWhois(mode WhoisMode) Option {
 	return func(o *Options) {
 		o.Whois = mode

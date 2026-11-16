@@ -218,7 +218,7 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 	if res.Netblock != "" && res.Netblock != "Unknown" {
 		src := "offline"
 		if res.NetblockLive {
-			src = "whois"
+			src = liveSource(res.NetblockSource)
 		}
 		handle, org := ParseNetblockField(res.Netblock)
 		out.Netblock = &JSONNetblock{

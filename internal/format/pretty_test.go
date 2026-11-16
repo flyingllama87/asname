@@ -137,6 +137,23 @@ func TestFormatPrettyLookupOutputLiveWhois(t *testing.T) {
 	require.Contains(t, out, "Netblock:          "+srcWhois)
 }
 
+func TestFormatLiveRDAP(t *testing.T) {
+	res := samplePrettyResult()
+	res.NetblockLive = true
+	res.NetblockSource = sources.OnlineSourceRDAP
+
+	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	require.Contains(t, out, "Source:            Live RDAP")
+	require.Contains(t, out, "Netblock:          "+srcRDAP)
+
+	j := ToJSONResult(res)
+	require.Equal(t, "rdap", j.Netblock.Source)
+	require.True(t, j.Netblock.LiveQuery)
+
+	res.NetblockSource = ""
+	require.Equal(t, "whois", ToJSONResult(res).Netblock.Source, "live results from before RDAP were whois")
+}
+
 func TestFormatPrettyLookupOutputMultiTargetIndex(t *testing.T) {
 	res := samplePrettyResult()
 	out := FormatPrettyLookupOutput(res, 1, 3, false)

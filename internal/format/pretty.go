@@ -145,6 +145,7 @@ const (
 	// it differs from the RIR delegation of its parent allocation.
 	srcNetblockCountry = "Netblock registration in RIR WHOIS dumps (RIPE NCC, APNIC, AFRINIC), offline"
 	srcWhois           = "Live WHOIS (IANA referral to the RIR)"
+	srcRDAP            = "Live RDAP (IANA bootstrap to the RIR)"
 	srcCategory        = "Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline"
 	srcRDNS            = "Live DNS PTR query"
 	srcRep             = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline"
@@ -307,7 +308,7 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 			b.WriteString(fmt.Sprintf("    %s %s (%s ago)\n", st.label("Registered:       "), st.value(res.NetblockCreated), Age(time.Since(created))))
 		}
 		if res.NetblockLive {
-			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Source:           "), st.notice("Live WHOIS")))
+			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Source:           "), st.notice(liveNetblockLabel(res.NetblockSource))))
 		} else {
 			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Source:           "), st.value("Offline Index")))
 		}
@@ -340,6 +341,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		src := srcNetblock
 		if res.NetblockLive {
 			src = srcWhois
+			if res.NetblockSource == sources.OnlineSourceRDAP {
+				src = srcRDAP
+			}
 		}
 		rows = append(rows, [2]string{"Netblock", src})
 	}
@@ -509,4 +513,12 @@ func FormatPrettyNetblockOutput(res engine.NetblockEnrichedResult, index, total 
 
 	b.WriteString(borderLine + "\n\n")
 	return b.String()
+}
+
+// liveNetblockLabel names the service that answered a live netblock lookup.
+func liveNetblockLabel(source string) string {
+	if source == sources.OnlineSourceRDAP {
+		return "Live RDAP"
+	}
+	return "Live WHOIS"
 }

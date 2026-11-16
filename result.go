@@ -26,6 +26,9 @@ type Result struct {
 	City         string `json:"city,omitempty"`
 	Netblock     string `json:"netblock,omitempty"`
 	NetblockLive bool   `json:"netblock_live,omitempty"`
+	// NetblockSource is the service that answered a live netblock lookup,
+	// "rdap" or "whois"; empty when NetblockLive is false.
+	NetblockSource string `json:"netblock_source,omitempty"`
 	// NetblockCountry is the country the registry range itself names, as
 	// "US, United States". Country is that of the RIR allocation the range
 	// sits in, which for a sub-allocated or leased block is often elsewhere.
@@ -146,6 +149,7 @@ func resultFromEngine(r engine.LookupResult) Result {
 		City:            known(r.City),
 		Netblock:        known(r.Netblock),
 		NetblockLive:    r.NetblockLive,
+		NetblockSource:  r.NetblockSource,
 		NetblockCountry: r.NetblockCountry,
 		NetblockCreated: r.NetblockCreated,
 		Category:        known(r.Category),

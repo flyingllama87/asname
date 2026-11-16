@@ -1,0 +1,83 @@
+{
+ "objectClassName": "ip network",
+ "handle": "200.160.0.0/20",
+ "startAddress": "200.160.0.0",
+ "endAddress": "200.160.15.255",
+ "ipVersion": "v4",
+ "name": "22817",
+ "type": "ASSIGNED",
+ "country": "BR",
+ "events": [
+  {
+   "eventAction": "registration",
+   "eventDate": "2001-10-16T12:00:00Z"
+  },
+  {
+   "eventAction": "last changed",
+   "eventDate": "2013-03-07T23:00:38Z"
+  }
+ ],
+ "entities": [
+  {
+   "objectClassName": "entity",
+   "handle": "05506560000136",
+   "roles": [
+    "registrant"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "org"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Núcleo de Inf. e Coord. do Ponto BR - NIC.BR"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "EX1-FAN",
+   "roles": [
+    "technical",
+    "abuse"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "individual"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Example Contact"
+     ]
+    ]
+   ]
+  }
+ ]
+}

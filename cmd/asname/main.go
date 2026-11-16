@@ -58,8 +58,8 @@ OPTIONAL LOOKUPS & METADATA:
    --no-city                      omit the city even when the city database is present
    --netblock, -n                 include the registry netblock and its owner, building the database (~350MB of downloads) if absent; once present it is used without this flag
    --no-netblock                  omit the netblock even when the netblock database is present
-   --whois                        look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking [$ASNAME_WHOIS]
-   --no-whois                     never query whois, and do not ask
+   --whois                        look up addresses the offline netblock database cannot name (ARIN and LACNIC) online, over RDAP or else whois, without asking [$ASNAME_WHOIS]
+   --no-whois                     never query RDAP or whois, and do not ask
    --online-prefixes              ask RIPEstat for the prefixes of an ASN the offline prefix database lacks, without asking [$ASNAME_ONLINE_PREFIXES]
    --no-online-prefixes           never ask RIPEstat for prefixes, and do not ask
    --category, -C                 include what kind of network it is (cloud, CDN, hosting, ISP...), building the database if absent; once present it is used without this flag
@@ -214,12 +214,12 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{
 				Name:    "whois",
 				Sources: cli.EnvVars("ASNAME_WHOIS"),
-				Usage:   "look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking",
+				Usage:   "look up addresses the offline netblock database cannot name (ARIN and LACNIC) online, over RDAP or else whois, without asking",
 				Local:   true,
 			},
 			&cli.BoolFlag{
 				Name:  "no-whois",
-				Usage: "never query whois, and do not ask",
+				Usage: "never query RDAP or whois, and do not ask",
 				Local: true,
 			},
 			&cli.BoolFlag{

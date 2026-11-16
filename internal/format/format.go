@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/flyingllama87/asname/internal/engine"
+	"github.com/flyingllama87/asname/internal/sources"
 )
 
 type OutputFormat int
@@ -86,7 +87,7 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 	if res.Netblock != "" {
 		netblock := res.Netblock
 		if res.NetblockLive {
-			netblock += " [whois]"
+			netblock += " [" + liveSource(res.NetblockSource) + "]"
 		}
 		fields = append(fields, outputField{label: "Netblock", value: netblock, width: UniformNetblockWidth})
 	}
@@ -211,4 +212,13 @@ func Bytes(n int64) string {
 	default:
 		return fmt.Sprintf("%.1f GB", float64(n)/1e9)
 	}
+}
+
+// liveSource is the JSON/short name of the service that answered a live
+// netblock lookup; results from before RDAP have none and were whois.
+func liveSource(source string) string {
+	if source == "" {
+		return sources.OnlineSourceWhois
+	}
+	return source
 }

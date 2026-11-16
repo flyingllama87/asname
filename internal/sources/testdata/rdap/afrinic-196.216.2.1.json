@@ -1,0 +1,113 @@
+{
+ "objectClassName": "ip network",
+ "handle": "196.216.2.0 - 196.216.3.255",
+ "startAddress": "196.216.2.0",
+ "endAddress": "196.216.3.255",
+ "ipVersion": "v4",
+ "name": "ORG-AFNC1-AFRINIC",
+ "type": "ASSIGNED PI",
+ "country": "ZA",
+ "parentHandle": "196.0.0.0 - 196.255.255.255",
+ "events": [
+  {
+   "eventAction": "registration",
+   "eventDate": "2005-02-21T15:30:00Z"
+  },
+  {
+   "eventAction": "last changed",
+   "eventDate": "2020-08-18T12:16:00Z"
+  }
+ ],
+ "entities": [
+  {
+   "objectClassName": "entity",
+   "handle": "EX1-AFRINIC",
+   "roles": [
+    "technical"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "individual"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Example Contact"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "EX1-AFRINIC",
+   "roles": [
+    "administrative"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "individual"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Example Contact"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "ORG-AFNC1-AFRINIC",
+   "roles": [
+    "registrant"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "org"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "African Network Information Center - (AfriNIC) Ltd"
+     ]
+    ]
+   ]
+  }
+ ]
+}
