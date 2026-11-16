@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -407,4 +408,49 @@ func FetchASNPrefixesOnline(ctx context.Context, asn uint32) (ASNPrefixResult, e
 		IPv6:   v6,
 		Source: "ripe-stat",
 	}, nil
+}
+
+// Each calls fn with every ASN in the database and its announced prefixes,
+// in ASN order, stopping early when fn returns false.
+func (d *PrefixDB) Each(fn func(asn uint32, v4, v6 []netip.Prefix) bool) error {
+	if d == nil || d.f == nil {
+		return nil
+	}
+	info, err := d.f.Stat()
+	if err != nil {
+		return err
+	}
+	data := make([]byte, info.Size())
+	if _, err := d.f.ReadAt(data, 0); err != nil && err != io.EOF {
+		return err
+	}
+	for i := 0; i < d.asnCount; i++ {
+		off := prefixHeaderSize + i*prefixIndexSize
+		if off+prefixIndexSize > len(data) {
+			return fmt.Errorf("truncated prefix index")
+		}
+		e := data[off : off+prefixIndexSize]
+		asn := binary.LittleEndian.Uint32(e[0:4])
+		n4, n6 := int(binary.LittleEndian.Uint16(e[4:6])), int(binary.LittleEndian.Uint16(e[6:8]))
+		p := int(binary.LittleEndian.Uint64(e[8:16]))
+		if p+n4*5+n6*17 > len(data) {
+			return fmt.Errorf("truncated prefix data for AS%d", asn)
+		}
+		v4 := make([]netip.Prefix, 0, n4)
+		for k := 0; k < n4; k++ {
+			b := data[p : p+5]
+			v4 = append(v4, netip.PrefixFrom(netip.AddrFrom4([4]byte(b[:4])), int(b[4])))
+			p += 5
+		}
+		v6 := make([]netip.Prefix, 0, n6)
+		for k := 0; k < n6; k++ {
+			b := data[p : p+17]
+			v6 = append(v6, netip.PrefixFrom(netip.AddrFrom16([16]byte(b[:16])), int(b[16])))
+			p += 17
+		}
+		if !fn(asn, v4, v6) {
+			break
+		}
+	}
+	return nil
 }

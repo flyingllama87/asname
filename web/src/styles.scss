@@ -669,6 +669,25 @@ details.tips {
   .family {
     flex: 0 0 14rem;
   }
+
+  .country {
+    flex: 0 0 16rem;
+  }
+}
+
+// Copy buttons over the search results.
+.copy-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-02;
+  margin: $spacing-05 0 $spacing-03;
+
+  .copy-label {
+    @include type.type-style('label-01');
+    color: $text-secondary;
+    margin-right: $spacing-02;
+  }
 }
 
 .max-age {
@@ -860,4 +879,182 @@ details.tips {
 
 .card .fields {
   margin-bottom: $spacing-06;
+}
+
+// Explore: filters, the facets of what matched, and a pager.
+.explore-form {
+  max-width: 80rem;
+
+  .len,
+  .asn {
+    flex: 0 0 10rem;
+  }
+
+  .family,
+  .sort {
+    flex: 0 0 13rem;
+  }
+
+  .country {
+    flex: 0 0 15rem;
+  }
+
+  .tags {
+    flex: 0 0 22rem;
+  }
+
+  .rep {
+    flex: 0 0 17rem;
+  }
+
+  .small {
+    flex: 0 0 9rem;
+  }
+
+  .limit {
+    flex: 0 0 9rem;
+  }
+}
+
+.explore-summary {
+  @include type.type-style('body-01');
+  margin: $spacing-06 0 $spacing-03;
+}
+
+.facets {
+  display: grid;
+  gap: $spacing-03;
+  margin-bottom: $spacing-03;
+}
+
+.facet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-02;
+}
+
+.facet-label {
+  @include type.type-style('label-01');
+  color: $text-secondary;
+  flex: 0 0 5.5rem;
+}
+
+.facet {
+  @include type.type-style('label-01');
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-02;
+  padding: 2px $spacing-03;
+  border: 1px solid $border-subtle;
+  border-radius: 1rem;
+  background: $layer;
+  color: $text-primary;
+  font-family: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background: $layer-hover;
+  }
+
+  &.facet-on {
+    border-color: $interactive;
+    background: $highlight;
+  }
+
+  .facet-count {
+    color: $text-secondary;
+  }
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: $spacing-04;
+  margin-top: $spacing-04;
+}
+
+// Help panel.
+.help-ref {
+  section {
+    margin-top: $spacing-06;
+  }
+
+  h3 {
+    @include type.type-style('heading-02');
+    margin-bottom: $spacing-03;
+  }
+
+  p {
+    margin-bottom: $spacing-03;
+  }
+}
+
+.help-dl {
+  display: grid;
+  gap: $spacing-03;
+
+  > div {
+    display: grid;
+    grid-template-columns: 10rem 1fr;
+    gap: $spacing-04;
+  }
+
+  dt {
+    font-weight: 600;
+  }
+
+  @media (max-width: 42rem) {
+    > div {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+  }
+}
+
+.help-levels {
+  margin-bottom: $spacing-03;
+
+  li {
+    margin-bottom: $spacing-02;
+  }
+}
+
+.help-level {
+  display: inline-block;
+  min-width: 5rem;
+  @include type.type-style('label-01');
+  text-transform: uppercase;
+  font-weight: 600;
+
+  &.finding-high {
+    color: $support-error;
+  }
+
+  &.finding-medium {
+    color: $support-warning;
+  }
+
+  &.finding-info {
+    color: $support-info;
+  }
+
+  &.finding-ok {
+    color: $support-success;
+  }
+}
+
+.help-cli {
+  @include type.type-style('code-01');
+  padding: $spacing-04;
+  background: $layer;
+  overflow-x: auto;
+  margin-bottom: $spacing-03;
+}
+
+button.help-trigger {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
 }

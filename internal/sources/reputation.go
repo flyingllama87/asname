@@ -208,3 +208,34 @@ func CountIPv4(cidrs []string) uint64 {
 	}
 	return total
 }
+
+// RepRange is a range of addresses the blocklists name, with the lists
+// naming it (as Lookup returns them).
+type RepRange struct {
+	Start, End [16]byte // inclusive; IPv4 as IPv4-mapped IPv6
+	Lists      []string
+}
+
+// Ranges calls fn with every listed range in address order.
+func (d *ReputationDB) Ranges(fn func(RepRange) bool) error {
+	if d == nil {
+		return nil
+	}
+	split := make(map[uint32][]string)
+	return database.Walk(d.prefixes, func(start, end [16]byte, v uint32) bool {
+		if v == 0 || int(v) >= len(d.sets) {
+			return true
+		}
+		lists, ok := split[v]
+		if !ok {
+			lists = strings.Split(d.sets[v], ",")
+			split[v] = lists
+		}
+		return fn(RepRange{Start: start, End: end, Lists: lists})
+	})
+}
+
+// ASNDropped reports whether Spamhaus ASN-DROP names asn.
+func (d *ReputationDB) ASNDropped(asn uint32) bool {
+	return d != nil && d.asns[asn].ASNDrop
+}

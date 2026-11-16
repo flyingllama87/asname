@@ -45,6 +45,10 @@ import '@carbon/web-components/es/components/radio-button/radio-button.js';
 import '@carbon/web-components/es/components/toggle-tip/toggletip.js';
 import '@carbon/web-components/es/components/accordion/accordion.js';
 import '@carbon/web-components/es/components/accordion/accordion-item.js';
+import '@carbon/web-components/es/components/combo-box/combo-box.js';
+import '@carbon/web-components/es/components/combo-box/combo-box-item.js';
+import '@carbon/web-components/es/components/multi-select/multi-select.js';
+import '@carbon/web-components/es/components/multi-select/multi-select-item.js';
 
 import { iconLoader } from '@carbon/web-components/es/globals/internal/icon-loader.js';
 import Asleep20 from '@carbon/icons/es/asleep/20.js';
@@ -55,6 +59,19 @@ import Help16 from '@carbon/icons/es/help/16.js';
 import { html, nothing, render } from 'lit';
 import { api, ApiError, getApiBase, setApiBase } from './api.js';
 import { extractTargets } from './targets.js';
+import { COUNTRIES, countryName } from './countries.js';
+import { asnList, csvText, prefixList, tableText } from './searchcopy.js';
+import {
+  DEFAULT_FILTERS,
+  REPUTATIONS,
+  SORTS,
+  exploreCSV,
+  exploreTable,
+  fmtCount,
+  fmtPct,
+  fromParams,
+  toParams,
+} from './explore.js';
 import {
   asnReputationHelp,
   categoryTagHelp,
@@ -145,11 +162,16 @@ const state = {
     data: null,
     fuzzy: false,
     ranFuzzy: false,
+    // country is a two-letter code, or '' for worldwide.
+    country: '',
     sort: { asns: null, blocks: null },
+    copied: '',
   },
   db: { selected: new Set(), busy: false, error: '', notice: '', saving: '', settingsError: '', openSources: new Set() },
   settings: { open: false, base: getApiBase(), testing: false, result: null },
   api: { open: false, copied: '' },
+  help: { open: false },
+  explore: { f: { ...DEFAULT_FILTERS, tag: [] }, loading: false, error: '', data: null, allTags: [], copied: '', ran: '' },
 };
 
 let lookupAbort = null;
@@ -193,9 +215,16 @@ function toggleTheme() {
 function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '');
   const [path, query = ''] = raw.split('?');
-  const tab = ['lookup', 'search', 'databases'].includes(path) ? path : 'lookup';
+  const tab = ['lookup', 'search', 'explore', 'databases'].includes(path) ? path : 'lookup';
   const p = new URLSearchParams(query);
-  return { tab, q: p.get('q') || '', fuzzy: p.get('fuzzy') === '1', panel: path === 'api' ? 'api' : '' };
+  return {
+    tab,
+    q: p.get('q') || '',
+    fuzzy: p.get('fuzzy') === '1',
+    country: (p.get('country') || '').toUpperCase(),
+    panel: path === 'api' || path === 'help' ? path : '',
+    params: p,
+  };
 }
 
 function go(hash) {
@@ -204,16 +233,23 @@ function go(hash) {
 }
 
 function route() {
-  const { tab, q, fuzzy, panel } = parseHash();
+  const { tab, q, fuzzy, country, panel, params } = parseHash();
   state.tab = tab;
   if (panel === 'api') state.api.open = true;
+  if (panel === 'help') state.help.open = true;
   if (tab === 'lookup' && q) {
     state.lookup.input = q;
     runLookup(q);
   } else if (tab === 'search' && q) {
     state.search.q = q;
     state.search.fuzzy = fuzzy;
+    state.search.country = country;
     runSearch();
+  } else if (tab === 'explore') {
+    const x = state.explore;
+    x.f = fromParams(params);
+    const key = toParams(x.f).toString();
+    if (key !== x.ran || !x.data) runExplore();
   }
   update();
 }
@@ -287,11 +323,11 @@ async function runSearch() {
   if (!s.q.trim()) return;
   searchAbort?.abort();
   searchAbort = new AbortController();
-  Object.assign(s, { loading: true, error: '', data: null, ranFuzzy: s.fuzzy });
+  Object.assign(s, { loading: true, error: '', data: null, ranFuzzy: s.fuzzy, ranScope: s.scope, ranCountry: s.country, copied: '' });
   update();
   try {
     s.data = await api.search(
-      { q: s.q.trim(), scope: s.scope, limit: s.limit, family: s.family, fuzzy: s.fuzzy },
+      { q: s.q.trim(), scope: s.scope, limit: s.limit, family: s.family, fuzzy: s.fuzzy, country: s.country },
       { signal: searchAbort.signal },
     );
   } catch (err) {
@@ -492,6 +528,7 @@ function headerView() {
       <cds-header-name href="#/lookup">asname</cds-header-name>
       <div class="header-global">
         ${state.status?.version ? html`<span class="header-version">${state.status.version}</span>` : nothing}
+        <button class="header-api" type="button" title="How to read the results" @click=${openHelp}>Help</button>
         <button class="header-api" type="button" title="The HTTP API behind this page" @click=${openAPI}>API</button>
         <cds-header-global-action
           aria-label=${dark ? 'Switch to light theme' : 'Switch to dark theme'}
@@ -517,6 +554,7 @@ function tabsView() {
     <cds-tabs class="tabs" value=${state.tab} @cds-tabs-selected=${(e) => go(`#/${e.detail.item.value}`)}>
       <cds-tab value="lookup">Lookup</cds-tab>
       <cds-tab value="search">Search</cds-tab>
+      <cds-tab value="explore">Explore</cds-tab>
       <cds-tab value="databases">Databases</cds-tab>
     </cds-tabs>
   `;
@@ -929,6 +967,10 @@ function resultCard(r, i) {
             <div class="hint">
               ${r.prefixes.total} total · ${r.prefixes.ipv4_count} IPv4 · ${r.prefixes.ipv6_count} IPv6
               · ${r.prefixes.source === 'ripe-stat' ? 'live from RIPEstat' : 'offline index'}
+              ${isASN && r.asn?.asn_string
+                ? html`· <a href="#/search?q=${encodeURIComponent(r.asn.asn_string)}" title="Every registry netblock inside these prefixes: the AS's own and its customers'">Registry netblocks</a>
+                    · <a href="#/explore?asn=${encodeURIComponent(r.asn.asn_string)}" title="These prefixes with their tags and blocklist hits">Explore</a>`
+                : nothing}
             </div>
             ${shown.length ? html`<div class="prefix-list">${shown.map((p) => html`<span>${p}</span>`)}</div>` : nothing}
             ${prefixes.length > PREFIX_PREVIEW && !l.showAll[i]
@@ -1040,7 +1082,9 @@ function searchView() {
     s.q = document.getElementById('search-q')?.value ?? s.q;
     const limit = parseInt(document.getElementById('search-limit')?.value, 10);
     s.limit = Number.isFinite(limit) && limit > 0 ? limit : 500;
-    if (s.q.trim()) go(`#/search?q=${encodeURIComponent(s.q.trim())}${s.fuzzy ? '&fuzzy=1' : ''}`);
+    if (s.q.trim()) {
+      go(`#/search?q=${encodeURIComponent(s.q.trim())}${s.fuzzy ? '&fuzzy=1' : ''}${s.country ? `&country=${s.country}` : ''}`);
+    }
   };
   const d = s.data;
   return html`
@@ -1075,6 +1119,7 @@ function searchView() {
           <cds-select-item value="v4">IPv4 only</cds-select-item>
           <cds-select-item value="v6">IPv6 only</cds-select-item>
         </cds-select>
+        ${countryCombo('search-country', 'Country', s.country, (v) => (s.country = v))}
       </div>
       <div class="form-row controls-row">
         ${switchWithTip('Fuzzy match', s.fuzzy, (e) => (s.fuzzy = e.target.checked), CONTROL_HELP.fuzzy)}
@@ -1117,9 +1162,9 @@ const matchCell = (m) => {
   return html`<cds-table-cell><cds-tag size="sm" type=${type}>${label}</cds-tag></cds-table-cell>`;
 };
 
-function searchResults(d) {
+// sortedSearch is the search's rows in the order the tables show them.
+function sortedSearch(d) {
   const sort = state.search.sort;
-  const fuzzy = state.search.ranFuzzy;
   const asns = sortRows(d.asns || [], sort.asns, {
     match: (a) => MATCH_ORDER[a.match] ?? '',
     asn: (a) => asnNumber(a.asn),
@@ -1137,9 +1182,77 @@ function searchResults(d) {
     asn: (b) => asnNumber(b.asn),
     country: (b) => b.country,
   });
+  return { asns, blocks };
+}
+
+// copyKinds are the Search page's copy buttons: what each copies, and how
+// many lines when that is worth saying.
+function copyKinds(d) {
+  const s = state.search;
+  const { asns, blocks } = sortedSearch(d);
+  const scope = s.ranScope || s.scope;
+  const fuzzy = s.ranFuzzy;
+  const asnLines = asnList(asns);
+  const prefixes = prefixList(asns, blocks);
+  const table = () =>
+    tableText({
+      query: d.query,
+      country: s.ranCountry ? `${countryName(s.ranCountry)}` : '',
+      asns,
+      blocks,
+      fuzzy,
+      showASNs: scope !== 'netblocks',
+      showBlocks: scope !== 'asns' || blocks.length > 0,
+      asnCount: d.asn_count,
+      blockCount: d.count,
+    });
+  return [
+    { key: 'asns', label: `ASNs (${asnLines.length})`, title: 'The ASNs whose names matched, one per line (not those announcing the netblocks)', text: () => asnLines.join('\n') + '\n', n: asnLines.length },
+    { key: 'prefixes', label: `Prefixes (${prefixes.length})`, title: 'The matching ASNs\u2019 announced prefixes and the netblocks\u2019 CIDRs, deduplicated and sorted, one per line', text: () => prefixes.join('\n') + '\n', n: prefixes.length },
+    { key: 'table', label: 'Table', title: 'Both tables as shown, as aligned text', text: table, n: asns.length + blocks.length },
+    { key: 'csv', label: 'CSV', title: 'One row per ASN and netblock, for a spreadsheet', text: () => csvText({ asns, blocks, fuzzy }), n: asns.length + blocks.length },
+    { key: 'json', label: 'JSON', title: 'The API\u2019s answer, as is', text: () => JSON.stringify(d, null, 2) + '\n', n: 1 },
+  ];
+}
+
+async function copySearch(kind) {
+  const s = state.search;
+  try {
+    await navigator.clipboard.writeText(kind.text());
+    s.copied = kind.key;
+  } catch {
+    s.error = 'The browser refused clipboard access.';
+  }
+  update();
+  setTimeout(() => {
+    if (s.copied === kind.key) {
+      s.copied = '';
+      update();
+    }
+  }, 2000);
+}
+
+function copyBar(d) {
+  const s = state.search;
+  return html`<div class="copy-bar" role="group" aria-label="Copy the results">
+    <span class="copy-label">Copy</span>
+    ${copyKinds(d).map(
+      (k) => html`<cds-button kind="ghost" size="sm" title=${k.title} ?disabled=${!k.n} @click=${() => copySearch(k)}
+        >${s.copied === k.key ? 'Copied' : k.label}</cds-button
+      >`,
+    )}
+  </div>`;
+}
+
+function searchResults(d) {
+  const fuzzy = state.search.ranFuzzy;
+  const scope = state.search.ranScope || state.search.scope;
+  const { asns, blocks } = sortedSearch(d);
+  const where = state.search.ranCountry ? ` in ${countryName(state.search.ranCountry)}` : '';
   return html`
-    ${state.search.scope !== 'netblocks'
-      ? html`<h2>AS names <span class="hint">(${d.asn_count ?? asns.length})</span></h2>
+    ${asns.length || blocks.length ? copyBar(d) : nothing}
+    ${scope !== 'netblocks'
+      ? html`<h2>AS names <span class="hint">(${d.asn_count ?? asns.length}${where})</span></h2>
           ${asns.length
             ? html`<div class="table-wrap">
                 <cds-table size="sm" use-zebra-styles>
@@ -1174,8 +1287,8 @@ function searchResults(d) {
               </div>`
             : html`<p class="empty">No AS names match.</p>`}`
       : nothing}
-    ${state.search.scope !== 'asns' || blocks.length
-      ? html`<h2>Netblocks <span class="hint">(${d.count ?? blocks.length})</span></h2>
+    ${scope !== 'asns' || blocks.length
+      ? html`<h2>Netblocks <span class="hint">(${d.count ?? blocks.length}${where})</span></h2>
           ${blocks.length
             ? html`<div class="table-wrap">
                 <cds-table size="sm" use-zebra-styles>
@@ -1209,6 +1322,238 @@ function searchResults(d) {
               </div>`
             : html`<p class="empty">No netblocks match${state.status?.loaded && !state.status.loaded.netblock ? ' (the netblock database is not loaded)' : ''}.</p>`}`
       : nothing}
+  `;
+}
+
+// Explore
+
+let exploreAbort = null;
+
+async function runExplore() {
+  const x = state.explore;
+  exploreAbort?.abort();
+  exploreAbort = new AbortController();
+  const params = toParams(x.f);
+  x.ran = params.toString();
+  Object.assign(x, { loading: true, error: '', copied: '' });
+  update();
+  try {
+    x.data = await api.explore(params, { signal: exploreAbort.signal });
+    if (x.data?.all_tags) x.allTags = x.data.all_tags;
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    x.error = errorText(err);
+    x.data = null;
+  }
+  x.loading = false;
+  update();
+}
+
+// exploreGo shows the filters in the URL, which runs them; changed filters
+// start again from the first page.
+function exploreGo(changes, keepOffset = false) {
+  const x = state.explore;
+  x.f = { ...x.f, ...changes };
+  if (!keepOffset) x.f.offset = 0;
+  const p = toParams(x.f).toString();
+  go(`#/explore${p ? `?${p}` : ''}`);
+}
+
+function exploreSubmit() {
+  const x = state.explore;
+  const val = (id) => document.getElementById(id)?.value ?? '';
+  const limit = parseInt(val('explore-limit'), 10);
+  exploreGo({
+    len: val('explore-len').trim(),
+    asn: val('explore-asn').trim(),
+    min_ipsum: val('explore-ipsum').trim(),
+    min_listed_pct: val('explore-pct').trim(),
+    limit: Number.isFinite(limit) && limit > 0 ? limit : 500,
+    tag: x.f.tag,
+  });
+}
+
+function countryCombo(id, label, value, onChange) {
+  return html`<cds-combo-box
+    id=${id}
+    class="country"
+    title-text=${label}
+    label="Worldwide"
+    should-filter-item
+    clear-selection-label="Worldwide"
+    value=${value}
+    @cds-combo-box-selected=${(e) => {
+      const v = String(e.target.value || '').toUpperCase();
+      onChange(COUNTRIES.some((c) => c.code === v) ? v : '');
+    }}>
+    ${COUNTRIES.map((c) => html`<cds-combo-box-item value=${c.code}>${c.name} (${c.code})</cds-combo-box-item>`)}
+  </cds-combo-box>`;
+}
+
+function exploreView() {
+  const x = state.explore;
+  const f = x.f;
+  const d = x.data;
+  const enter = (e) => e.key === 'Enter' && exploreSubmit();
+  return html`
+    <p class="lede">Every prefix in the routing table, with its origin AS, registry country, kind of network and blocklist hits. Filter, then copy.</p>
+    <div class="form explore-form">
+      <div class="form-row">
+        <cds-text-input id="explore-len" class="len" label="Prefix length" placeholder="8, or 16-24" .value=${f.len} @keydown=${enter}></cds-text-input>
+        <cds-select class="family" label-text="Address family" value=${f.family} @cds-select-selected=${(e) => (f.family = e.target.value)}>
+          <cds-select-item value="any">IPv4 and IPv6</cds-select-item>
+          <cds-select-item value="v4">IPv4 only</cds-select-item>
+          <cds-select-item value="v6">IPv6 only</cds-select-item>
+        </cds-select>
+        ${countryCombo('explore-country', 'Registry country', f.country, (v) => (f.country = v))}
+        ${countryCombo('explore-ascountry', 'Origin AS country', f.as_country, (v) => (f.as_country = v))}
+        <cds-text-input id="explore-asn" class="asn" label="Origin AS" placeholder="AS13335" .value=${f.asn} @keydown=${enter}></cds-text-input>
+      </div>
+      <div class="form-row">
+        <cds-multi-select
+          class="tags"
+          title-text="Kind of network (any of)"
+          label=${f.tag.length ? f.tag.join(', ') : 'Any'}
+          value=${f.tag.join(',')}
+          @cds-multi-select-selected=${(e) => (f.tag = String(e.target.value || '').split(',').filter(Boolean))}>
+          ${(x.allTags.length ? x.allTags : f.tag).map((t) => html`<cds-multi-select-item value=${t} ?selected=${f.tag.includes(t)}>${t}</cds-multi-select-item>`)}
+        </cds-multi-select>
+        <cds-select class="rep" label-text="Reputation" value=${f.reputation} @cds-select-selected=${(e) => (f.reputation = e.target.value)}>
+          ${REPUTATIONS.map(([v, l]) => html`<cds-select-item value=${v}>${l}</cds-select-item>`)}
+        </cds-select>
+        <cds-text-input id="explore-ipsum" class="small" label="IPsum feeds ≥" placeholder="3" .value=${f.min_ipsum} @keydown=${enter}></cds-text-input>
+        <cds-text-input id="explore-pct" class="small" label="Listed share ≥ %" placeholder="1" .value=${f.min_listed_pct} @keydown=${enter}></cds-text-input>
+      </div>
+      <div class="form-row controls-row">
+        <cds-select class="sort" label-text="Sort" value=${f.sort} @cds-select-selected=${(e) => (f.sort = e.target.value)}>
+          ${SORTS.map(([v, l]) => html`<cds-select-item value=${v}>${l}</cds-select-item>`)}
+        </cds-select>
+        <cds-number-input id="explore-limit" class="limit" label="Per page" min="1" max="100000" step="100" .value=${String(f.limit)}></cds-number-input>
+        <cds-button @click=${exploreSubmit} ?disabled=${x.loading}>Explore</cds-button>
+        <cds-button kind="ghost" @click=${() => go('#/explore')}>Reset</cds-button>
+        ${x.loading ? html`<cds-inline-loading status="active">${d ? 'Filtering…' : 'Indexing the routing table…'}</cds-inline-loading>` : nothing}
+      </div>
+    </div>
+    <div class="notifications">${x.error ? errorNote('Explore failed', x.error) : nothing}</div>
+    ${d ? exploreResults(d) : nothing}
+  `;
+}
+
+function facetRow(label, items, pick, active) {
+  if (!items?.length) return nothing;
+  return html`<div class="facet-row">
+    <span class="facet-label">${label}</span>
+    ${items.map(
+      (i) => html`<button type="button" class="facet ${active(i.value) ? 'facet-on' : ''}" title="Filter on this" @click=${() => pick(i.value)}>
+        ${i.value}<span class="facet-count">${i.count.toLocaleString()}</span>
+      </button>`,
+    )}
+  </div>`;
+}
+
+function exploreCopyKinds(d) {
+  const rows = d.results || [];
+  const asns = [...new Set(rows.map((r) => r.asn))];
+  const title = `Explore: ${toParams(state.explore.f).toString() || 'everything'} (${rows.length} of ${d.count})`;
+  return [
+    { key: 'prefixes', label: `Prefixes (${rows.length})`, title: 'This page\u2019s prefixes, one per line', text: () => rows.map((r) => r.prefix).join('\n') + '\n', n: rows.length },
+    { key: 'asns', label: `ASNs (${asns.length})`, title: 'This page\u2019s origin ASNs, once each', text: () => asns.join('\n') + '\n', n: asns.length },
+    { key: 'table', label: 'Table', title: 'This page as aligned text', text: () => exploreTable(rows, title), n: rows.length },
+    { key: 'csv', label: 'CSV', title: 'This page, one row per prefix', text: () => exploreCSV(rows), n: rows.length },
+    { key: 'json', label: 'JSON', title: 'The API\u2019s answer, as is', text: () => JSON.stringify(d, null, 2) + '\n', n: 1 },
+  ];
+}
+
+async function exploreCopy(kind) {
+  const x = state.explore;
+  try {
+    await navigator.clipboard.writeText(kind.text());
+    x.copied = kind.key;
+  } catch {
+    x.error = 'The browser refused clipboard access.';
+  }
+  update();
+  setTimeout(() => {
+    if (x.copied === kind.key) {
+      x.copied = '';
+      update();
+    }
+  }, 2000);
+}
+
+function repCell(r) {
+  const rep = r.reputation || {};
+  const tags = [];
+  if (rep.spamhaus_drop) tags.push(['red', 'Spamhaus DROP']);
+  else if (rep.spamhaus_drop_inside) tags.push(['magenta', 'Contains DROP']);
+  if (rep.spamhaus_asn_drop) tags.push(['red', 'ASN-DROP']);
+  if (rep.firehol_level2) tags.push(['red', 'FireHOL L2']);
+  else if (rep.firehol_level3) tags.push(['magenta', 'FireHOL L3']);
+  const listed = rep.listed_ips
+    ? `${rep.listed_ips.toLocaleString()} listed${r.addresses ? ` (${fmtPct(rep.listed_share_pct)})` : ''}${rep.max_ipsum ? `, IPsum ≤${rep.max_ipsum}` : ''}`
+    : '';
+  if (!tags.length && !listed) return html`<span class="muted">not listed</span>`;
+  return html`${tags.map(([t, l]) => html`<cds-tag size="sm" type=${t} title=${rep.sbl?.join(' ') || ''}>${l}</cds-tag>`)}<span>${listed}</span>`;
+}
+
+function exploreResults(d) {
+  const x = state.explore;
+  const f = x.f;
+  const rows = d.results || [];
+  const from = d.count ? f.offset + 1 : 0;
+  const to = f.offset + rows.length;
+  const cc = (v) => v.split(',')[0];
+  return html`
+    <p class="explore-summary">
+      <strong>${d.count.toLocaleString()}</strong> prefix${d.count === 1 ? '' : 'es'}${d.ipv4_addresses
+        ? html`, ${fmtCount(d.ipv4_addresses)} IPv4 addresses<span class="muted"> (a prefix inside another counts twice)</span>`
+        : nothing}
+      <span class="muted">· ${d.took_ms} ms</span>
+    </p>
+    <div class="facets">
+      ${facetRow('Country', d.countries, (v) => exploreGo({ country: cc(v) }), (v) => cc(v) === f.country)}
+      ${facetRow('Kind', d.tags, (v) => exploreGo({ tag: f.tag.includes(v) ? f.tag.filter((t) => t !== v) : [...f.tag, v] }), (v) => f.tag.includes(v))}
+      ${facetRow('Origin AS', d.asns, (v) => exploreGo({ asn: v }), (v) => v === f.asn.toUpperCase())}
+    </div>
+    ${rows.length
+      ? html`<div class="copy-bar" role="group" aria-label="Copy the results">
+            <span class="copy-label">Copy</span>
+            ${exploreCopyKinds(d).map(
+              (k) => html`<cds-button kind="ghost" size="sm" title=${k.title} ?disabled=${!k.n} @click=${() => exploreCopy(k)}
+                >${x.copied === k.key ? 'Copied' : k.label}</cds-button
+              >`,
+            )}
+          </div>
+          <div class="table-wrap">
+            <cds-table size="sm" use-zebra-styles>
+              <cds-table-head>
+                <cds-table-header-row>
+                  <cds-table-header-cell>Prefix</cds-table-header-cell>
+                  <cds-table-header-cell>Origin AS</cds-table-header-cell>
+                  <cds-table-header-cell>Country</cds-table-header-cell>
+                  <cds-table-header-cell>Kind</cds-table-header-cell>
+                  <cds-table-header-cell>Reputation</cds-table-header-cell>
+                </cds-table-header-row>
+              </cds-table-head>
+              <cds-table-body>
+                ${rows.map(
+                  (r) => html`<cds-table-row>
+                    <cds-table-cell class="mono nowrap"><a href="#/lookup?q=${encodeURIComponent(r.prefix.split('/')[0])}">${r.prefix}</a></cds-table-cell>
+                    <cds-table-cell class="wrap">${asnLink(r.asn)} ${r.as_name || ''}</cds-table-cell>
+                    <cds-table-cell title=${r.as_country && r.as_country !== r.country ? `AS registered in ${r.as_country}` : ''}>${r.country || html`<span class="muted">unknown</span>`}</cds-table-cell>
+                    <cds-table-cell class="wrap">${(r.tags || []).map((t) => html`<cds-tag size="sm" type="cool-gray">${t}</cds-tag>`)}</cds-table-cell>
+                    <cds-table-cell class="wrap">${repCell(r)}</cds-table-cell>
+                  </cds-table-row>`,
+                )}
+              </cds-table-body>
+            </cds-table>
+          </div>
+          <div class="pager">
+            <cds-button kind="ghost" size="sm" ?disabled=${f.offset === 0} @click=${() => exploreGo({ offset: Math.max(0, f.offset - f.limit) }, true)}>Previous</cds-button>
+            <span>${from.toLocaleString()}–${to.toLocaleString()} of ${d.count.toLocaleString()}</span>
+            <cds-button kind="ghost" size="sm" ?disabled=${to >= d.count} @click=${() => exploreGo({ offset: f.offset + f.limit }, true)}>Next</cds-button>
+          </div>`
+      : html`<p class="empty">No prefixes match.</p>`}
   `;
 }
 
@@ -1617,6 +1962,133 @@ function saveSettings() {
   refreshStatus();
 }
 
+// ---------- help ----------
+
+function openHelp() {
+  state.help.open = true;
+  update();
+}
+
+// helpView is the guide behind the header's Help button: how to read the
+// answers, terse enough for someone who knows the field.
+function helpView() {
+  const h = state.help;
+  if (!h.open) return nothing;
+  const level = (l, text) => html`<span class="help-level finding-${l}">${LEVEL_LABEL[l]}</span> ${text}`;
+  return html`
+    <cds-modal open size="lg" @cds-modal-closed=${() => ((h.open = false), update())}>
+      <cds-modal-header>
+        <cds-modal-close-button></cds-modal-close-button>
+        <cds-modal-heading>Help</cds-modal-heading>
+      </cds-modal-header>
+      <cds-modal-body class="help-ref">
+        <p>
+          asname tells you who is behind an IP address, hostname, URL or AS number: the network that routes it, who the
+          block is registered to, where it most likely is, what kind of network it is and whether public blocklists name
+          it. Everything comes from databases on this machine; nothing you look up leaves it unless you turn on Online
+          lookups.
+        </p>
+
+        <section>
+          <h3>Lookup</h3>
+          <dl class="help-dl">
+            <div><dt>Input</dt><dd>One target per line, or paste anything (a log, an alert, a ticket, a web page) and the IPs, URLs, domains and ASNs are picked out, defanged ones (<code>hxxp</code>, <code>[.]</code>) included. Ctrl+Enter looks up.</dd></div>
+            <div><dt>Reverse DNS</dt><dd>Also asks DNS for each address's name. This does go out, to your resolver.</dd></div>
+            <div><dt>Online lookups</dt><dd>Asks the registry (RDAP or whois) when the offline netblock data cannot name the block (most ARIN and LACNIC space), and RIPEstat for prefixes missing offline. Off unless the server allows it.</dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <h3>Reading a result</h3>
+          <dl class="help-dl">
+            <div><dt>Who is it?</dt><dd>The most specific owner known: the netblock's registered organisation, else the AS that announces it. They often differ: a customer's block is routed by its provider, a hosting customer sits inside a cloud's AS.</dd></div>
+            <div><dt>Where is it?</dt><dd>The location the sources agree on, grouped by country. Treat a city as a guess; a country is usually right.</dd></div>
+            <div><dt>Location</dt><dd>
+              Up to three independent answers.
+              <strong>Geofeed</strong>: what the network's operator publishes for its own ranges (RFC 8805), used only inside the ranges that name the feed.
+              <strong>GeoLite2</strong> (MaxMind) and <strong>DB-IP</strong>: commercial estimates.
+              When a geofeed disagrees with both estimates it is flagged: some VPN and proxy providers publish where they want their exits to appear, not where they are.
+            </dd></div>
+            <div><dt>Country (registry)</dt><dd>Where the block is registered, from the RIR delegation files. That is the holder's country, not necessarily where the address is used.</dd></div>
+            <div><dt>Network</dt><dd>The AS announcing the address, its name and its announced prefixes.</dd></div>
+            <div><dt>Netblock</dt><dd>The registry record (RIPE, APNIC, AFRINIC, ARIN where available): range, netname, organisation, registration date. Tags such as hosting, broadband, CGNAT or leased are inferred from it and say so.</dd></div>
+            <div><dt>Category</dt><dd>Cloud, CDN, hosting, VPN, Tor, ISP, mobile and so on, from public lists of provider ranges.</dd></div>
+            <div><dt>Reputation</dt><dd>
+              <strong>Address</strong>: lists naming this exact address or its block (Spamhaus DROP, FireHOL level 2 = attacking in the last 48 h, level 3 = 30 days, IPsum = number of feeds naming it, 3+ is the usual blocking threshold).
+              <strong>Network</strong>: the whole AS, Spamhaus ASN-DROP, and the share of its space that is listed.
+            </dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <h3>Findings</h3>
+          <p>The panel at the end of each result says what the data means, worst first.</p>
+          <ul class="help-levels">
+            <li>${level('high', 'Block or treat as hostile: DROP, ASN-DROP, recent attacks, 3+ threat feeds.')}</li>
+            <li>${level('medium', 'Look closer: Tor, VPN, leased or new space, weak list hits, a location the sources dispute.')}</li>
+            <li>${level('info', 'Context worth knowing: shared CGNAT addresses, cloud tenancy, missing data.')}</li>
+            <li>${level('ok', 'Nothing found against it.')}</li>
+          </ul>
+          <p><strong>Copy summary</strong> copies the result as text for a ticket; <strong>Copy JSON</strong> copies it as the API returns it.</p>
+        </section>
+
+        <section>
+          <h3>Search</h3>
+          <dl class="help-dl">
+            <div><dt>What it searches</dt><dd>AS names, and the organisation names and netnames registered in whois. Use a distinctive word or a handle (<code>roblox</code>, <code>MSSTATE</code>), not the full legal name. Fuzzy match also ignores spaces and punctuation and matches word by word.</dd></div>
+            <div><dt>An AS number</dt><dd><code>AS47692</code> lists every registry netblock inside that AS's announced prefixes: its own allocations and its customers' assignments, whatever they are named. A name search cannot find a customer block named something else (Nessus's <code>KNOX</code> block, say); this can.</dd></div>
+            <div><dt>Country</dt><dd>Keeps ASNs registered in that country and netblocks registered there. Applied before the limit, so nothing is cut off by it.</dd></div>
+            <div><dt>Limit</dt><dd>The most of each table returned.</dd></div>
+            <div><dt>Copy</dt><dd>
+              <strong>ASNs</strong>: the matching AS names' numbers (not the providers announcing the netblocks).
+              <strong>Prefixes</strong>: those ASNs' announced prefixes plus the netblocks' CIDRs, deduplicated, sorted, IPv4 first: ready for a block list or a query.
+              <strong>Table</strong>: both tables as shown, aligned. <strong>CSV</strong>: one row per ASN and netblock. <strong>JSON</strong>: the API's answer.
+            </dd></div>
+            <div><dt>Sorting</dt><dd>Click a column heading. The copies follow the order shown.</dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <h3>Explore</h3>
+          <p>
+            Every prefix in the routing table, with its origin AS, registry country, kind of network and blocklist hits. Filters
+            combine; click a country, kind or AS under the count to filter on it.
+          </p>
+          <dl class="help-dl">
+            <div><dt>Prefix length</dt><dd><code>8</code> for every /8, <code>16-24</code> for a range.</dd></div>
+            <div><dt>Countries</dt><dd>Registry country: where the block's holder registered it. Origin AS country: where the announcing AS is registered. Neither is where users are.</dd></div>
+            <div><dt>Kind of network</dt><dd>Kept when both ends of the prefix carry the tag, or its AS does, so a tag on a few addresses (a Tor exit, a VPN server) does not label the whole prefix.</dd></div>
+            <div><dt>Reputation</dt><dd>
+              <strong>Spamhaus DROP (all of it)</strong>: hijacked or criminal space. <strong>(any of it)</strong>: a DROP block inside a larger prefix, common in big carriers.
+              <strong>Listed share</strong>: the prefix's addresses on IPsum or FireHOL, as a share of its size (IPv4).
+            </dd></div>
+            <div><dt>Copy</dt><dd>Prefixes, origin ASNs, table, CSV or JSON, for the page shown. Raise Per page for more.</dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <h3>Databases</h3>
+          <p>
+            What is on disk, how old it is and where it comes from. Stale databases are refreshed automatically when the server allows updates.
+            Geofeeds are opt-in: build them once and they are refreshed with the rest, each feed at most once a day.
+          </p>
+        </section>
+
+        <section>
+          <h3>Command line</h3>
+          <pre class="help-cli">asname 8.8.8.8 dns.google AS13335
+asname -c -n 185.220.101.1          # with city and netblock
+cat alert.txt | asname              # targets picked out of any text
+asname search roblox --in US --ips-only
+asname search AS47692               # every netblock inside the AS
+asname -j 1.1.1.1                   # JSON; -C for CSV</pre>
+          <p>The header's API button lists every HTTP endpoint with examples.</p>
+        </section>
+      </cds-modal-body>
+    </cds-modal>
+  `;
+}
+
 // ---------- HTTP API reference ----------
 
 function openAPI() {
@@ -1663,10 +2135,30 @@ function apiEndpoints(base) {
         ['scope=asns|netblocks', 'Search only one (default: both).'],
         ['fuzzy=true', 'Also match misspellings and run-together words.'],
         ['limit=N', 'At most N of each (default 50).'],
+        ['country=AU', 'Only ASNs registered in that country and netblocks the country database places there (a code or an English name; default: worldwide).'],
         ['v4_only=true, v6_only=true', 'Only IPv4 or only IPv6 prefixes and ranges.'],
       ],
       endpoints: [
         { method: 'GET', path: '/v1/search?q={name}', what: 'Search by name.', curl: `curl -s '${base}/v1/search?q=cloudflare&limit=10'`, open: `${base}/v1/search?q=cloudflare&limit=10` },
+        { method: 'GET', path: '/v1/search?q=AS47692', what: 'Every registry netblock inside an AS\'s announced prefixes.', curl: `curl -s '${base}/v1/search?q=AS47692&scope=netblocks'`, open: `${base}/v1/search?q=AS47692&scope=netblocks` },
+      ],
+    },
+    {
+      title: 'Explore',
+      note: 'Announced prefixes with origin AS, registry country, tags and blocklist hits. Answers {"count", "ipv4_addresses", "results", "countries", "tags", "asns", "all_tags"}; the last four break the matches down. The first call builds an index (a few seconds).',
+      params: [
+        ['len=8, len=16-24', 'Prefix length, or a range.'],
+        ['family=v4|v6', 'One address family.'],
+        ['country=AU, as_country=AU', 'Registry country of the prefix; country of the origin AS.'],
+        ['asn=AS13335', 'One origin AS.'],
+        ['tag=hosting,vpn', 'Any of these kinds of network (repeatable).'],
+        ['reputation=…', 'listed, clean, drop (all of it), drop-inside, asn-drop, firehol2, firehol3.'],
+        ['min_ipsum=N, min_listed_pct=P', 'An address on N+ IPsum feeds; P% or more of the prefix listed.'],
+        ['sort=address|size|listed|share', 'Order (default address).'],
+        ['limit=N, offset=N', 'Page (default 500; limit=0 for the counts alone).'],
+      ],
+      endpoints: [
+        { method: 'GET', path: '/v1/explore', what: 'Filter the routing table.', curl: `curl -s '${base}/v1/explore?country=AU&reputation=drop'`, open: `${base}/v1/explore?country=AU&reputation=drop` },
       ],
     },
     {
@@ -1791,6 +2283,7 @@ function settingsView() {
 function view() {
   let body;
   if (state.tab === 'search') body = searchView();
+  else if (state.tab === 'explore') body = exploreView();
   else if (state.tab === 'databases') body = databasesView();
   else body = lookupView();
   return html`
@@ -1800,21 +2293,7 @@ function view() {
         <h1>asname Web Interface</h1>
         <div class="subtitle">
           <span>Who is behind an IP address: its network, owner, location and reputation, from databases on this machine.</span>
-          <cds-toggletip class="tip" autoalign alignment="bottom" button-label="What asname does">
-            <span slot="trigger" class="help-trigger">${iconLoader(Help16)}</span>
-            <div slot="body-text" class="tip-body">
-              <p>
-                asname takes an IP address, hostname, URL or AS number and tells you the network that routes it, who
-                the address block is registered to, where it most likely is, what kind of network it is (cloud,
-                hosting, VPN, Tor, home broadband, mobile…) and whether public blocklists name it, with a
-                plain-language summary of what that means.
-              </p>
-              <p>
-                Everything comes from databases on this machine, so lookups are instant and nothing you look up leaves
-                it, unless you turn on Online lookups.
-              </p>
-            </div>
-          </cds-toggletip>
+          <button class="help-trigger" type="button" aria-label="Help" title="Help" @click=${openHelp}>${iconLoader(Help16)}</button>
         </div>
       </section>
       ${tabsView()}
@@ -1823,6 +2302,7 @@ function view() {
     </main>
     ${settingsView()}
     ${apiView()}
+    ${helpView()}
   `;
 }
 

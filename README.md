@@ -9,7 +9,8 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Blazing Fast**: Uses offline LC-trie databases for instantaneous IP lookups.
 - **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file or stream of anything: a list (bulleted or not), a log, an alert, a web page. IPs, URLs, domains and ASNs are picked out of it, defanged ones (`hxxp`, `[.]`) included.
 - **ASN & Prefix Lookups**: Query any ASN (`AS15169`) to see its owner, country, classification, and all announced IPv4/IPv6 prefixes.
-- **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs with their announced prefixes, IP ranges and CIDRs.
+- **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs with their announced prefixes, IP ranges and CIDRs, optionally in one country (`--in AU`). Search for an AS number (`asname search AS47692`) to list every registry netblock inside its routes, customers' included.
+- **Explore the Routing Table**: Filter every announced prefix by size, registry country, origin AS, kind of network and blocklist hits (`asname explore --len 8`, `asname explore --in AU --reputation drop`), with a breakdown by country, kind and AS.
 - **Country Listings**: List every IP block registered to a country as CIDRs (`asname country AU`), ready for a firewall or allowlist.
 - **City Listings**: List every IP block the city database locates in a city (`asname city "Brisbane, AU"`).
 - **Pretty Cards, One-Liners, JSONL & CSV**: Results print as clean multi-line cards by default, or one line each (`--oneline`), streamable JSON objects (`--json`), or CSV for spreadsheets (`--csv`).
@@ -582,6 +583,29 @@ asname search --json "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + "
 asname search --json --asns-only "Valve" | jq -r '.ipv4_prefixes[]?'
 ```
 
+#### One country
+
+`--in` keeps ASNs registered in a country and netblocks the country database
+places there. It applies before `--limit`, so it never hides matches:
+
+```bash
+asname search --in AU telstra
+asname search --in "New Zealand" --ips-only spark
+```
+
+#### Every netblock inside an AS
+
+A name search finds blocks whose netname or organisation contains the name, so
+a customer's assignment named something else is missed: Nessus GmbH's
+`185.49.52.26/32` is registered as `KNOX`, with no organisation. Search for the
+AS number instead and you get every registry netblock inside its announced
+prefixes, its own allocations and its customers' assignments, each clipped to
+the part the most specific record covers:
+
+```bash
+asname search AS47692 --netblocks-only
+```
+
 #### Fuzzy search
 
 A plain search matches letter for letter, so `colo crossing` misses
@@ -607,6 +631,35 @@ Like every search it reads only the local databases and never goes online.
 ```bash
 asname search --fuzzy "colo crossing"
 asname search --fuzzy --json "univ of mississippi" | jq -r '[.match, .asn // .netname, .name // .org] | @tsv'
+```
+
+### Exploring the routing table
+
+`asname explore` lists the announced prefixes, each with its origin AS,
+registry country, kind of network and blocklist hits, filtered by any mix of:
+
+| Flag | Keeps |
+| --- | --- |
+| `--len 8`, `--len 16-24` | prefixes of that length, or in that range |
+| `--in AU` | prefixes the country database places in a country (the holder's registration, not where users are) |
+| `--as-in AU` | prefixes whose origin AS is registered there |
+| `--asn AS13335` | one origin AS |
+| `--tag hosting,vpn` | any of these kinds of network; a tag counts when both ends of the prefix carry it, or its AS does, so one Tor exit does not label its /24 |
+| `--reputation listed\|clean\|drop\|drop-inside\|asn-drop\|firehol2\|firehol3` | `drop` is a prefix wholly on Spamhaus DROP; `drop-inside` one containing a DROP block |
+| `--min-ipsum N` | an address on N or more IPsum feeds |
+| `--min-listed-pct P` | P% or more of its IPv4 addresses on IPsum or FireHOL |
+
+`--sort size|listed|share` orders it (address order by default), `--limit`
+caps it (500; 0 for all), `--ips-only` prints the prefixes alone, `--count`
+prints how many match and what they break down into, and `--json` everything.
+The index is built from the local databases on first use, a couple of seconds,
+and needs the prefix database; the category and reputation databases add tags
+and blocklist hits when present.
+
+```bash
+asname explore --len 8 --count
+asname explore --in AU --reputation drop
+asname explore --tag hosting --min-ipsum 3 --sort listed --ips-only
 ```
 
 ### Listing a country's IP blocks
@@ -1053,6 +1106,15 @@ curl -s "http://127.0.0.1:8086/v1/lookup/AS13335"
 # scope=netblocks searches only one; fuzzy=true as --fuzzy does
 curl -s "http://127.0.0.1:8086/v1/search?q=Cloudflare&limit=10"
 curl -s "http://127.0.0.1:8086/v1/search?q=colo%20crossing&fuzzy=true"
+# country=AU (a code or a name) as --in does; an AS number lists its netblocks
+curl -s "http://127.0.0.1:8086/v1/search?q=telstra&country=AU"
+curl -s "http://127.0.0.1:8086/v1/search?q=AS47692&scope=netblocks"
+
+# Explore the routing table: len, family, country, as_country, asn, tag,
+# reputation, min_ipsum, min_listed_pct, sort, limit, offset as the flags of
+# `asname explore`; limit=0 for the counts and breakdown alone
+curl -s "http://127.0.0.1:8086/v1/explore?len=8"
+curl -s "http://127.0.0.1:8086/v1/explore?country=AU&reputation=drop"
 
 # Each result also as `asname -p` prints it, in "text"
 curl -s "http://127.0.0.1:8086/v1/lookup?q=8.8.8.8&text=true" | jq -r '.results[].text'
@@ -1183,7 +1245,8 @@ asname --rest --allow-updates --web-dir web/dist
 # open http://127.0.0.1:8086/
 ```
 
-It has three tabs:
+It has four tabs, and **Help** (how to read the answers) and **API** (every
+endpoint, with a curl example to copy) buttons in the header:
 
 - **Lookup**: IPs, hostnames, URLs or ASNs, one per line, each shown as a card
   with the fields `asname -p` shows: ASN, country, city, netblock, category,
@@ -1199,8 +1262,16 @@ It has three tabs:
   switch asks the registries (RDAP, or whois) and RIPEstat for what the offline databases lack (try
   `200.160.2.3`).
 - **Search**: AS names and registry netblocks by organisation or network name,
-  with a **Fuzzy match** switch (see [Fuzzy search](#fuzzy-search)) and tips.
-  Click a column heading to sort.
+  with a **Fuzzy match** switch (see [Fuzzy search](#fuzzy-search)), a
+  **Country** filter (Worldwide by default) and tips; an AS number lists every
+  netblock inside it. Click a column heading to sort. **Copy** gives the ASNs,
+  the prefixes (the ASNs' announced prefixes and the netblocks' CIDRs,
+  deduplicated and sorted, for a block list), both tables as aligned text, CSV,
+  or the JSON.
+- **Explore**: the routing table, filtered as `asname explore` does, with the
+  matches broken down by country, kind of network and origin AS (click one to
+  filter on it), paged, and the same copy buttons. An ASN's card links to its
+  netblocks and to Explore.
 - **Databases**: what is on disk and loaded, how old each database is, and
   buttons to update the ones you choose, refresh everything, refresh only what
   is stale, or retry what the last update left out, with the update's log as it
@@ -1219,7 +1290,8 @@ age, or left incomplete by its last update, or when an update is running.
 The UI talks to the asname that served it. Settings can point it at another
 server instead, which must then run with `--cors`, and which only accepts
 updates from its own page. Lookups and searches are linkable
-(`#/lookup?q=8.8.8.8`, `#/search?q=cloudflare`), and there is a light and a dark
+(`#/lookup?q=8.8.8.8`, `#/search?q=cloudflare&country=US`,
+`#/explore?len=8`), and there is a light and a dark
 theme. See [web/README.md](web/README.md) to work on it.
 
 ### Running as a service

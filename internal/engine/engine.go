@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,7 +44,10 @@ type Engine struct {
 	// asnReps caches asnReputation's results, as counting an ASN's announced
 	// space reads all of its prefixes; stream and REST lookups run concurrently.
 	// It is shared by the views WithOnline returns.
-	asnReps  *sync.Map
+	asnReps *sync.Map
+	// explore is Explore's index, built on first use and shared by the
+	// views WithOnline returns.
+	explore  *exploreIndex
 	prefixDB *sources.PrefixDB
 	log      io.Writer
 
@@ -163,6 +167,7 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		log:            log,
 		onlinePrefixes: sources.NewPrefixAsker(cfg.PrefixConsentPath, sources.WhoisNever),
 		asnReps:        &sync.Map{},
+		explore:        &exploreIndex{},
 	}, nil
 }
 
@@ -549,6 +554,58 @@ func splitNameCountry(name string) (org, country string) {
 	return name[:idx], cc
 }
 
+// asnQuery reports whether a search is for an AS number ("AS47692", "47692")
+// rather than a name.
+func asnQuery(q string) (uint32, bool) {
+	return ParseASNTarget(q)
+}
+
+// netblocksOfASN is every registry range inside the prefixes asn announces,
+// as the offline prefix index has them: the AS's own allocations and the
+// customer assignments within them, whatever they are named.
+func (e *Engine) netblocksOfASN(asn uint32, opts sources.NetblockSearchOptions) ([]sources.NetblockSearchResult, error) {
+	if e.prefixDB == nil {
+		return nil, fmt.Errorf("listing an AS's netblocks needs the prefix database (run `asname update`)")
+	}
+	pr, err := e.prefixDB.Lookup(asn)
+	if err != nil {
+		return nil, nil
+	}
+	var out []sources.NetblockSearchResult
+	seen := map[string]bool{}
+	for _, p := range append(append([]string(nil), pr.IPv4...), pr.IPv6...) {
+		prefix, err := netip.ParsePrefix(p)
+		if err != nil {
+			continue
+		}
+		o := opts
+		if o.Limit > 0 {
+			o.Limit -= len(out)
+		}
+		blocks, err := e.netblockDB.Within(prefix, o)
+		if err != nil {
+			return out, err
+		}
+		for _, b := range blocks {
+			k := b.RangeStart.String() + "-" + b.RangeEnd.String()
+			if !seen[k] {
+				seen[k] = true
+				out = append(out, b)
+			}
+		}
+		if opts.Limit > 0 && len(out) >= opts.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// countryCode is the code of a country as "AU, Australia" or "AU".
+func countryCode(c string) string {
+	cc, _, _ := strings.Cut(c, ",")
+	return cc
+}
+
 // ASNSearchResult is an Autonomous System whose registered name matched a
 // search, with the prefixes the local prefix database has it announcing.
 type ASNSearchResult struct {
@@ -572,6 +629,8 @@ type ASNSearchOptions struct {
 	// Fuzzy also finds names that match ignoring spaces and punctuation, or
 	// word by word (see sources.NameMatcher), best match first.
 	Fuzzy bool
+	// Country, a two-letter code, keeps only the ASNs registered there.
+	Country string
 }
 
 // SearchASNs returns the ASNs whose name contains query, ignoring case, in
@@ -593,11 +652,25 @@ func (e *Engine) SearchASNsWith(query string, opts ASNSearchOptions) []ASNSearch
 	if query == "" {
 		return nil
 	}
-	m := sources.NewNameMatcher(query, opts.Fuzzy)
 	var matched []uint32
 	rank := make(map[uint32]int)
+	asn, byNumber := asnQuery(query)
+	if byNumber {
+		// An AS number finds that AS, named or not, and nothing else.
+		_, cc := splitNameCountry(e.names[asn])
+		if opts.Country == "" || strings.EqualFold(countryCode(cc), opts.Country) {
+			matched = append(matched, asn)
+		}
+	}
+	m := sources.NewNameMatcher(query, opts.Fuzzy)
 	for asn, name := range e.names {
-		org, _ := splitNameCountry(name)
+		if byNumber {
+			break
+		}
+		org, cc := splitNameCountry(name)
+		if opts.Country != "" && !strings.EqualFold(countryCode(cc), opts.Country) {
+			continue
+		}
 		if r := m.Rank([]byte(org)); r != sources.MatchNone {
 			matched = append(matched, asn)
 			rank[asn] = r
@@ -677,11 +750,29 @@ type NetblockEnrichedResult struct {
 	Country string
 }
 
+// SearchNetblocks searches the netblock database. opts.Country keeps only
+// the ranges the country database places there (the Country each result
+// shows), before the limit is applied.
 func (e *Engine) SearchNetblocks(query string, opts sources.NetblockSearchOptions) ([]NetblockEnrichedResult, error) {
 	if e.netblockDB == nil {
 		return nil, fmt.Errorf("netblock database is not open (build with `asname update --netblock-only` or pass `--netblock`)")
 	}
-	rawResults, err := e.netblockDB.SearchOrg(query, opts)
+	if opts.Country != "" {
+		if e.countryDB == nil {
+			return nil, fmt.Errorf("filtering by country needs the country database (run `asname update --country-only`)")
+		}
+		cc := strings.ToUpper(opts.Country)
+		opts.Keep = func(start net.IP) bool {
+			return countryCode(sources.LookupCountry(e.countryDB, start.To16())) == cc
+		}
+	}
+	var rawResults []sources.NetblockSearchResult
+	var err error
+	if asn, ok := asnQuery(query); ok {
+		rawResults, err = e.netblocksOfASN(asn, opts)
+	} else {
+		rawResults, err = e.netblockDB.SearchOrg(query, opts)
+	}
 	if err != nil {
 		return nil, err
 	}

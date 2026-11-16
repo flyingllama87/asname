@@ -293,6 +293,10 @@ type SearchOptions struct {
 	// word by word in any order, with company suffixes left out and common
 	// abbreviations expanded. Results come best match first.
 	Fuzzy bool
+	// Country, a two-letter code such as "AU", keeps only the ASNs
+	// registered there and the netblocks the country database places
+	// there; empty searches every country.
+	Country string
 }
 
 // SearchResults holds the matches of Search: the Autonomous Systems whose

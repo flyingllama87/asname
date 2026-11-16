@@ -75,6 +75,7 @@ SEARCH:
    --netblocks-only               only search registry netblocks
    --fuzzy                        also find names that match ignoring spaces and punctuation, or word by word in any order; best matches first
    --ips-only                     only print matching CIDRs, one per line
+   --in country                   only ASNs registered in country (AU, or Australia) and netblocks placed there
    --v6                           also include IPv6 (search is IPv4 only unless this or --v6-only)
 
 ADDRESS FAMILY (lookups, country and city; search is IPv4 unless --v6 or --v6-only):
@@ -294,6 +295,11 @@ func newApp() *cli.Command {
 				Usage: "only print matching CIDRs, one per line",
 				Local: true,
 			},
+			&cli.StringFlag{
+				Name:  "in",
+				Usage: "only ASNs registered in `country` (a code such as AU, or a name) and netblocks the country database places there",
+				Local: true,
+			},
 			&cli.BoolFlag{
 				Name:  "v6",
 				Usage: "also include IPv6 (search is IPv4 only unless this or --v6-only)",
@@ -381,6 +387,7 @@ func newApp() *cli.Command {
 		Commands: []*cli.Command{
 			searchCommand(),
 			countryCommand(),
+			exploreCommand(),
 			cityCommand(),
 			updateCommand(),
 			versionCommand(),
@@ -697,6 +704,10 @@ func searchCommand() *cli.Command {
 				Name:  "ips-only",
 				Usage: "only print matching CIDRs, one per line",
 			},
+			&cli.StringFlag{
+				Name:  "in",
+				Usage: "only ASNs registered in `country` (a code such as AU, or a name) and netblocks the country database places there",
+			},
 			&cli.BoolFlag{
 				Name:  "v6",
 				Usage: "also include IPv6 (search is IPv4 only unless this or --v6-only)",
@@ -758,6 +769,17 @@ func isTerminal(f *os.File) bool {
 
 // anyBool reports whether the boolean flag name is set on cmd or a command
 // above it, as search has its own copies of some root flags.
+// anyString is the value of the string flag name on cmd or the nearest
+// command above it that sets it.
+func anyString(cmd *cli.Command, name string) string {
+	for _, c := range cmd.Lineage() {
+		if v := c.String(name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func anyBool(cmd *cli.Command, name string) bool {
 	for _, c := range cmd.Lineage() {
 		if c.Bool(name) {
@@ -860,6 +882,13 @@ func runSearch(cmd *cli.Command, queries []string, fromStdin bool) error {
 		return err
 	}
 
+	country := ""
+	if v := anyString(cmd, "in"); v != "" {
+		if country, err = sources.ParseCountry(v); err != nil {
+			return err
+		}
+	}
+
 	cfg := newConfig(cmd)
 
 	// The AS names need no netblock database, so without one a combined
@@ -907,16 +936,17 @@ func runSearch(cmd *cli.Command, queries []string, fromStdin bool) error {
 	for _, query := range queries {
 		var asns []engine.ASNSearchResult
 		if !netblocksOnly {
-			asns = eng.SearchASNsWith(query, engine.ASNSearchOptions{Limit: limit, V4Only: v4Only, V6Only: v6Only, Fuzzy: anyBool(cmd, "fuzzy")})
+			asns = eng.SearchASNsWith(query, engine.ASNSearchOptions{Limit: limit, V4Only: v4Only, V6Only: v6Only, Fuzzy: anyBool(cmd, "fuzzy"), Country: country})
 		}
 
 		var netblocks []engine.NetblockEnrichedResult
 		if wantNetblock {
 			netblocks, err = eng.SearchNetblocks(query, sources.NetblockSearchOptions{
-				Limit:  limit,
-				V4Only: v4Only,
-				V6Only: v6Only,
-				Fuzzy:  anyBool(cmd, "fuzzy"),
+				Limit:   limit,
+				V4Only:  v4Only,
+				V6Only:  v6Only,
+				Fuzzy:   anyBool(cmd, "fuzzy"),
+				Country: country,
 			})
 			if err != nil {
 				return err

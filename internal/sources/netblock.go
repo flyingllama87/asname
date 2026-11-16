@@ -266,6 +266,12 @@ type NetblockSearchOptions struct {
 	// Fuzzy also finds names that match ignoring spaces and punctuation, or
 	// word by word; see NameMatcher. Results come best match first.
 	Fuzzy bool
+	// Country, a two-letter code, is for the engine, which turns it into
+	// Keep: SearchOrg itself has no country data.
+	Country string
+	// Keep, when set, is asked about each matching range by its first
+	// address; ranges it rejects are dropped before the limit is applied.
+	Keep func(start net.IP) bool
 }
 
 // SearchOrg searches the netblock database for ranges matching query in either org name or netname.
@@ -359,6 +365,9 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 					var startIP, endIP [4]byte
 					binary.BigEndian.PutUint32(startIP[:], startInt)
 					binary.BigEndian.PutUint32(endIP[:], endInt)
+					if opts.Keep != nil && !opts.Keep(net.IP(startIP[:])) {
+						continue
+					}
 
 					results = append(results, NetblockSearchResult{
 						RangeStart: net.IP(startIP[:]),
@@ -412,6 +421,9 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 				if orgMatch || netMatch {
 					var startBytes, endBytes [16]byte
 					copy(startBytes[:], rec[0:16])
+					if opts.Keep != nil && !opts.Keep(net.IP(startBytes[:])) {
+						continue
+					}
 
 					if globalIdx+1 < d.v6Count {
 						var nextStart [16]byte
@@ -776,4 +788,170 @@ func addr4(v uint32) netip.Addr {
 	var b [4]byte
 	binary.BigEndian.PutUint32(b[:], v)
 	return netip.AddrFrom4(b)
+}
+
+// Within returns the registry ranges inside prefix, the most specific record
+// for each part of it, clipped to the prefix, in address order. Parts with
+// no record are left out. opts.Keep filters as in SearchOrg; opts.Limit, when
+// positive, stops the walk once that many are found.
+func (d *NetblockDB) Within(prefix netip.Prefix, opts NetblockSearchOptions) ([]NetblockSearchResult, error) {
+	if d == nil || d.f == nil {
+		return nil, fmt.Errorf("netblock database is not open")
+	}
+	prefix = prefix.Masked()
+	first := prefix.Addr()
+	if first.Is4() {
+		if opts.V6Only {
+			return nil, nil
+		}
+		return d.within4(first, prefix.Bits(), opts)
+	}
+	if opts.V4Only {
+		return nil, nil
+	}
+	return d.within6(first, prefix.Bits(), opts)
+}
+
+// segmentRecord reads the netname and org offsets of a record.
+func (d *NetblockDB) segmentRecord(off int64) (netname, org string, ok bool, err error) {
+	var buf [8]byte
+	if _, err := d.f.ReadAt(buf[:], off); err != nil {
+		return "", "", false, err
+	}
+	nOff, oOff := binary.LittleEndian.Uint32(buf[0:4]), binary.LittleEndian.Uint32(buf[4:8])
+	if nOff == 0 && oOff == 0 {
+		return "", "", false, nil
+	}
+	if netname, err = d.str(nOff); err != nil {
+		return "", "", false, err
+	}
+	if org, err = d.str(oOff); err != nil {
+		return "", "", false, err
+	}
+	return netname, org, netname != "" || org != "", nil
+}
+
+func (d *NetblockDB) within4(first netip.Addr, bitsLen int, opts NetblockSearchOptions) ([]NetblockSearchResult, error) {
+	b := first.As4()
+	lo := binary.BigEndian.Uint32(b[:])
+	hi := lo | uint32(uint64(1)<<(32-bitsLen)-1)
+	// The record holding lo: the last whose start is <= lo.
+	i := sort.Search(d.v4Count, func(k int) bool {
+		s, err := d.start4(k)
+		return err != nil || s > lo
+	}) - 1
+	if i < 0 {
+		i = 0
+	}
+	var out []NetblockSearchResult
+	for ; i < d.v4Count; i++ {
+		start, err := d.start4(i)
+		if err != nil {
+			return out, err
+		}
+		if start > hi {
+			break
+		}
+		end := uint32(0xffffffff)
+		if i+1 < d.v4Count {
+			next, err := d.start4(i + 1)
+			if err != nil {
+				return out, err
+			}
+			end = next - 1
+		}
+		if end < lo {
+			continue
+		}
+		s, e := max(start, lo), min(end, hi)
+		netname, org, ok, err := d.segmentRecord(netblockHeaderSize + int64(i)*d.rec4 + 4)
+		if err != nil {
+			return out, err
+		}
+		if !ok {
+			continue
+		}
+		var sIP, eIP [4]byte
+		binary.BigEndian.PutUint32(sIP[:], s)
+		binary.BigEndian.PutUint32(eIP[:], e)
+		if opts.Keep != nil && !opts.Keep(net.IP(sIP[:])) {
+			continue
+		}
+		out = append(out, NetblockSearchResult{
+			RangeStart: net.IP(sIP[:]),
+			RangeEnd:   net.IP(eIP[:]),
+			CIDRs:      IPv4RangeToCIDRs(s, e),
+			Netname:    netname,
+			Org:        org,
+		})
+		if opts.Limit > 0 && len(out) >= opts.Limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (d *NetblockDB) within6(first netip.Addr, bitsLen int, opts NetblockSearchOptions) ([]NetblockSearchResult, error) {
+	lo := first.As16()
+	hi := lo
+	for k := bitsLen; k < 128; k++ {
+		hi[k/8] |= 0x80 >> (k % 8)
+	}
+	i := sort.Search(d.v6Count, func(k int) bool {
+		s, err := d.start6(k)
+		return err != nil || bytes.Compare(s[:], lo[:]) > 0
+	}) - 1
+	if i < 0 {
+		i = 0
+	}
+	var out []NetblockSearchResult
+	for ; i < d.v6Count; i++ {
+		start, err := d.start6(i)
+		if err != nil {
+			return out, err
+		}
+		if bytes.Compare(start[:], hi[:]) > 0 {
+			break
+		}
+		end := [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+		if i+1 < d.v6Count {
+			next, err := d.start6(i + 1)
+			if err != nil {
+				return out, err
+			}
+			end = decBytes16(next)
+		}
+		if bytes.Compare(end[:], lo[:]) < 0 {
+			continue
+		}
+		s, e := start, end
+		if bytes.Compare(s[:], lo[:]) < 0 {
+			s = lo
+		}
+		if bytes.Compare(e[:], hi[:]) > 0 {
+			e = hi
+		}
+		netname, org, ok, err := d.segmentRecord(d.v6Off + int64(i)*d.rec6 + 16)
+		if err != nil {
+			return out, err
+		}
+		if !ok {
+			continue
+		}
+		if opts.Keep != nil && !opts.Keep(net.IP(append([]byte(nil), s[:]...))) {
+			continue
+		}
+		out = append(out, NetblockSearchResult{
+			RangeStart: net.IP(append([]byte(nil), s[:]...)),
+			RangeEnd:   net.IP(append([]byte(nil), e[:]...)),
+			CIDRs:      IPv6RangeToCIDRs(s, e),
+			Netname:    netname,
+			Org:        org,
+			IsV6:       true,
+		})
+		if opts.Limit > 0 && len(out) >= opts.Limit {
+			break
+		}
+	}
+	return out, nil
 }

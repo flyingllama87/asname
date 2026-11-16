@@ -81,13 +81,15 @@ export const api = {
       signal,
     }),
   saveSettings: (body) => request('/v1/settings', { method: 'PUT', body }),
-  search: ({ q, scope, limit, family, fuzzy }, { signal } = {}) => {
+  search: ({ q, scope, limit, family, fuzzy, country }, { signal } = {}) => {
     const p = new URLSearchParams({ q, scope, limit: String(limit) });
     if (fuzzy) p.set('fuzzy', 'true');
+    if (country) p.set('country', country);
     if (family === 'v4') p.set('v4_only', 'true');
     if (family === 'v6') p.set('v6_only', 'true');
     return request(`/v1/search?${p}`, { signal });
   },
+  explore: (params, { signal } = {}) => request(`/v1/explore?${params}`, { signal }),
   update: (body) => request('/v1/update', { method: 'POST', body }),
   cancelUpdate: () => request('/v1/update', { method: 'DELETE', body: {} }),
 };

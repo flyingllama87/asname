@@ -178,3 +178,45 @@ func TestRESTSearchASNsWithoutNetblockDB(t *testing.T) {
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+func TestRESTSearchCountry(t *testing.T) {
+	eng := engine.NewTestEngine(t)
+	handler := NewServer(eng, "127.0.0.1:8086", false, false, "0.5.0").Routes()
+	get := func(url string) (int, searchResponse) {
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		var resp searchResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		return w.Code, resp
+	}
+	code, resp := get("/v1/search?q=google&scope=asns&country=US")
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, 1, resp.ASNCount)
+	require.Equal(t, "US", resp.Country)
+
+	_, resp = get("/v1/search?q=google&scope=asns&country=Australia")
+	require.Equal(t, 0, resp.ASNCount)
+
+	_, resp = get("/v1/search?q=google&scope=asns&country=worldwide")
+	require.Equal(t, 1, resp.ASNCount)
+
+	code, _ = get("/v1/search?q=google&country=Narnia")
+	require.Equal(t, http.StatusBadRequest, code)
+}
+
+func TestRESTExploreValidates(t *testing.T) {
+	eng := engine.NewTestEngine(t)
+	handler := NewServer(eng, "127.0.0.1:8086", false, false, "0.5.0").Routes()
+	for _, q := range []string{"len=abc", "len=24-8", "family=v5", "reputation=bad", "sort=up", "asn=xyz", "country=Narnia", "min_listed_pct=-1"} {
+		req := httptest.NewRequest(http.MethodGet, "/v1/explore?"+q, nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest, w.Code, q)
+	}
+	// No prefix database: the index cannot be built.
+	req := httptest.NewRequest(http.MethodGet, "/v1/explore?len=8", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+}

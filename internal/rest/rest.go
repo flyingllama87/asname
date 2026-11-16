@@ -69,6 +69,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/v1/lookup", s.handleLookupQueryOrPost)
 	mux.HandleFunc("/v1/lookup/", s.handleLookupPath)
 	mux.HandleFunc("/v1/search", s.handleSearch)
+	mux.HandleFunc("/v1/explore", s.handleExplore)
 	mux.HandleFunc("/v1/bulk", s.handleBulk)
 	mux.HandleFunc("/v1/status", s.handleStatus)
 	mux.HandleFunc("/v1/update", s.handleUpdate)
@@ -517,10 +518,22 @@ func decodeBase64Target(s string) (string, error) {
 // as before AS names were searched; the AS name matches come in asns.
 type searchResponse struct {
 	Query    string                            `json:"query"`
+	Country  string                            `json:"country,omitempty"`
 	Count    int                               `json:"count"`
 	Results  []format.JSONNetblockSearchResult `json:"results"`
 	ASNCount int                               `json:"asn_count"`
 	ASNs     []format.JSONASNSearchResult      `json:"asns"`
+}
+
+// searchCountry reads a search's country parameter: a two-letter code or
+// an English name; empty, "all", "any" or "worldwide" is every country.
+func searchCountry(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	switch strings.ToLower(v) {
+	case "", "all", "any", "worldwide":
+		return "", nil
+	}
+	return sources.ParseCountry(v)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -557,10 +570,16 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	fuzzyParam := r.URL.Query().Get("fuzzy")
 	fuzzy := fuzzyParam == "1" || strings.EqualFold(fuzzyParam, "true")
 
+	country, err := searchCountry(r.URL.Query().Get("country"))
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	eng := s.engine()
 	asnResults := make([]format.JSONASNSearchResult, 0)
 	if scope != "netblocks" {
-		for _, res := range eng.SearchASNsWith(query, engine.ASNSearchOptions{Limit: limit, V4Only: v4Only, V6Only: v6Only, Fuzzy: fuzzy}) {
+		for _, res := range eng.SearchASNsWith(query, engine.ASNSearchOptions{Limit: limit, V4Only: v4Only, V6Only: v6Only, Fuzzy: fuzzy, Country: country}) {
 			asnResults = append(asnResults, format.NewJSONASNSearchResult(res, ""))
 		}
 	}
@@ -570,10 +589,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	jsonResults := make([]format.JSONNetblockSearchResult, 0)
 	if scope == "netblocks" || (scope != "asns" && eng.HasNetblockDB()) {
 		results, err := eng.SearchNetblocks(query, sources.NetblockSearchOptions{
-			Limit:  limit,
-			V4Only: v4Only,
-			V6Only: v6Only,
-			Fuzzy:  fuzzy,
+			Limit:   limit,
+			V4Only:  v4Only,
+			V6Only:  v6Only,
+			Fuzzy:   fuzzy,
+			Country: country,
 		})
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -586,6 +606,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, searchResponse{
 		Query:    query,
+		Country:  country,
 		Count:    len(jsonResults),
 		Results:  jsonResults,
 		ASNCount: len(asnResults),

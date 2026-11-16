@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -395,4 +396,48 @@ func BenchmarkFoldMatcher(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		m.match(s)
 	}
+}
+
+func TestNetblockWithin(t *testing.T) {
+	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
+		b.add(net.ParseIP("185.49.52.0"), net.ParseIP("185.49.55.255"), "AT-NESSUS", "Nessus GmbH", NetblockMeta{})
+		b.add(net.ParseIP("185.49.52.26"), net.ParseIP("185.49.52.26"), "KNOX", "", NetblockMeta{})
+		start6, end6, _ := ParseNetRange("2001:db8::/32")
+		b.add(start6, end6, "V6-NET", "Example", NetblockMeta{})
+	})
+	db, err := OpenNetblockDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+
+	got, err := db.Within(netip.MustParsePrefix("185.49.52.0/24"), NetblockSearchOptions{})
+	require.NoError(t, err)
+	var lines []string
+	for _, r := range got {
+		lines = append(lines, r.RangeStart.String()+"-"+r.RangeEnd.String()+" "+r.Netname)
+	}
+	require.Equal(t, []string{
+		"185.49.52.0-185.49.52.25 AT-NESSUS",
+		"185.49.52.26-185.49.52.26 KNOX",
+		"185.49.52.27-185.49.52.255 AT-NESSUS",
+	}, lines)
+
+	// Clipped to a prefix inside one range.
+	got, err = db.Within(netip.MustParsePrefix("185.49.54.0/23"), NetblockSearchOptions{})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, []string{"185.49.54.0/23"}, got[0].CIDRs)
+
+	// Nothing registered there.
+	got, err = db.Within(netip.MustParsePrefix("192.0.2.0/24"), NetblockSearchOptions{})
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	got, err = db.Within(netip.MustParsePrefix("2001:db8:1::/48"), NetblockSearchOptions{})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, []string{"2001:db8:1::/48"}, got[0].CIDRs)
+
+	got, err = db.Within(netip.MustParsePrefix("185.49.52.0/24"), NetblockSearchOptions{Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
 }

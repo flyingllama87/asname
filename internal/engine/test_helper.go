@@ -34,5 +34,6 @@ func NewTestEngine(t *testing.T) *Engine {
 		names:     map[uint32]string{15169: "GOOGLE - Google LLC, US"},
 		countryDB: BuildTestDatabase(t, "8.8.8.0/24", sources.EncodeCC("US")),
 		asnReps:   &sync.Map{},
+		explore:   &exploreIndex{},
 	}
 }
