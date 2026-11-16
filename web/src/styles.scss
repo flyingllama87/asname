@@ -1357,3 +1357,13 @@ a.header-api {
     padding: 0 $spacing-03;
   }
 }
+
+.card-cdn {
+  @include type.type-style('label-01');
+  color: $text-secondary;
+  margin-top: $spacing-02;
+
+  cds-tag {
+    margin: 0 $spacing-02 0 0;
+  }
+}

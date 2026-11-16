@@ -240,6 +240,18 @@ func (e *Engine) HasCategoryDB() bool   { return e.categoryDB != nil }
 func (e *Engine) HasReputationDB() bool { return e.reputationDB != nil }
 func (e *Engine) HasPrefixDB() bool     { return e.prefixDB != nil }
 
+// hasIPv6Routes reports whether the ASN database holds any IPv6 routes, by
+// looking up addresses in prefixes that are always announced (Google's and
+// Cloudflare's public DNS).
+func (e *Engine) hasIPv6Routes() bool {
+	for _, a := range []string{"2001:4860:4860::8888", "2606:4700:4700::1111"} {
+		if _, err := e.db.Lookup(net.ParseIP(a)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // LookupResult is everything known about a single address or ASN.
 type LookupResult struct {
 	Target  string
@@ -296,6 +308,14 @@ type LookupResult struct {
 	IPv4Prefixes  []string
 	IPv6Prefixes  []string
 	PrefixSource  string
+	// ServedBy is the CDN the looked-up hostname is served through: the
+	// address is then the CDN's edge server nearest the resolver, not the
+	// site's own. Nil for addresses and for hostnames not behind a known CDN.
+	ServedBy *ServedBy
+	// NoIPv6Routes is set for an IPv6 address the ASN database cannot place
+	// because it was built without IPv6 routes: its network is unknown, not
+	// unannounced.
+	NoIPv6Routes bool
 }
 
 func (e *Engine) LookupTarget(t Target) ([]LookupResult, error) {
@@ -323,6 +343,7 @@ func (e *Engine) LookupTargetContext(ctx context.Context, t Target) ([]LookupRes
 		}
 		res.Target = t.Raw
 		res.Host = t.Host
+		res.ServedBy = t.Served
 		results = append(results, res)
 	}
 	return results, nil
@@ -411,6 +432,7 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		}
 	case database.ErrNotFound:
 		res.ASN = "N/A"
+		res.NoIPv6Routes = ip.To4() == nil && !e.hasIPv6Routes()
 	default:
 		return LookupResult{}, fmt.Errorf("lookup failed: %v", err)
 	}

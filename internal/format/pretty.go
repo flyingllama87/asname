@@ -285,10 +285,17 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	if res.RDNS != "" {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Reverse DNS:      "), st.value(res.RDNS)))
 	}
+	if res.ServedBy != nil {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Served by:        "), st.value(servedByText(res))))
+	}
 	b.WriteString("\n")
 
 	b.WriteString(fmt.Sprintf("  %s\n", st.section("Autonomous System:")))
-	b.WriteString(fmt.Sprintf("    %s %s\n", st.label("ASN:              "), st.asn(res.ASN)))
+	asn := res.ASN
+	if res.NoIPv6Routes {
+		asn = "unknown (the ASN database has no IPv6 routes; `asname update --ipv6`)"
+	}
+	b.WriteString(fmt.Sprintf("    %s %s\n", st.label("ASN:              "), st.asn(asn)))
 	if res.Name != "" {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Organization:     "), st.value(res.Name)))
 	}
@@ -598,4 +605,15 @@ func inferredSrc(res engine.LookupResult) string {
 		}
 	}
 	return strings.Join(parts, "; ") + " (inferrules.yaml), offline"
+}
+
+// servedByText says which CDN serves a looked-up hostname and what that
+// means for the address.
+func servedByText(res engine.LookupResult) string {
+	sb := res.ServedBy
+	how := "CNAME " + sb.Name
+	if sb.Via == "dns" {
+		how = "its DNS is hosted by " + sb.CDN + " (" + sb.Name + ")"
+	}
+	return fmt.Sprintf("%s, via %s: this address is %s's edge server nearest the resolver, not %s's own", sb.CDN, how, sb.CDN, res.Host)
 }

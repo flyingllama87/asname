@@ -335,6 +335,7 @@ func (s *Server) lookupSingle(w http.ResponseWriter, r *http.Request, rawTarget 
 			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("dns resolution failed: %v", err))
 			return
 		}
+		t.Served = engine.DetectCDN(ctx, t.Host)
 	}
 
 	results, err := s.engine().WithOnline(online).LookupTargetContext(ctx, t)

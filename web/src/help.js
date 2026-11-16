@@ -279,8 +279,21 @@ export function findings(r, loaded = {}) {
   for (const t of tags.filter((t) => t.startsWith('cloud:'))) {
     add('info', `Hosted at ${cloudName(t.slice(6))}: a server or service run by one of its customers, not a person at home. Report abuse to ${cloudName(t.slice(6))}, who know the customer.`);
   }
-  if (r.asn?.announced === false) {
+  if (r.asn?.no_ipv6_routes) {
+    add('info', 'Network unknown: this server\'s ASN database has no IPv6 routes. Turn on "Import IPv6 routes" on the Databases tab and update the ASN database.');
+  } else if (r.asn?.announced === false) {
     add('info', 'Not announced on the internet: private, reserved or unused space. Traffic that claims to come from it is internal or spoofed.');
+  }
+  if (!r.served_by && r.host && tags.includes('cdn')) {
+    const cdn = tags.find((t) => t.startsWith('cloud:'));
+    const name = cdn ? cloudName(cdn.slice(6)) : r.asn?.organization || 'a CDN';
+    add('medium', `${r.host} resolves to ${name}'s CDN: this address is one of its edge servers, shared by many sites, not ${r.host}'s own. It says nothing about who runs ${r.host}.`);
+  }
+  if (r.served_by) {
+    const sb = r.served_by;
+    const how = sb.via === 'cname' ? `its name is an alias of ${sb.name}` : `its DNS is hosted by ${sb.cdn} (${sb.name}), which answers with its own servers`;
+    const inside = embeddedIn(r);
+    add('medium', `${r.host} is served through ${sb.cdn} (${how}). This address is the ${sb.cdn} edge server nearest the resolver that asked${inside ? `, here inside ${inside}'s network` : ''}: it says nothing about who runs ${r.host}, and another resolver gets another address. To investigate the site, look at the domain's registration and its origin, not this address.`);
   }
 
   // What the registry calls this address's range, from its netname.
@@ -389,16 +402,30 @@ const KIND_PHRASES = {
 
 // whoIs answers "who is behind this address?" from the most specific record
 // there is: the organisation the block is registered to, then the network.
+// embeddedIn names the network a CDN edge server sits in when that is not
+// the CDN's own: a cache inside an ISP. Empty otherwise.
+function embeddedIn(r) {
+  const cdn = (r.served_by?.cdn || '').split(' ')[0].toLowerCase();
+  const holder = blockOwner(r)?.name || r.asn?.organization || '';
+  return holder && !holder.toLowerCase().includes(cdn) ? holder : '';
+}
+
 export function whoIs(r) {
-  const network = r.asn?.organization || r.asn?.name || '';
+  const network = r.asn?.announced === false ? '' : r.asn?.organization || r.asn?.name || '';
   const asn = r.asn?.asn_string || '';
   if (!r.ip) {
     return network ? `${network}${asn ? ` (${asn})` : ''}.` : null;
   }
   const owner = blockOwner(r);
-  if (owner?.distinct) {
+  if (r.served_by) {
+    const inside = embeddedIn(r);
+    const cdn = r.served_by.cdn;
+    return `${/^[AEIOU]/.test(cdn) ? 'An' : 'A'} ${cdn} edge server for ${r.host}${inside ? `, inside ${inside}'s network` : ''}. Not ${r.host}'s own.`;
+  }
+  if (owner?.distinct || (owner && !network)) {
     const what = owner.kinds.map((k) => KIND_PHRASES[k]).filter(Boolean)[0];
-    return `${owner.name}${what ? ` (${what})` : ''}, on ${network || 'the network'}${asn ? ` (${asn})` : ''}.`;
+    const on = network ? `, on ${network}${asn && asn !== 'N/A' ? ` (${asn})` : ''}` : '';
+    return `${owner.name}${what ? ` (${what})` : ''}${on}.`;
   }
   if (!network) return null;
   const range = (r.category?.inferred || []).find((t) => t.from === 'netname')?.tag;
@@ -423,7 +450,11 @@ export function whereIs(r) {
   const movable = tags.includes('tor-exit') || tags.some((t) => t.startsWith('vpn:') || t.startsWith('cloud:'));
   const leased = tags.some((t) => t.startsWith('leased:'));
   const history = nb && rir && nb.code !== r.country?.code ? ` Parent allocation: ${rir}.` : '';
-  const caveat = movable ? ' VPN, Tor or cloud: the user can be anywhere.' : '';
+  const caveat = r.served_by
+    ? ` That is where the ${r.served_by.cdn} edge server is, not ${r.host}.`
+    : movable
+      ? ' VPN, Tor or cloud: the user can be anywhere.'
+      : '';
   const country = (place) => place.split(',').pop().trim();
   const short = (who) => (who || 'DB-IP').replace(/^MaxMind /, '');
 

@@ -27,6 +27,9 @@ type Target struct {
 	IPs  []net.IP
 	ASN  uint32
 	Err  error
+	// Served is the CDN a hostname is served through, when its DNS gives
+	// one away; see DetectCDN.
+	Served *ServedBy
 }
 
 func ParseTargets(arg string) ([]Target, error) {
@@ -164,6 +167,9 @@ func ResolveTargets(ctx context.Context, targets []Target) {
 			defer cancel()
 
 			t.IPs, t.Err = LookupHostIPs(lookupCtx, t.Host)
+			if t.Err == nil {
+				t.Served = DetectCDN(lookupCtx, t.Host)
+			}
 		}(&targets[i])
 	}
 	wg.Wait()

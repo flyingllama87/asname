@@ -793,7 +793,7 @@ function resultCard(r, i) {
   // ASN and organisation
   const asnBody = r.asn
     ? r.asn.announced === false
-      ? unknown('Not announced')
+      ? unknown(r.asn.no_ipv6_routes ? 'Unknown: no IPv6 routes in this server\'s ASN database' : 'Not announced')
       : html`${asnLink(r.asn.asn_string || `AS${r.asn.number}`)} ${r.asn.name || ''}
         ${r.asn.name_source === 'rdap' ? html`<span class="meta">live RDAP: not in the offline AS names list</span>` : nothing}`
     : nothing;
@@ -958,7 +958,8 @@ function resultCard(r, i) {
         </section>`}
     <section class="who">
       <div class="who-label">${isASN ? 'Network' : owner?.distinct ? 'Carried by' : 'Network'} ${tip('ASN', FIELD_HELP.asn)}</div>
-      <div class="who-name">${asn?.announced === false ? unknown('Not announced') : asn?.organization || asn?.name || unknown()}</div>
+      <div class="who-name">${asn?.announced === false ? unknown(asn.no_ipv6_routes ? 'Unknown' : 'Not announced') : asn?.organization || asn?.name || unknown()}</div>
+      ${asn?.no_ipv6_routes ? html`<div class="meta">This server's ASN database has no IPv6 routes</div>` : nothing}
       ${asnLine !== nothing ? html`<div class="meta">${asnLine}</div>` : nothing}
       ${asn?.name_source === 'rdap' ? html`<div class="meta">name from live RDAP: not in the offline AS names list</div>` : nothing}
       ${opTags.length || networkInferred.length
@@ -979,6 +980,9 @@ function resultCard(r, i) {
         <div>
           <div class="card-title">${title}</div>
           ${sub ? html`<div class="card-sub">${sub}</div>` : nothing}
+          ${r.served_by
+            ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">Served by ${r.served_by.cdn}</cds-tag> this is a CDN edge server, not ${r.host}'s own address</div>`
+            : nothing}
         </div>
         <div class="card-actions">
           <cds-button kind="ghost" size="sm" @click=${() => copySummary(r)}>Copy summary</cds-button>

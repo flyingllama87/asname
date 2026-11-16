@@ -101,6 +101,8 @@ func processStreamTarget(ctx context.Context, t engine.Target, eng *engine.Engin
 		t.IPs, err = engine.LookupHostIPsWithRetry(ctx, t.Host)
 		if err != nil {
 			t.Err = err
+		} else {
+			t.Served = engine.DetectCDN(ctx, t.Host)
 		}
 	}
 	t = t.OnlyFamily(opts.V4Only, opts.V6Only)

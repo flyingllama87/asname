@@ -12,13 +12,16 @@ import (
 )
 
 type JSONLookupResult struct {
-	Target  string       `json:"target,omitempty"`
-	Host    *string      `json:"host"`
-	IP      string       `json:"ip,omitempty"`
-	Version int          `json:"version,omitempty"`
-	ASN     *JSONASN     `json:"asn,omitempty"`
-	Country *JSONCountry `json:"country,omitempty"`
-	City    *JSONCity    `json:"city,omitempty"`
+	Target  string   `json:"target,omitempty"`
+	Host    *string  `json:"host"`
+	IP      string   `json:"ip,omitempty"`
+	Version int      `json:"version,omitempty"`
+	ASN     *JSONASN `json:"asn,omitempty"`
+	// ServedBy is the CDN the hostname is served through: the address is
+	// then that CDN's edge server nearest the resolver, not the site's own.
+	ServedBy *JSONServedBy `json:"served_by,omitempty"`
+	Country  *JSONCountry  `json:"country,omitempty"`
+	City     *JSONCity     `json:"city,omitempty"`
 	// CityMaxMind is MaxMind's estimate, beside City's, when asname has
 	// MaxMind's city database too.
 	CityMaxMind *JSONCity       `json:"city_maxmind,omitempty"`
@@ -54,6 +57,16 @@ type JSONASN struct {
 	// the offline AS names list lacks the ASN.
 	NameSource string `json:"name_source,omitempty"`
 	Announced  bool   `json:"announced"`
+	// NoIPv6Routes says the ASN database has no IPv6 routes, so an IPv6
+	// address's network is unknown rather than unannounced.
+	NoIPv6Routes bool `json:"no_ipv6_routes,omitempty"`
+}
+
+// JSONServedBy is the CDN a looked-up hostname is served through.
+type JSONServedBy struct {
+	CDN  string `json:"cdn"`
+	Via  string `json:"via"`
+	Name string `json:"name"`
 }
 
 type JSONCountry struct {
@@ -232,6 +245,9 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		out.Version = 6
 	}
 
+	if res.ServedBy != nil {
+		out.ServedBy = &JSONServedBy{CDN: res.ServedBy.CDN, Via: res.ServedBy.Via, Name: res.ServedBy.Name}
+	}
 	if res.ASN != "" && res.ASN != "N/A" {
 		numStr := strings.TrimPrefix(res.ASN, "AS")
 		num, _ := strconv.ParseUint(numStr, 10, 32)
@@ -245,10 +261,11 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		out.ASN.Handle, out.ASN.Organization = asnNameParts(res.Name)
 	} else if res.ASN == "N/A" {
 		out.ASN = &JSONASN{
-			Number:    0,
-			ASNString: "N/A",
-			Name:      "Unknown",
-			Announced: false,
+			Number:       0,
+			ASNString:    "N/A",
+			Name:         "Unknown",
+			Announced:    false,
+			NoIPv6Routes: res.NoIPv6Routes,
 		}
 	}
 

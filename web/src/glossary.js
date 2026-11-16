@@ -130,6 +130,21 @@ export const GLOSSARY = [
         links: [wiki('Anycast')],
       },
       {
+        term: 'CDN',
+        aka: 'content delivery network, edge server',
+        body: 'A network of servers around the world that serve a site\'s content from the one nearest each user: Akamai, Cloudflare, CloudFront, Fastly and others.',
+        practice: [
+          'Looking up a hostname behind a CDN tells you about the CDN\'s edge server, not the site: the address depends on who asks, and another resolver gets another one. asname flags it as "Served by".',
+          'Big CDNs put caches inside ISPs, so a CDN-fronted site can resolve to an address registered to your own ISP (an Akamai cache inside Vodafone, say).',
+          'Traffic from CDN addresses to you is the CDN fetching from your origin or relaying a client: the real client is in X-Forwarded-For or a similar header. Blocking a CDN address blocks every site behind it.',
+        ],
+        detail: [
+          'Sites join a CDN by a CNAME to the CDN\'s name (www.nsa.gov → nsa.gov.edgekey.net, Akamai) or by moving their DNS to it (nsa.gov\'s name servers are Akamai\'s akam.net). The CDN\'s DNS then answers with the edge nearest the resolver.',
+          'To find the site\'s operator, use the domain\'s registration (whois or RDAP for the domain), its certificate, or its mail and name-server records, not the address.',
+        ],
+        links: [wiki('Content_delivery_network'), ['Akamai: edge platform', 'https://www.akamai.com/why-akamai/global-infrastructure']],
+      },
+      {
         term: 'CGNAT',
         aka: 'carrier-grade NAT',
         body: 'An ISP sharing one public IPv4 address among many subscribers at once, often hundreds, because IPv4 has run out. Standard on mobile networks and increasingly on cheap broadband.',
