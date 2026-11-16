@@ -44,7 +44,9 @@ func retryable(status int) bool {
 // with backoff. It returns the first response that is not retryable, or the
 // last response once the attempts run out, for the caller to judge; a
 // transport error is returned at once, since fetchCached already resumes an
-// interrupted download on the next run. Waiting honours ctx.
+// interrupted download on the next run. Waiting honours ctx. Each attempt is
+// abandoned once it receives nothing for idleTimeout (see stall.go); the
+// caller must close the returned body.
 func doWithRetry(ctx context.Context, url string, newReq func() (*http.Request, error)) (*http.Response, error) {
 	delay := retryBaseDelay
 	for attempt := 1; ; attempt++ {
@@ -52,10 +54,18 @@ func doWithRetry(ctx context.Context, url string, newReq func() (*http.Request, 
 		if err != nil {
 			return nil, err
 		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil || !retryable(resp.StatusCode) || attempt == retryAttempts {
-			return resp, err
+		actx, guard := newStallGuard(req.Context())
+		resp, err := http.DefaultClient.Do(req.WithContext(actx))
+		if err != nil {
+			guard.stop()
+			return nil, guard.wrap(err)
 		}
+		if !retryable(resp.StatusCode) || attempt == retryAttempts {
+			guard.touch()
+			resp.Body = &guardedBody{ReadCloser: resp.Body, g: guard}
+			return resp, nil
+		}
+		guard.stop()
 
 		wait := delay
 		if ra, ok := retryAfter(resp.Header.Get("Retry-After")); ok {

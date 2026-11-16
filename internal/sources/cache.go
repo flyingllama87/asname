@@ -141,7 +141,7 @@ func fetchCached(ctx context.Context, dir, url, userAgent string) (string, error
 	n, copyErr := io.Copy(f, resp.Body)
 	closeErr := f.Close()
 	if copyErr != nil {
-		return "", fmt.Errorf("downloading %s: %v (%d bytes kept for the next attempt)", redactURL(url), copyErr, have+n)
+		return "", fmt.Errorf("downloading %s: %w (%d bytes kept for the next attempt)", redactURL(url), copyErr, have+n)
 	}
 	if closeErr != nil {
 		return "", closeErr
