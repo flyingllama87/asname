@@ -454,6 +454,11 @@ type JSONDBInfo struct {
 	// is set when it failed outright and the previous file was kept.
 	Missing   []string `json:"missing,omitempty"`
 	LastError string   `json:"last_error,omitempty"`
+	// Sources lists every public source the database is built from, with
+	// how each fared in the last update when recorded. VPNLists, for the
+	// category database, says which list each vpn:<provider> tag came from.
+	Sources  []sources.SourceStatus  `json:"sources,omitempty"`
+	VPNLists []sources.VPNListStatus `json:"vpn_lists,omitempty"`
 }
 
 // FormatJSONVersion renders the version and database status as one JSON line.
@@ -469,7 +474,8 @@ func FormatJSONVersion(version, dir string, maxAge time.Duration, ipv6 bool, dbs
 func NewJSONVersion(version, dir string, maxAge time.Duration, ipv6 bool, dbs []sources.DBStatus, now time.Time) JSONVersion {
 	out := JSONVersion{Version: version, Dir: dir, MaxAgeHours: maxAge.Hours(), IPv6Routes: ipv6, Databases: make([]JSONDBInfo, len(dbs))}
 	for i, db := range dbs {
-		info := JSONDBInfo{Name: db.Name, Key: db.UpdateKey, Path: db.Path, Optional: db.Optional, Present: db.Present, Missing: db.Missing, LastError: db.LastError}
+		info := JSONDBInfo{Name: db.Name, Key: db.UpdateKey, Path: db.Path, Optional: db.Optional, Present: db.Present, Missing: db.Missing, LastError: db.LastError,
+			Sources: db.Sources, VPNLists: db.VPNLists}
 		if db.Present {
 			updated, age := db.Updated, now.Sub(db.Updated)
 			info.Size, info.Updated, info.AgeSeconds = db.Size, &updated, int64(age/time.Second)

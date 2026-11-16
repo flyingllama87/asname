@@ -26,6 +26,12 @@ type DBStatus struct {
 	// UpdateKey is the update step that rebuilds this database, one of
 	// UpdateKeys; the ASN prefixes are rebuilt with the ASN database.
 	UpdateKey string
+	// Sources lists every public source this database can be built from,
+	// with how each fared in the last update when that was recorded.
+	Sources []SourceStatus
+	// VPNLists, for the category database, says which list each
+	// vpn:<provider> tag came from and when it was current.
+	VPNLists []VPNListStatus
 }
 
 // DatabaseStatus reports on each data file cfg names, core databases first.
@@ -52,6 +58,9 @@ func DatabaseStatus(cfg Config) []DBStatus {
 		if o, ok := rec[key]; ok && key != "" {
 			out[i].Missing, out[i].LastError = o.Failed, o.Error
 		}
+		if key != "" {
+			out[i].Sources = sourceStatuses(key, rec[key])
+		}
 	}
 	for i := range out {
 		s := &out[i]
@@ -60,6 +69,9 @@ func DatabaseStatus(cfg Config) []DBStatus {
 			continue
 		}
 		s.Present, s.Size, s.Updated = true, info.Size(), info.ModTime()
+	}
+	if cat := &out[6]; cat.Present {
+		cat.VPNLists = categoryVPNLists(cat.Path, cat.Updated)
 	}
 	if city := &out[4]; city.Present {
 		if db, err := LoadCityDB(city.Path); err == nil {

@@ -43,6 +43,8 @@ import '@carbon/web-components/es/components/data-table/table-cell.js';
 import '@carbon/web-components/es/components/radio-button/radio-button-group.js';
 import '@carbon/web-components/es/components/radio-button/radio-button.js';
 import '@carbon/web-components/es/components/toggle-tip/toggletip.js';
+import '@carbon/web-components/es/components/accordion/accordion.js';
+import '@carbon/web-components/es/components/accordion/accordion-item.js';
 
 import { iconLoader } from '@carbon/web-components/es/globals/internal/icon-loader.js';
 import Asleep20 from '@carbon/icons/es/asleep/20.js';
@@ -62,6 +64,7 @@ import {
   reputationTagHelp,
   summaryText,
   whereIs,
+  SOURCES_HELP,
 } from './help.js';
 
 const THEME_KEY = 'asname.theme';
@@ -134,7 +137,7 @@ const state = {
     ranFuzzy: false,
     sort: { asns: null, blocks: null },
   },
-  db: { selected: new Set(), busy: false, error: '', notice: '', saving: '', settingsError: '' },
+  db: { selected: new Set(), busy: false, error: '', notice: '', saving: '', settingsError: '', openSources: new Set() },
   settings: { open: false, base: getApiBase(), testing: false, result: null },
 };
 
@@ -383,7 +386,10 @@ function fmtAge(seconds) {
   if (m < 60) return `${m} min ago`;
   const h = Math.round(m / 60);
   if (h < 48) return `${h} h ago`;
-  return `${Math.round(h / 24)} days ago`;
+  const d = Math.round(h / 24);
+  if (d < 60) return `${d} days ago`;
+  if (d < 730) return `${Math.round(d / 30.4)} months ago`;
+  return `${Math.round(d / 365.25)} years ago`;
 }
 
 function fmtDate(iso) {
@@ -1183,6 +1189,11 @@ function databasesView() {
                 ${db.built ? html`<div class="hint">Data built ${fmtDate(db.built)}</div>` : nothing}
                 ${db.missing?.length ? html`<div>Missing: ${db.missing.join(', ')}</div>` : nothing}
                 ${db.last_error ? html`<div>${db.last_error}</div>` : nothing}
+                ${first && db.sources?.length
+                  ? html`<button class="link-button" @click=${() => showSources(db.key)}>
+                      ${db.sources.length} source${db.sources.length === 1 ? '' : 's'}${db.vpn_lists?.length ? `, ${db.vpn_lists.length} VPN lists` : ''}
+                    </button>`
+                  : nothing}
               </cds-table-cell>
             </cds-table-row>`;
           })}
@@ -1210,8 +1221,152 @@ function databasesView() {
       ${job.started ? jobView(job) : nothing}
     </section>
 
+    ${sourcesView(dbs)}
+
     ${settingsPanel(st)}
   `;
+}
+
+// showSources opens a database's entry under Data sources and scrolls to it.
+function showSources(key) {
+  state.db.openSources.add(key);
+  update();
+  requestAnimationFrame(() => document.getElementById(`sources-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+}
+
+// sourcesView lists every public source each database is built from, how
+// each fared in the last update, and the VPN server lists in the category
+// database.
+function sourcesView(dbs) {
+  const groups = [];
+  for (const db of dbs) {
+    if (!db.key) continue;
+    let g = groups.find((x) => x.key === db.key);
+    if (!g) groups.push((g = { key: db.key, names: [], present: false, sources: [], vpnLists: [] }));
+    g.names.push(db.name);
+    g.present ||= db.present;
+    if (db.sources?.length && !g.sources.length) g.sources = db.sources;
+    if (db.vpn_lists?.length) g.vpnLists = db.vpn_lists;
+  }
+  if (!groups.some((g) => g.sources.length)) return nothing;
+  const open = state.db.openSources;
+  const toggled = (key) => (e) => {
+    if (e.target.open) open.add(key);
+    else open.delete(key);
+  };
+  return html`<section class="sources-panel">
+    <h3>Data sources ${tip('Data sources', SOURCES_HELP.section)}</h3>
+    <p class="hint">Every public source each database is built from, and how it fared in the last update.</p>
+    <cds-accordion>
+      ${groups.map((g) => {
+        const failed = g.sources.filter((s) => s.failed).length;
+        const title = `${g.names.join(' and ')}: ${g.sources.length} source${g.sources.length === 1 ? '' : 's'}${
+          g.vpnLists.length ? `, ${g.vpnLists.length} VPN lists` : ''}${failed ? `, ${failed} failed` : ''}`;
+        return html`<cds-accordion-item id="sources-${g.key}" title=${title} ?open=${open.has(g.key)}
+            @cds-accordion-item-toggled=${toggled(g.key)}>
+          ${sourceTable(g)}
+          ${g.vpnLists.length ? vpnListTable(g.vpnLists) : nothing}
+        </cds-accordion-item>`;
+      })}
+    </cds-accordion>
+  </section>`;
+}
+
+function sourceTable(g) {
+  // Per-source results are recorded from asname 0.17 on; before that only
+  // failures were.
+  const recorded = g.sources.some((s) => s.recorded && !s.failed);
+  return html`
+    ${g.present && !recorded
+      ? html`<p class="hint">This database was last updated before asname recorded each source's result; the next update will
+          show them. Failures are shown already.</p>`
+      : nothing}
+    <div class="table-wrap">
+      <cds-table size="sm">
+        <cds-table-head>
+          <cds-table-header-row>
+            <cds-table-header-cell>Source</cds-table-header-cell>
+            <cds-table-header-cell>What it provides</cds-table-header-cell>
+            <cds-table-header-cell>Last update ${tip('Last update', SOURCES_HELP.result)}</cds-table-header-cell>
+          </cds-table-header-row>
+        </cds-table-head>
+        <cds-table-body>
+          ${g.sources.map(
+            (s) => html`<cds-table-row>
+              <cds-table-cell class=${s.group ? 'source-name sub' : 'source-name'}>
+                ${s.url ? html`<a href=${s.url} target="_blank" rel="noopener noreferrer">${s.name}</a>` : s.name}
+              </cds-table-cell>
+              <cds-table-cell class="wrap">
+                ${s.provides || ''}
+                ${s.condition ? html`<div class="hint">Used ${s.condition}.</div>` : nothing}
+              </cds-table-cell>
+              <cds-table-cell class="wrap">${sourceResult(s, g.present, recorded)}</cds-table-cell>
+            </cds-table-row>`,
+          )}
+        </cds-table-body>
+      </cds-table>
+    </div>`;
+}
+
+function sourceResult(s, present, recorded) {
+  if (s.failed) {
+    return html`<cds-tag size="sm" type="red">Failed</cds-tag>
+      <div class="hint">${s.group === 'VPN providers' ? "Built from gluetun's copy instead." : 'Built without it; Retry incomplete tries again.'}</div>`;
+  }
+  if (s.recorded) {
+    const unused = s.note && /^(not needed|unavailable)/.test(s.note);
+    return html`<cds-tag size="sm" type=${unused ? 'gray' : 'green'}>${unused ? 'Not used' : 'Used'}</cds-tag>
+      ${s.entries ? html`<span class="hint">${s.entries.toLocaleString()} entries</span>` : nothing}
+      ${s.note ? html`<div class="hint">${s.note}</div>` : nothing}`;
+  }
+  if (!present) return html`<span class="hint">Not built</span>`;
+  if (!recorded) return html`<span class="hint">Not recorded</span>`;
+  return html`<cds-tag size="sm" type="gray">Not used</cds-tag>`;
+}
+
+// A VPN list older than this is flagged: its servers may have moved since.
+const VPN_LIST_OLD_DAYS = 180;
+
+function vpnListDate(date) {
+  if (!date) return html`<span class="hint">not stated</span>`;
+  const age = (Date.now() - Date.parse(date)) / 1000;
+  return html`${fmtAge(age)}
+    ${age > VPN_LIST_OLD_DAYS * 86400 ? html`<cds-tag size="sm" type="warm-gray">old</cds-tag>` : nothing}
+    <div class="hint">${fmtDate(date)}</div>`;
+}
+
+function vpnListTable(lists) {
+  const own = lists.filter((l) => !l.source.startsWith('gluetun')).length;
+  return html`<h4 class="vpn-lists-heading">
+      VPN server lists in this database ${tip('VPN server lists', SOURCES_HELP.vpnLists)}
+    </h4>
+    <p class="hint">
+      ${lists.length} providers: ${own} from the provider's own list, ${lists.length - own} from gluetun's copy.
+      ${(() => {
+        const old = lists.filter((l) => l.date && Date.now() - Date.parse(l.date) > VPN_LIST_OLD_DAYS * 86400000).length;
+        return old ? `${old} ${old === 1 ? 'is' : 'are'} more than six months old: treat a match on ${old === 1 ? 'it' : 'them'} as weaker evidence.` : '';
+      })()}
+    </p>
+    <div class="table-wrap">
+      <cds-table size="sm">
+        <cds-table-head>
+          <cds-table-header-row>
+            <cds-table-header-cell>Tag</cds-table-header-cell>
+            <cds-table-header-cell>List</cds-table-header-cell>
+            <cds-table-header-cell>Current as of</cds-table-header-cell>
+          </cds-table-header-row>
+        </cds-table-head>
+        <cds-table-body>
+          ${lists.map(
+            (l) => html`<cds-table-row>
+              <cds-table-cell class="mono">${l.tag}</cds-table-cell>
+              <cds-table-cell>${l.source}</cds-table-cell>
+              <cds-table-cell class="nowrap">${vpnListDate(l.date)}</cds-table-cell>
+            </cds-table-row>`,
+          )}
+        </cds-table-body>
+      </cds-table>
+    </div>`;
 }
 
 function jobView(job) {

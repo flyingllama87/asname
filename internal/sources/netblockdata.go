@@ -136,6 +136,7 @@ func UpdateNetblockDB(ctx context.Context, cfg Config) (err error) {
 			continue
 		}
 		logf(ctx, "asname: %s: %d ranges\n", src.name, n)
+		noteSource(ctx, src.name, n, "")
 		imported += n
 	}
 	if delegated {

@@ -54,9 +54,11 @@ func UpdateCountryDB(ctx context.Context, cfg Config) (err error) {
 			}
 			logf(ctx, "asname: %s: %v\n", url, err)
 			failed = append(failed, fmt.Sprintf("%s: %v", url, err))
+			noteFailed(ctx, delegatedSourceName(url))
 			continue
 		}
 		logf(ctx, "asname: %s: %d ranges\n", url, n)
+		noteSource(ctx, delegatedSourceName(url), n, "")
 		total += n
 	}
 	if len(failed) > 0 {
@@ -174,4 +176,17 @@ func rangeToCIDRs(start uint32, count uint64) []*net.IPNet {
 		s += uint64(1) << size
 	}
 	return nets
+}
+
+// delegatedSourceName names a registry's delegation file in the update
+// record and the source catalog.
+func delegatedSourceName(url string) string {
+	for _, r := range []struct{ part, name string }{
+		{"arin", "ARIN"}, {"ripencc", "RIPE NCC"}, {"apnic", "APNIC"}, {"lacnic", "LACNIC"}, {"afrinic", "AFRINIC"},
+	} {
+		if strings.Contains(url, r.part) {
+			return r.name + " delegation stats"
+		}
+	}
+	return url
 }

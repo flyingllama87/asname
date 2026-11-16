@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -212,16 +213,30 @@ func UpdateDatabase(ctx context.Context, cfg Config, ribURL string) (err error) 
 		if err != nil {
 			logf(ctx, "asname: %s: %v\n", src.name, err)
 			failures = append(failures, fmt.Sprintf("%s: %v", src.name, err))
+			noteUnused(ctx, src.name, "unavailable, tried the next archive")
 			continue
 		}
 		if err := buildFromRIB(ctx, cfg, cache, urls...); err != nil {
 			logf(ctx, "asname: %s: %v\n", src.name, err)
 			failures = append(failures, fmt.Sprintf("%s: %v", src.name, err))
+			noteUnused(ctx, src.name, "unavailable, tried the next archive")
 			continue
+		}
+		noteSource(ctx, src.name, 0, ribFileNote(urls[0]))
+		if len(urls) > 1 && src.ipv6 != nil {
+			noteSource(ctx, src.ipv6.name, 0, ribFileNote(urls[1]))
+		}
+		for _, rest := range ribSources[i+1:] {
+			noteUnused(ctx, rest.name, "not needed: an earlier archive worked")
 		}
 		return nil
 	}
 	return fmt.Errorf("every RIB archive failed: %s", strings.Join(failures, "; "))
+}
+
+// ribFileNote names the dump a database was built from.
+func ribFileNote(url string) string {
+	return "dump " + path.Base(url)
 }
 
 func parenthesise(s string) string {
@@ -352,6 +367,7 @@ func UpdateNames(ctx context.Context, cfg Config) (err error) {
 		return err
 	}
 	logf(ctx, "asname: wrote %s (%d AS names)\n", cfg.NamesPath, count)
+	noteSource(ctx, "RIPE NCC AS names", count, "")
 	return nil
 }
 
@@ -385,6 +401,7 @@ func UpdateCityDB(ctx context.Context, cfg Config) (err error) {
 			return err
 		}
 		logf(ctx, "asname: wrote %s (%d bytes)\n", cfg.CityPath, n)
+		noteSource(ctx, "DB-IP City Lite", 0, "edition "+month.Format("2006-01"))
 		return nil
 	}
 	return fmt.Errorf("no city database found on db-ip.com: %v", lastErr)

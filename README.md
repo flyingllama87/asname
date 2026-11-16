@@ -1012,7 +1012,13 @@ It has three tabs:
   buttons to update the ones you choose, refresh everything, refresh only what
   is stale, or retry what the last update left out, with the update's log as it
   runs; and the refresh age and IPv6 routes settings. Without `--allow-updates`
-  it shows the status only.
+  it shows the status only. **Data sources** lists every public source each
+  database is built from (cloud ranges, Tor exits, each VPN provider's list,
+  PeeringDB, bgp.tools, the blocklists, the registries' dumps...), with a link,
+  what it provides, and whether the last update used it, how many entries it
+  gave, or failed. For the category database it also lists the VPN server list
+  behind every `vpn:<provider>` tag and how old that list is, flagging any over
+  six months old.
 
 A banner on every tab says when a database is missing, older than the refresh
 age, or left incomplete by its last update, or when an update is running.
@@ -1097,7 +1103,7 @@ A netblock update that cannot read a whole registry keeps the existing database 
 
 `asname update --incremental` (or `-i`) rebuilds only the databases whose last update failed or left a source out, plus any missing core database. Every source that did download, from the registry dumps to each cloud provider's ranges, VPN server list, bgp.tools tag and blocklist, is reused from the cache for 24 hours, and an interrupted download resumes where it stopped. A retry within that window therefore contacts only the providers that failed. After 24 hours the retry downloads that database's sources again in full. Combine it with the `--*-only` flags to limit the retry to those databases. When nothing is incomplete it says so and downloads nothing.
 
-`asname version` shows when each database was last updated, its size, and whether it is due for a refresh. The update time is when `asname` last wrote the file, which is also what `--max-age` is measured against; the city database also records when DB-IP built its data. A database whose last update could not read one of its sources says so on the next line, for example `incomplete: missing PeeringDB`, followed by a reminder to run `asname update --incremental`. Add `-j` for JSON, where the same appears as `missing` and `last_error`.
+`asname version` shows when each database was last updated, its size, and whether it is due for a refresh. The update time is when `asname` last wrote the file, which is also what `--max-age` is measured against; the city database also records when DB-IP built its data. A database whose last update could not read one of its sources says so on the next line, for example `incomplete: missing PeeringDB`, followed by a reminder to run `asname update --incremental`. Add `-j` for JSON, where the same appears as `missing` and `last_error`, along with `sources` (every public source the database is built from, its URL, what it provides and how it fared in the last update: `recorded`, `entries`, `failed`, `note`) and, for the category database, `vpn_lists` (the list behind each `vpn:<provider>` tag and its date). Updates record each source's result from 0.17 on; for a database last updated before that, only failures are known. `GET /v1/status` returns the same under `store.databases`.
 
 ```bash
 $ asname version
@@ -1166,7 +1172,7 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/ipv6-routes`: Present when `asname update --ipv6`, or the web UI, opted into IPv6 routes; see [IPv6 routes](#ipv6-routes).
 - `~/.asname/settings.json`: The refresh age chosen in the web UI, if one was; see [Refresh age](#refresh-age).
 - `~/.asname/contact.json`: The contact address sent to bgp.tools, or a note that you declined. Delete it to be asked again.
-- `~/.asname/update-record.json`: When each database was last updated and which of its sources could not be read; see [Incremental updates](#incremental-updates).
+- `~/.asname/update-record.json`: When each database was last updated, how each of its sources fared, and which could not be read; see [Incremental updates](#incremental-updates).
 - `~/.asname/cache/`: The source files downloaded to build the databases above (BGP RIB dump, RIR delegation and whois dumps, cloud provider ranges, VPN server lists, bgp.tools tags, PeeringDB, blocklists and so on). Entries are reused for 24 hours and deleted once older than that, so an update that fails partway through does not download the same files again on the next attempt. An interrupted download is resumed where it stopped rather than restarted. A download that receives nothing for 60 seconds is abandoned as interrupted, so a connection that stops forwarding data cannot hang an update. A source that downloads but will not parse is dropped from the cache so the next update fetches it again. Because the cache applies to every update, two updates less than 24 hours apart build from the same data; delete the directory to force fresh downloads. The directory is safe to delete at any time.
 
 You can override this directory by setting the `ASNAME_DIR` environment variable or using the `--dir` flag. You can also override the path to individual databases using the `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_PREFIXES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, `ASNAME_CATEGORY` and `ASNAME_REPUTATION` environment variables or their respective flags.

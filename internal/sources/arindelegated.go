@@ -189,5 +189,6 @@ func importARINDelegatedInto(ctx context.Context, b *netblockBuilder, cfg Config
 		return 0
 	}
 	logf(ctx, "asname: ARIN (delegated statistics): %d ranges\n", n)
+	noteSource(ctx, "ARIN (delegated statistics)", n, "")
 	return n
 }

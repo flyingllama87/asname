@@ -99,6 +99,7 @@ func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) (e
 			continue
 		}
 		logf(ctx, "asname: %s: %d entries\n", src.name, n)
+		noteSource(ctx, src.name, n, "")
 		imported += n
 	}
 	if imported == 0 {

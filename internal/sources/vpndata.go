@@ -71,7 +71,9 @@ func (b *categoryBuilder) ImportVPNServers(apis []vpnAPI, gluetunURL string) (in
 			noteFailed(b.ctx, api.source)
 			continue
 		}
-		total += b.addVPNServers(api.provider, VPNList{Source: api.source, Date: now}, addrs)
+		added := b.addVPNServers(api.provider, VPNList{Source: api.source, Date: now}, addrs)
+		noteSource(b.ctx, api.source, added, "")
+		total += added
 		direct[api.provider] = true
 	}
 
@@ -82,6 +84,9 @@ func (b *categoryBuilder) ImportVPNServers(apis []vpnAPI, gluetunURL string) (in
 		}
 		logf(b.ctx, "asname: warning: gluetun server lists: %v\n", err)
 		noteFailed(b.ctx, "gluetun server lists")
+	}
+	if err == nil {
+		noteSource(b.ctx, "gluetun server lists", n, "")
 	}
 	total += n
 	if total == 0 {

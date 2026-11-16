@@ -556,3 +556,59 @@ details.tips {
     margin-top: $spacing-03;
   }
 }
+
+// Data sources, on the Databases tab.
+.sources-panel {
+  margin-top: $spacing-07;
+
+  h3 {
+    @include type.type-style('heading-03');
+    display: flex;
+    align-items: center;
+    gap: $spacing-02;
+    margin-bottom: $spacing-02;
+  }
+
+  > .hint {
+    margin-bottom: $spacing-05;
+  }
+
+  // Carbon keeps accordion text to 75% width; these are tables.
+  cds-accordion-item::part(content) {
+    padding-inline-end: $spacing-05;
+  }
+
+  cds-accordion-item p.hint {
+    margin-bottom: $spacing-03;
+  }
+
+  .source-name a {
+    color: $link-primary;
+  }
+
+  .source-name.sub {
+    padding-left: $spacing-07;
+  }
+
+  .vpn-lists-heading {
+    @include type.type-style('heading-02');
+    display: flex;
+    align-items: center;
+    gap: $spacing-02;
+    margin: $spacing-06 0 $spacing-02;
+  }
+}
+
+.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-top: $spacing-02;
+  color: $link-primary;
+  cursor: pointer;
+  @include type.type-style('helper-text-01');
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

@@ -35,6 +35,23 @@ type UpdateOutcome struct {
 	// Failed names the sources that could not be read. The database was
 	// still written, without them (or, for VPN providers, from a fallback copy).
 	Failed []string `json:"failed,omitempty"`
+	// Sources lists every source the update read or tried, in order.
+	// Records written before asname 0.17 have none.
+	Sources []SourceOutcome `json:"sources,omitempty"`
+}
+
+// SourceOutcome is how one source fared in the last update of a database.
+type SourceOutcome struct {
+	Name string `json:"name"`
+	// Entries is how many ranges, names or list entries it gave; 0 when
+	// the builder does not count them.
+	Entries int `json:"entries,omitempty"`
+	// Failed means it could not be read and the database was built
+	// without it (or, for a VPN provider, from gluetun's copy).
+	Failed bool `json:"failed,omitempty"`
+	// Note says anything else worth knowing, e.g. that an archive was
+	// skipped because an earlier one worked.
+	Note string `json:"note,omitempty"`
 }
 
 // Incomplete reports whether the last update left anything out.
@@ -88,8 +105,50 @@ func saveUpdateRecord(path, key string, st UpdateOutcome) error {
 type failKey struct{}
 
 type failures struct {
-	mu    sync.Mutex
-	names []string
+	mu      sync.Mutex
+	names   []string
+	sources []SourceOutcome
+}
+
+// source returns the entry for name, adding it if need be. f.mu is held.
+func (f *failures) source(name string) *SourceOutcome {
+	for i := range f.sources {
+		if f.sources[i].Name == name {
+			return &f.sources[i]
+		}
+	}
+	f.sources = append(f.sources, SourceOutcome{Name: name})
+	return &f.sources[len(f.sources)-1]
+}
+
+// noteSource records that source was read during the update running under
+// ctx, giving entries (0 if not counted) and an optional note. Outside an
+// update it does nothing.
+func noteSource(ctx context.Context, source string, entries int, note string) {
+	f, ok := ctx.Value(failKey{}).(*failures)
+	if !ok {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s := f.source(source)
+	s.Entries += entries
+	if note != "" {
+		s.Note = note
+	}
+}
+
+// noteUnused records a source that was not needed or not read, without
+// making the update incomplete: a RIB archive skipped because another
+// worked, or one that failed before a later one succeeded.
+func noteUnused(ctx context.Context, source, note string) {
+	f, ok := ctx.Value(failKey{}).(*failures)
+	if !ok {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.source(source).Note = note
 }
 
 // noteFailed records that source could not be read during the update running
@@ -101,6 +160,7 @@ func noteFailed(ctx context.Context, source string) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.source(source).Failed = true
 	for _, n := range f.names {
 		if n == source {
 			return
@@ -129,6 +189,7 @@ func beginUpdate(ctx context.Context, cfg Config, key string) (context.Context, 
 		st := UpdateOutcome{Attempted: time.Now().UTC()}
 		f.mu.Lock()
 		st.Failed = append([]string(nil), f.names...)
+		st.Sources = append([]SourceOutcome(nil), f.sources...)
 		f.mu.Unlock()
 		if err != nil {
 			st.Error = err.Error()

@@ -51,6 +51,18 @@ export const CONTROL_HELP = {
     ASN update and takes effect at the next one.`,
 };
 
+export const SOURCES_HELP = {
+  section: `Everything asname knows comes from these public sources, downloaded when a database is updated and then
+    used offline. Click a source to open it. A database built without one of its sources (Failed) still answers, but
+    knows less: for example, without PeeringDB fewer networks are labelled ISP or content.`,
+  result: `Used: read in the last update, with how many entries it gave. Not used: not needed (an earlier archive
+    worked) or its condition was not met. Failed: could not be downloaded or read; the database was built without it,
+    and Retry incomplete tries again. Not recorded: the last update predates per-source results.`,
+  vpnLists: `Which list each vpn:<provider> tag comes from. A provider's own list is read at update time; gluetun's
+    copies are only as fresh as the gluetun project's last refresh, shown here. An address on a VPN list was a VPN
+    server when that list was made.`,
+};
+
 export const COLUMN_HELP = {
   prefixes: `How many address blocks the AS announces. 0 means it announces none: it may be unused, or used only
     inside another network.`,

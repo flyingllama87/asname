@@ -67,6 +67,7 @@ func UpdateReputationDB(ctx context.Context, cfg Config) (err error) {
 			continue
 		}
 		logf(ctx, "asname: %s: %d entries\n", src.name, n)
+		noteSource(ctx, src.name, n, "")
 		imported += n
 	}
 	if imported == 0 {
