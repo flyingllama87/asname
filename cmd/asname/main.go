@@ -54,7 +54,7 @@ OPTIONAL LOOKUPS & METADATA:
    --reverse-dns, -r              also query reverse DNS and include PTR names in the output
    --city, -c                     include the city, downloading the city database (~125MB) if absent; once present it is used without this flag
    --no-city                      omit the city even when the city database is present
-   --netblock, -n                 include the registry netblock and its owner, building the database (~300MB of downloads) if absent; once present it is used without this flag
+   --netblock, -n                 include the registry netblock and its owner, building the database (~350MB of downloads) if absent; once present it is used without this flag
    --no-netblock                  omit the netblock even when the netblock database is present
    --whois                        look up addresses the offline netblock database cannot name (ARIN and LACNIC) over whois, without asking [$ASNAME_WHOIS]
    --no-whois                     never query whois, and do not ask
@@ -183,7 +183,7 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{
 				Name:    "netblock",
 				Aliases: []string{"n"},
-				Usage:   "include the registry netblock and its owner, building the database (~300MB of downloads) if absent; once present it is used without this flag",
+				Usage:   "include the registry netblock and its owner, building the database (~350MB of downloads) if absent; once present it is used without this flag",
 				Local:   true,
 			},
 			&cli.BoolFlag{

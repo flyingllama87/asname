@@ -120,7 +120,7 @@ asname -r 8.8.8.8
 # City-level geolocation (downloads ~125MB DB-IP Lite on first use)
 asname -c 8.8.8.8
 
-# Registry Netblock / Owner name (downloads ~300MB RIR whois dumps on first use)
+# Registry Netblock / Owner name (downloads ~350MB RIR whois dumps on first use)
 asname -n 183.177.54.135
 
 # Network Classification (cloud provider, CDN, ISP, hosting, Tor exit)
@@ -264,7 +264,7 @@ defer client.Close()
 
 // 2. Fast in-memory IP lookup
 res, err := client.LookupIP(net.ParseIP("8.8.8.8"))
-// res.ASN, res.ASNNumber(), res.Name, res.Country, res.City, res.Netblock, res.Category, res.Reputation, res.ASNReputation
+// res.ASN, res.ASNNumber(), res.Name, res.Country, res.City, res.Netblock, res.NetblockCountry, res.NetblockCreated, res.Category, res.Reputation, res.ASNReputation
 
 // 3. String lookup (IP, hostname, URL, or ASN)
 results, err := client.Lookup("dns.google")

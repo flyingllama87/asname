@@ -15,9 +15,9 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Pretty Cards, JSONL & CSV**: Format results as clean multi-line cards (`--pretty`), streamable JSON objects (`--json`), or CSV for spreadsheets (`--csv`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
-- **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it.
+- **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it, along with the country the block itself is registered in and when it was registered.
 - **Says Who Is Dodgy**: An optional reputation database flags addresses and ASNs named by Spamhaus DROP and ASN-DROP, IPsum and FireHOL, and shows what share of an ASN's address space is listed.
-- **Says What It Is**: Another optional database classifies an address as cloud, CDN, hosting, residential ISP, mobile or Tor exit, from the providers' own published ranges and operator-declared network types.
+- **Says What It Is**: Another optional database classifies an address as cloud, CDN, hosting, residential ISP, mobile or Tor exit, from the providers' own published ranges and operator-declared network types, and flags space rented out by IP leasing brokers or held by an anonymised company.
 - **Auto-Updating**: Automatically fetches the latest RouteViews or RIPE RIS RIB dumps, RIPE ASN names, and RIR Delegation Statistics to build and maintain its own fresh databases when they get older than 30 days.
 - **Fully Standalone**: A single static binary — no Cgo, and no `geoiplookup` or other system tool to install alongside it.
 
@@ -393,16 +393,16 @@ says so. A throttled registry answers with a well-formed but empty document; tha
 is reported as a failure rather than silently shown as an unknown netblock.
 
 `--whois` also works with no netblock database at all, if you would rather ask
-the registries every time than keep 300 MB on disk.
+the registries every time than keep 370 MB on disk.
 
 Each registry also publishes placeholder objects covering the ranges it does
 *not* hold, so that a whois query for someone else's address points you at the
 right registry instead of returning nothing. Those are dropped while building,
 since a placeholder naming APNIC is worse than no answer at all.
 
-Building the database downloads roughly 290 MB of registry dumps, takes about
-two minutes and needs ~1.5 GB of memory while it runs. The result is around
-300 MB on disk holding some 6.7 million ranges. It is read from disk by binary
+Building the database downloads roughly 350 MB of registry dumps, takes about
+two minutes and needs ~1.7 GB of memory while it runs. The result is around
+370 MB on disk holding some 7.4 million ranges. It is read from disk by binary
 search rather than loaded into memory, so a lookup stays instant and costs a few
 kilobytes of RAM.
 
@@ -569,6 +569,8 @@ associated with that thing somewhere, not that every address in it is. So
 them specifically true of that resolver. Read AS-level answers as "this is the
 sort of network it is", not as a fact about the address.
 
+The netblock database, when present, adds two more tags from the registry records themselves: `leased:<broker>` for space an IP leasing broker rents out, and `anonymised-holder` where the holder's name is withheld. See [Block country, age and leased space](#block-country-age-and-leased-space).
+
 Because of that, a prefix match wins outright and the AS tags are not consulted;
 otherwise every EC2 address would inherit `vpn` from Amazon's AS, on the grounds
 that somebody, somewhere, runs a VPN on EC2.
@@ -723,9 +725,9 @@ Add `--csv` to emit a header row and then one CSV row per result, ready for a sp
 
 ```bash
 $ asname --csv --v4-only dns.google
-target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reverse_dns,prefixes,error
-dns.google,dns.google,8.8.4.4,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California, United States",Google LLC,offline,cdn content hosting vpn,,,
-dns.google,dns.google,8.8.8.8,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California, United States",Google LLC,offline,cdn content hosting vpn,,,
+target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,netblock_country,netblock_created,category,reputation,asn_reputation,reverse_dns,prefixes,error
+dns.google,dns.google,8.8.4.4,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California, United States",Google LLC,offline,,,cdn hosting vpn,,"915 listed IPs (0.0420% of 2179584 announced IPv4), max 7 lists",,,
+dns.google,dns.google,8.8.8.8,4,AS15169,"GOOGLE - Google LLC, US",US,United States,"Mountain View, California, United States",Google LLC,offline,,,cdn hosting vpn,,"915 listed IPs (0.0420% of 2179584 announced IPv4), max 7 lists",,,
 
 $ asname country --csv NZ | head -3
 country,cidr,version
@@ -737,7 +739,7 @@ The columns are:
 
 | Command | Columns |
 |---|---|
-| lookup, `--stream` | `target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reputation,asn_reputation,reverse_dns,prefixes,error` |
+| lookup, `--stream` | `target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,netblock_country,netblock_created,category,reputation,asn_reputation,reverse_dns,prefixes,error` |
 | `search` | `type,asn,as_name,country,netname,org,range_start,range_end,version,cidrs,ipv4_prefixes,ipv6_prefixes,asn_reputation`, where `type` is `asn` or `netblock` |
 | `country` | `country,cidr,version` |
 | `city` | `city,region,country,cidr,version` |
@@ -820,16 +822,17 @@ asname: run `asname update --incremental` to retry only these
 
 ```bash
 $ asname version
-asname v0.11.0
+asname v0.14.0
 
 Databases in ~/.asname (auto-refreshed when older than 30 days):
-  ASN           asname.db      updated 2026-09-26 23:33 (14 hours ago)  11.2 MB
-  AS names      asn_db.txt     updated 2026-09-26 23:33 (14 hours ago)  7.1 MB
-  Country       country.db     updated 2026-09-26 23:33 (14 hours ago)  8.3 MB
-  ASN prefixes  prefixes.db    updated 2026-09-26 23:33 (14 hours ago)  6.5 MB
-  City          city.mmdb      updated 2026-09-26 23:33 (14 hours ago)  127.3 MB  data built 2026-09-01
-  Netblock      netblock.db    updated 2026-09-26 23:35 (14 hours ago)  306.2 MB
-  Category      category.db    updated 2026-09-26 23:36 (14 hours ago)  737.7 KB
+  ASN           asname.db      updated 2026-11-16 16:07 (40 minutes ago)  11.3 MB
+  AS names      asn_db.txt     updated 2026-11-16 16:07 (40 minutes ago)  7.2 MB
+  Country       country.db     updated 2026-11-16 16:07 (39 minutes ago)  8.3 MB
+  ASN prefixes  prefixes.db    updated 2026-11-16 16:07 (40 minutes ago)  6.7 MB
+  City          city.mmdb      updated 2026-11-16 16:08 (39 minutes ago)  126.9 MB  data built 2026-11-01
+  Netblock      netblock.db    updated 2026-11-16 16:39 (7 minutes ago)  372.1 MB
+  Category      category.db    updated 2026-11-16 16:33 (14 minutes ago)  2.6 MB
+  Reputation    reputation.db  updated 2026-11-16 16:13 (34 minutes ago)  10.5 MB
 
 IPv6 routes: off (`asname update --ipv6` to import them)
 ```
