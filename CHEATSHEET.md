@@ -234,7 +234,7 @@ curl -s -X POST http://127.0.0.1:8086/v1/bulk \
 # Databases on disk and loaded, their age, and the last or running update
 curl -s http://127.0.0.1:8086/v1/status
 
-# Ask whois / RIPEstat for what the offline databases lack (off by default in REST mode;
+# Ask the registry (RDAP, else whois) / RIPEstat for what the offline databases lack (off by default in REST mode;
 # online=true asks for both; refused with 403 if the server runs with --no-whois / --no-online-prefixes)
 curl -s "http://127.0.0.1:8086/v1/lookup?q=200.160.2.3&whois=true"
 curl -s "http://127.0.0.1:8086/v1/lookup?q=AS13335&online_prefixes=true"
@@ -449,7 +449,7 @@ make install-user-service
 | `ASNAME_WEB_DIR` | Serve the web UI from this directory on the REST API server | `""` |
 | `ASNAME_ALLOW_UPDATES` | Let the REST API server update its databases (`/v1/update`) | `false` |
 | `ASNAME_MAX_AGE` | Refresh databases older than this (`168h`, `0` = never); overrides the age saved in the web UI | `720h` |
-| `ASNAME_WHOIS` | Enable online whois lookups without asking | `false` |
+| `ASNAME_WHOIS` | Enable online registry lookups (RDAP, else whois) without asking | `false` |
 | `ASNAME_ONLINE_PREFIXES` | Look up prefixes the offline database lacks on RIPEstat without asking | `false` |
 | `ASNAME_IPV6` | Import IPv6 routes on `asname update` (remembered for later updates) | `false` |
 | `ASNAME_CONTACT_EMAIL` | Contact email for `bgp.tools` category queries | `""` |

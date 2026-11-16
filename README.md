@@ -121,7 +121,7 @@ The client reads the same environment variables as the CLI: `ASNAME_DIR` for the
 
 A field the databases cannot answer is empty in a `Result`; the CLI's `Unknown` and `N/A` are display text only. `Result.String()` puts them back for printing.
 
-The library never writes to stderr and never prompts. Messages go to `WithLog` or nowhere. It also stays offline unless you opt in: whois with `WithWhois`, and online ASN prefix lookups with `WithOnlinePrefixes`.
+The library never writes to stderr and never prompts. Messages go to `WithLog` or nowhere. It also stays offline unless you opt in: registry lookups (RDAP, falling back to whois) with `WithWhois`, and online ASN prefix lookups with `WithOnlinePrefixes`.
 
 ### Updating Databases
 
@@ -237,7 +237,7 @@ Add `--json` (or `-j`) to emit structured JSON Lines containing prefix counts an
 
 Prefixes are answered instantly and offline via `~/.asname/prefixes.db`, which is built automatically from BGP RIB dumps during `asname update`. It holds IPv4 prefixes only unless you opt into IPv6 routes; see [IPv6 routes](#ipv6-routes).
 
-An ASN the prefix database has nothing for, because it announces nothing or the database has not been built, can be looked up on the [RIPEstat](https://stat.ripe.net/) API instead. That is a network query, so like [whois](#filling-the-gaps-with-whois) it is asked about first, and the answer is remembered for an hour in `~/.asname/online-prefixes-consent.json`. Prefixes that came from RIPEstat are labelled as such in the card and `--json` output.
+An ASN the prefix database has nothing for, because it announces nothing or the database has not been built, can be looked up on the [RIPEstat](https://stat.ripe.net/) API instead. That is a network query, so like [the registry lookup](#filling-the-gaps-with-rdap-and-whois) it is asked about first, and the answer is remembered for an hour in `~/.asname/online-prefixes-consent.json`. Prefixes that came from RIPEstat are labelled as such in the card and `--json` output.
 
 - `--online-prefixes` (or `ASNAME_ONLINE_PREFIXES=1`) queries without asking.
 - `--no-online-prefixes` never queries and never asks.
@@ -307,7 +307,7 @@ thing:**
 | ARIN | North America | Organisation names only, derived from the openly published [delegated statistics](https://ftp.arin.net/pub/stats/arin/). The complete data requires a signed agreement. See below |
 
 What is left over can be filled a query at a time over whois instead, see
-[Filling the gaps with whois](#filling-the-gaps-with-whois).
+[Filling the gaps with RDAP and whois](#filling-the-gaps-with-rdap-and-whois).
 
 #### Block country, age and leased space
 
@@ -361,19 +361,18 @@ AS name database rather than from ARIN, so it is the operator name seen in routi
 which for an organisation holding several ASNs may differ in wording from its
 registered name.
 
-### Filling the gaps with whois
+### Filling the gaps with RDAP and whois
 
 LACNIC publishes no usable dump and ARIN's open data names only part of its
-space, but both registries will answer a question about a single address over
-port 43. So when an address has no offline netblock, asname can ask the registry
-directly:
+space, but every registry will answer a question about a single address. So
+when an address has no offline netblock, asname can ask the registry directly:
 
 ```bash
 $ asname 8.8.8.8
 asname: 8.8.8.8 has no offline netblock: not every registry publishes owner data
-asname: in a form that can be indexed offline. Query whois over the network for
+asname: in a form that can be indexed offline. Ask the registry over the network for
 asname: addresses like it? Either answer is remembered for an hour. [y/N] y
-IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Netblock: GOGL (Google LLC) [whois]
+IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Netblock: GOGL (Google LLC) [rdap]
 ```
 
 Every other lookup asname does is offline, so this one is asked about rather
@@ -381,25 +380,48 @@ than assumed. **Either answer is remembered for an hour**, in
 `~/.asname/whois-consent.json`, so a session's work is one question rather than
 one per address. After the hour it asks again.
 
-Answers that came from the network are marked `[whois]`, because unlike the rest
-of the output they are not reproducible offline and reveal to the registry which
-addresses you are looking at.
+Answers that came from the network are marked `[rdap]` or `[whois]` (`Live RDAP`
+or `Live WHOIS` in `--pretty`, `"source": "rdap"` or `"whois"` in `--json`),
+because unlike the rest of the output they are not reproducible offline and
+reveal to the registry which addresses you are looking at.
 
 - `--whois` queries without asking, and does not record an answer — use this in
-  scripts.
+  scripts. (The name predates RDAP; it covers both.)
 - `--no-whois` never queries and never asks.
 - With no terminal to ask (a pipe, a cron job), asname does not query and prints
   a one-line reminder that `--whois` exists.
 
-The query goes to `whois.iana.org` first to find which registry holds the
-address, then to that registry, so it works for any address and not just the two
-gaps. asname only reaches for it when the offline database has nothing *and* the
+**RDAP first, whois if that fails.** RDAP (the Registration Data Access
+Protocol, RFC 9082/9083) is the registries' replacement for port-43 whois: JSON
+over HTTPS with the same fields at every registry, always UTF-8. asname finds the
+registry for an address in IANA's RDAP bootstrap files
+(`https://data.iana.org/rdap/ipv4.json` and `ipv6.json`, kept for a week in
+`~/.asname/rdap-ipv4.json` and `rdap-ipv6.json`), asks it for the most specific
+network holding the address, and follows its redirects (LACNIC hands Brazilian
+space to registro.br, for instance) as long as they stay on HTTPS. The netname,
+the registrant organisation, the block's own country and its registration date
+all come back, so a live answer fills the same fields as the offline index.
+
+If the RDAP server fails, times out, rate-limits (HTTP 429) or has no network
+for the address, asname falls back to whois: `whois.iana.org` first to find the
+registry, then the registry itself on port 43. Whois answers carry only the
+netname and organisation, and LACNIC's mangles accented names ("N�cleo"
+for "Núcleo"); RDAP has neither problem. When RDAP failed but whois answered,
+the reason is printed on stderr.
+
+Some networks reach the registries' RDAP servers over IPv6 only to have the
+connection stall or reset (seen with LACNIC, RIPE and AFRINIC). A request that
+fails, or takes more than half its 8-second allowance, is tried again over IPv4,
+and that registry is asked over IPv4 straight away for the rest of the run.
+
+asname only goes online when the offline database has nothing *and* the
 address is one some registry has actually delegated, which keeps it away from
 reserved and unallocated space.
 
-Registries rate-limit port 43 hard, so one run stops after 25 online lookups and
-says so. A throttled registry answers with a well-formed but empty document; that
-is reported as a failure rather than silently shown as an unknown netblock.
+Registries rate-limit these queries hard, so one run stops after 25 online
+lookups and says so. A throttled whois server answers with a well-formed but
+empty document; that is reported as a failure rather than silently shown as an
+unknown netblock.
 
 `--whois` also works with no netblock database at all, if you would rather ask
 the registries every time than keep 370 MB on disk.
@@ -732,7 +754,7 @@ Target: 8.8.8.8
 
   Registry Netblock:
     Netname / Org:     GOGL (Google LLC)
-    Source:            Live WHOIS
+    Source:            Live RDAP
 
   Network Classification:
     Category:          cdn, content, hosting, vpn
@@ -742,7 +764,7 @@ Target: 8.8.8.8
     Organization:      RIPE NCC AS names list (asn.txt), offline
     Country:           RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline
     City:              DB-IP City Lite geolocation, offline
-    Netblock:          Live WHOIS (IANA referral to the RIR)
+    Netblock:          Live RDAP (IANA bootstrap to the RIR)
     Category:          Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline
 ────────────────────────────────────────────────────────────
 ```
@@ -847,18 +869,18 @@ curl -s http://127.0.0.1:8086/v1/status
 
 #### Online lookups
 
-A lookup can ask whois for a netblock the offline database cannot name (ARIN
-and LACNIC space; see [Filling the gaps with whois](#filling-the-gaps-with-whois)),
+A lookup can ask the registry (RDAP, or whois) for a netblock the offline database cannot name (ARIN
+and LACNIC space; see [Filling the gaps with RDAP and whois](#filling-the-gaps-with-rdap-and-whois)),
 and RIPEstat for the prefixes of an ASN the offline prefix database lacks. In
 REST mode nothing is asked unless the request says so, with `whois=true`,
 `online_prefixes=true`, or `online=true` for both (in a bulk JSON body,
 `"whois": true` and so on). `--whois` and `--online-prefixes` make them the
 default, which a request can turn off with `=false`; `--no-whois` and
 `--no-online-prefixes` turn them off for the server, and a request asking for one
-then answers `403`. Each request may make up to 25 whois queries.
+then answers `403`. Each request may make up to 25 registry queries.
 
 ```bash
-# LACNIC space: no netblock offline, NIC.br's registration from whois
+# LACNIC space: no netblock offline, NIC.br's registration over RDAP ("source": "rdap")
 curl -s "http://127.0.0.1:8086/v1/lookup?q=200.160.2.3&whois=true"
 
 # Prefixes from RIPEstat when the prefix database has none
@@ -972,7 +994,7 @@ It has three tabs:
   network). Every field has an (i) explaining it and each tag shown, written for
   someone new to triage. **Copy summary** copies the `asname -p` card with those
   findings, for a ticket. Click an ASN to look it up. An **Online lookups**
-  switch asks whois and RIPEstat for what the offline databases lack (try
+  switch asks the registries (RDAP, or whois) and RIPEstat for what the offline databases lack (try
   `200.160.2.3`).
 - **Search**: AS names and registry netblocks by organisation or network name,
   with a **Fuzzy match** switch (see [Fuzzy search](#fuzzy-search)) and tips.
@@ -1129,7 +1151,8 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/netblock.db`: The IP to registry netblock index, built from the RIRs' bulk whois dumps. Only present if you have enabled netblock lookups.
 - `~/.asname/category.db`: The IP and ASN to category index. Only present if you have enabled category lookups; under 1 MB.
 - `~/.asname/reputation.db`: The IP and ASN to blocklist index. Only present if you have enabled reputation lookups; ~10 MB.
-- `~/.asname/whois-consent.json`: Whether you agreed to live whois lookups, and when you were asked. Delete it to be asked again; it expires after an hour anyway.
+- `~/.asname/whois-consent.json`: Whether you agreed to live registry (RDAP or whois) lookups, and when you were asked. Delete it to be asked again; it expires after an hour anyway.
+- `~/.asname/rdap-ipv4.json`, `rdap-ipv6.json`: IANA's RDAP bootstrap files, saying which registry's RDAP server holds which addresses. Written on the first online netblock lookup and fetched again after a week; safe to delete.
 - `~/.asname/online-prefixes-consent.json`: The same, for looking up an ASN's prefixes on RIPEstat.
 - `~/.asname/ipv6-routes`: Present when `asname update --ipv6`, or the web UI, opted into IPv6 routes; see [IPv6 routes](#ipv6-routes).
 - `~/.asname/settings.json`: The refresh age chosen in the web UI, if one was; see [Refresh age](#refresh-age).

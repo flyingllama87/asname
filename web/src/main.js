@@ -84,6 +84,8 @@ const SRC = {
   netblock: 'RIR WHOIS dumps, offline',
   netblockCountry: 'Netblock registration in RIR WHOIS dumps (RIPE NCC, APNIC, AFRINIC), offline',
   whois: 'Live WHOIS (IANA referral to the RIR)',
+  rdap: 'Live RDAP (IANA bootstrap to the RIR)',
+  online: 'Live RDAP, or WHOIS if RDAP fails',
   category: 'Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline',
   rdns: 'Live DNS PTR query',
   rep: 'Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline',
@@ -718,24 +720,24 @@ function resultCard(r, i) {
     sources.push(['City', SRC.city]);
   }
 
-  // Netblock: shown when the netblock database is loaded or whois was asked.
+  // Netblock: shown when the netblock database is loaded or the registry was asked online.
   const askedWhois = l.asked.online && avail.whois;
   let netblockBody = nothing;
   if (!isASN && nb) {
     const name = nb.organization || nb.raw;
     netblockBody = html`${name}
       <span class="meta">
-        ${[nb.handle && nb.handle !== name ? nb.handle : '', nb.created ? `registered ${nb.created}` : '', nb.live_query ? 'live whois' : 'offline index']
+        ${[nb.handle && nb.handle !== name ? nb.handle : '', nb.created ? `registered ${nb.created}` : '', nb.live_query ? `live ${nb.source === 'rdap' ? 'RDAP' : 'whois'}` : 'offline index']
           .filter(Boolean)
           .join(' · ')}
       </span>`;
-    sources.push(['Netblock', nb.live_query ? SRC.whois : SRC.netblock]);
+    sources.push(['Netblock', nb.live_query ? (nb.source === 'rdap' ? SRC.rdap : SRC.whois) : SRC.netblock]);
   } else if (!isASN && (loaded.netblock || askedWhois)) {
-    netblockBody = html`${unknown(askedWhois ? 'None found, offline or by whois' : 'Not in the offline index')}
+    netblockBody = html`${unknown(askedWhois ? 'None found, offline or online' : 'Not in the offline index')}
       ${!askedWhois && avail.whois
-        ? html`<span class="meta">Some registries (ARIN, LACNIC) don't publish this offline; turn on Online lookups to ask whois.</span>`
+        ? html`<span class="meta">Some registries (ARIN, LACNIC) don't publish this offline; turn on Online lookups to ask the registry.</span>`
         : nothing}`;
-    sources.push(['Netblock', askedWhois ? `${SRC.netblock}; ${SRC.whois}` : SRC.netblock]);
+    sources.push(['Netblock', askedWhois ? `${SRC.netblock}; ${SRC.online}` : SRC.netblock]);
   }
 
   // Category

@@ -37,9 +37,9 @@ export const FIELD_HELP = {
 export const CONTROL_HELP = {
   rdns: `Also look up each address's hostname (PTR record) in DNS. This makes a DNS query per address, so the
     address's DNS servers may see it.`,
-  online: `Ask the internet for what the offline databases lack: whois at the registry (ARIN, LACNIC...) for netblocks
-    the offline index cannot name, and RIPEstat for an AS's prefixes. The address or AS number is sent to those
-    services, and registries rate-limit whois, so leave it off unless you need it.`,
+  online: `Ask the internet for what the offline databases lack: the registry (ARIN, LACNIC...) for netblocks the
+    offline index cannot name, over RDAP or, if that fails, whois; and RIPEstat for an AS's prefixes. The address or
+    AS number is sent to those services, and registries rate-limit these queries, so leave it off unless you need it.`,
   fuzzy: `Also find names that match ignoring spaces and punctuation ("colo crossing" finds COLOCROSSING), or word by
     word in any order, leaving out company suffixes and expanding abbreviations ("univ of mississippi" finds
     "Mississippi State University"). Exact matches come first. Search never goes online, fuzzy or not.`,
