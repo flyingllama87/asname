@@ -816,9 +816,13 @@ asname: incomplete: netblock (missing RIPE), category (missing Tor, NordVPN serv
 asname: run `asname update --incremental` to retry only these
 ```
 
+`asname version` lists what each database's last update left out, under that database's line.
+
+A netblock update that cannot read a whole registry keeps the existing database rather than replace it with one blind to that region, unless the existing database was itself built without one. The update reports the failure, and `--incremental` retries it.
+
 `asname update --incremental` (or `-i`) rebuilds only the databases whose last update failed or left a source out, plus any missing core database. Source files that did download are reused from the cache for 24 hours and an interrupted download resumes where it stopped, so a retry within that window fetches only what failed. After 24 hours the retry downloads that database's sources again in full. Combine it with the `--*-only` flags to limit the retry to those databases. When nothing is incomplete it says so and downloads nothing.
 
-`asname version` shows when each database was last updated, its size, and whether it is due for a refresh. The update time is when `asname` last wrote the file, which is also what `--max-age` is measured against; the city database also records when DB-IP built its data. Add `-j` for JSON.
+`asname version` shows when each database was last updated, its size, and whether it is due for a refresh. The update time is when `asname` last wrote the file, which is also what `--max-age` is measured against; the city database also records when DB-IP built its data. A database whose last update could not read one of its sources says so on the next line, for example `incomplete: missing PeeringDB`, followed by a reminder to run `asname update --incremental`. Add `-j` for JSON, where the same appears as `missing` and `last_error`.
 
 ```bash
 $ asname version

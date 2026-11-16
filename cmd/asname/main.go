@@ -1309,6 +1309,7 @@ func versionAction(ctx context.Context, cmd *cli.Command) error {
 		refresh = "auto-refreshed when older than " + format.Age(maxAge)
 	}
 	fmt.Fprintf(out, "Databases in %s (%s):\n", dir, refresh)
+	incomplete := false
 	for _, db := range dbs {
 		name := db.Path
 		if filepath.Dir(db.Path) == filepath.Clean(dir) {
@@ -1332,6 +1333,17 @@ func versionAction(ctx context.Context, cmd *cli.Command) error {
 			fmt.Fprint(out, "  stale: refreshed on the next lookup")
 		}
 		fmt.Fprintln(out)
+		switch {
+		case db.LastError != "":
+			fmt.Fprintf(out, "  %-13s last update failed, previous file kept: %s\n", "", db.LastError)
+			incomplete = true
+		case len(db.Missing) > 0:
+			fmt.Fprintf(out, "  %-13s incomplete: missing %s\n", "", strings.Join(db.Missing, ", "))
+			incomplete = true
+		}
+	}
+	if incomplete {
+		fmt.Fprintln(out, "\nRun `asname update --incremental` to retry what the last update left out.")
 	}
 	if cfg.IPv6 {
 		fmt.Fprintln(out, "\nIPv6 routes: on (`asname update --no-ipv6` to stop importing them)")

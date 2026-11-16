@@ -18,6 +18,11 @@ type DBStatus struct {
 	// Built is when the source data was built, for a file that records it;
 	// only the city database does. Zero otherwise.
 	Built time.Time
+	// Missing names the sources the last update could not read, and
+	// LastError is set when it failed outright and kept the previous file;
+	// see LoadUpdateRecord. Both are empty after a complete update.
+	Missing   []string
+	LastError string
 }
 
 // DatabaseStatus reports on each data file cfg names, core databases first.
@@ -31,6 +36,15 @@ func DatabaseStatus(cfg Config) []DBStatus {
 		{Name: "Netblock", Path: cfg.NetblockPath, Optional: true},
 		{Name: "Category", Path: cfg.CategoryPath, Optional: true},
 		{Name: "Reputation", Path: cfg.ReputationPath, Optional: true},
+	}
+	// The update record is kept per update step; the prefix database is
+	// written by the ASN step, which records a failure to write it.
+	keys := []string{KeyASN, KeyNames, KeyCountry, "", KeyCity, KeyNetblock, KeyCategory, KeyReputation}
+	rec := LoadUpdateRecord(cfg.UpdateRecordPath)
+	for i, key := range keys {
+		if o, ok := rec[key]; ok && key != "" {
+			out[i].Missing, out[i].LastError = o.Failed, o.Error
+		}
 	}
 	for i := range out {
 		s := &out[i]

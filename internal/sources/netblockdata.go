@@ -123,21 +123,36 @@ func UpdateNetblockDB(ctx context.Context, cfg Config) (err error) {
 	b := newNetblockBuilder()
 	cache := cfg.CacheDir()
 	imported := 0
+	var failed []string
 	for _, src := range sources {
 		n, err := b.importSource(ctx, src, cache)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			logf(ctx, "asname: warning: %s: %v\n", src.name, err)
 			noteFailed(ctx, src.name)
+			failed = append(failed, src.name)
 			continue
 		}
 		logf(ctx, "asname: %s: %d ranges\n", src.name, n)
 		imported += n
 	}
 	if delegated {
-		imported += importARINDelegatedInto(ctx, b, cfg, cache)
+		n := importARINDelegatedInto(ctx, b, cfg, cache)
+		if n == 0 {
+			failed = append(failed, "ARIN (delegated statistics)")
+		}
+		imported += n
 	}
 	if imported == 0 {
 		return fmt.Errorf("no netblock ranges imported")
+	}
+	// Each registry covers its own region, so a build without one is blind
+	// to that region. Keep a complete database rather than replace it; one
+	// that already lacks a registry is no better than the new build.
+	if len(failed) > 0 && NetblockDBPresent(cfg.NetblockPath) && !LoadUpdateRecord(cfg.UpdateRecordPath)[KeyNetblock].Incomplete() {
+		return fmt.Errorf("%s could not be read, keeping the existing netblock database", strings.Join(failed, ", "))
 	}
 
 	n, err := b.write(cfg.NetblockPath)

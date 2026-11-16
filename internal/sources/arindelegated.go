@@ -14,7 +14,7 @@ import (
 
 // arinDelegatedURL is ARIN's daily extended delegation statistics file. Unlike
 // the bulk Whois download it is published openly and needs no API key.
-const arinDelegatedURL = "https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest"
+var arinDelegatedURL = "https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest"
 
 // importARINDelegated names ARIN ranges without a bulk Whois key.
 //

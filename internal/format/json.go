@@ -426,13 +426,17 @@ type JSONDBInfo struct {
 	AgeSeconds int64      `json:"age_seconds,omitempty"`
 	Built      *time.Time `json:"built,omitempty"`
 	Stale      bool       `json:"stale"`
+	// Missing names the sources the last update could not read; LastError
+	// is set when it failed outright and the previous file was kept.
+	Missing   []string `json:"missing,omitempty"`
+	LastError string   `json:"last_error,omitempty"`
 }
 
 // FormatJSONVersion renders the version and database status as one JSON line.
 func FormatJSONVersion(version, dir string, maxAge time.Duration, ipv6 bool, dbs []sources.DBStatus, now time.Time) (string, error) {
 	out := JSONVersion{Version: version, Dir: dir, MaxAgeHours: maxAge.Hours(), IPv6Routes: ipv6, Databases: make([]JSONDBInfo, len(dbs))}
 	for i, db := range dbs {
-		info := JSONDBInfo{Name: db.Name, Path: db.Path, Optional: db.Optional, Present: db.Present}
+		info := JSONDBInfo{Name: db.Name, Path: db.Path, Optional: db.Optional, Present: db.Present, Missing: db.Missing, LastError: db.LastError}
 		if db.Present {
 			updated, age := db.Updated, now.Sub(db.Updated)
 			info.Size, info.Updated, info.AgeSeconds = db.Size, &updated, int64(age/time.Second)
