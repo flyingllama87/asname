@@ -220,14 +220,36 @@ curl -s -X POST http://127.0.0.1:8086/v1/bulk \
 
 ## 4. Database Management & Updates
 
-`asname` auto-refreshes databases older than 30 days. You can also trigger manual updates:
+`asname` auto-refreshes databases older than 30 days. You can also trigger manual updates.
+
+### Opt into everything
+
+The core databases (ASN, AS names, country, prefixes) are always built. City, netblock, category and reputation are opt-in: each is built the first time you ask for it, and refreshed by every update after that. IPv6 routes are a separate opt-in (below).
+
+```bash
+# Latest code (see section 6)
+git pull --rebase
+make build && sudo make install
+
+# Build or refresh every database: the --*-only flags combine, and each builds its
+# database if absent (city ~125MB, netblock ~370MB; reputation is built last,
+# from the fresh ASN data). Once built, a plain `asname update` keeps them all fresh.
+asname update --db-only --names-only --country-only \
+  --city-only --netblock-only --category-only --reputation-only
+
+# Retry anything the update reports as incomplete, then check
+asname update -i
+asname version
+```
+
+### Manual updates
 
 ```bash
 # When each database was last updated, and which are due for a refresh
 asname version
 asname version -j | jq '.databases[] | {name, updated, stale}'
 
-# Update core databases (ASN, AS Names, Country)
+# Refresh every database already on disk (core databases are built if missing)
 asname update
 
 # Update specific databases only
