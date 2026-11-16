@@ -289,6 +289,12 @@ export function findings(r, loaded = {}) {
     const name = cdn ? cloudName(cdn.slice(6)) : r.asn?.organization || 'a CDN';
     add('medium', `${r.host} resolves to ${name}'s CDN: this address is one of its edge servers, shared by many sites, not ${r.host}'s own. It says nothing about who runs ${r.host}.`);
   }
+  if (r.nat64) {
+    const n = r.nat64;
+    add('info', n.dns64
+      ? `The resolver answered ${n.address} for ${r.host}. It made that address up (DNS64): ${r.host} has no IPv6 address, so an IPv6-only network such as a mobile carrier's puts the IPv4 address ${r.ip} inside its NAT64 prefix ${n.prefix} and translates the traffic. A registry lookup of ${n.address} names the carrier, not ${r.host}; this card shows ${r.ip}, the real address.`
+      : `${n.address} is a NAT64 address: the IPv4 address ${r.ip} inside the prefix ${n.prefix}, which a carrier's translator uses to reach IPv4 hosts from IPv6-only networks. Its registry entry names the carrier; this card shows ${r.ip}, the host it reaches. In a log, the device behind it is a customer of the network that owns ${n.prefix}.`);
+  }
   if (r.served_by) {
     const sb = r.served_by;
     const how = sb.via === 'cname' ? `its name is an alias of ${sb.name}` : `its DNS is hosted by ${sb.cdn} (${sb.name}), which answers with its own servers`;

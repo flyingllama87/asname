@@ -316,6 +316,9 @@ type LookupResult struct {
 	// because it was built without IPv6 routes: its network is unknown, not
 	// unannounced.
 	NoIPv6Routes bool
+	// NAT64 is set when the address asked about was this IPv4 address
+	// inside a NAT64 prefix; IP is then the IPv4 address.
+	NAT64 *NAT64
 }
 
 func (e *Engine) LookupTarget(t Target) ([]LookupResult, error) {
@@ -335,6 +338,11 @@ func (e *Engine) LookupTargetContext(ctx context.Context, t Target) ([]LookupRes
 		res.Target = t.Raw
 		return []LookupResult{res}, nil
 	}
+	var local []netip.Prefix
+	if t.hasPlainIPv6() {
+		local = LocalNAT64Prefixes(ctx)
+	}
+	t, nat64 := t.UnmapNAT64(local)
 	results := make([]LookupResult, 0, len(t.IPs))
 	for _, ip := range t.IPs {
 		res, err := e.Lookup(ip)
@@ -344,6 +352,7 @@ func (e *Engine) LookupTargetContext(ctx context.Context, t Target) ([]LookupRes
 		res.Target = t.Raw
 		res.Host = t.Host
 		res.ServedBy = t.Served
+		res.NAT64 = nat64[ip.String()]
 		results = append(results, res)
 	}
 	return results, nil

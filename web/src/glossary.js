@@ -161,6 +161,21 @@ export const GLOSSARY = [
         ],
         links: [wiki('Carrier-grade_NAT'), rfc(6598), rfc(6302), ['Tailscale: how NAT traversal works', 'https://tailscale.com/blog/how-nat-traversal-works']],
       },
+      {
+        term: 'NAT64 and DNS64',
+        body: 'How an IPv6-only network, which includes most mobile carriers, reaches IPv4-only sites. The resolver (DNS64) answers a name that has no IPv6 address with a made-up one: the site\'s IPv4 address in the last 32 bits of the carrier\'s NAT64 prefix. The carrier\'s translator (NAT64) then forwards the traffic over IPv4.',
+        practice: [
+          'A made-up address belongs to the carrier, so a registry lookup of it names the carrier: on Vodafone Australia\'s mobile network nsa.gov resolves to 2405:6e00:64::172e:2f6c, which is Vodafone\'s, and slashdot.org to 2405:6e00:64::6812:4d7. asname spots these and looks up the IPv4 address inside instead (172e:2f6c is 23.46.47.108).',
+          'A NAT64 address in your own logs is a customer of the network that owns the prefix reaching an IPv4 host. Read the last 32 bits as an IPv4 address to see which host.',
+          'Resolve on a tethered phone or a mobile hotspot and you are on DNS64 too. If a site seems to belong to your carrier, this is why.',
+        ],
+        detail: [
+          'The well-known prefix 64:ff9b::/96 (RFC 6052) means NAT64 on any network; carriers often use a prefix of their own. A host learns its network\'s prefix by resolving ipv4only.arpa (RFC 7050), whose IPv4 addresses 192.0.0.170 and .171 come back inside the prefix. asname does the same.',
+          'DNS64 makes up an address only when the name has no AAAA record, so a made-up address also tells you the site has no IPv6 of its own.',
+          'Phones on these networks run 464XLAT (CLAT): the phone translates IPv4 apps to IPv6 itself, so tethered laptops and old apps still work. To the world the phone appears on the carrier\'s NAT64 IPv4 pool, a CGNAT-like shared address.',
+        ],
+        links: [wiki('NAT64'), wiki('DNS64'), rfc(6052), rfc(6147), rfc(7050), wiki('IPv6_transition_mechanism#464XLAT')],
+      },
     ],
   },
   {

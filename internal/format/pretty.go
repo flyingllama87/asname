@@ -285,6 +285,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	if res.RDNS != "" {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Reverse DNS:      "), st.value(res.RDNS)))
 	}
+	if res.NAT64 != nil {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("NAT64:            "), st.value(nat64Text(res))))
+	}
 	if res.ServedBy != nil {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Served by:        "), st.value(servedByText(res))))
 	}
@@ -605,6 +608,15 @@ func inferredSrc(res engine.LookupResult) string {
 		}
 	}
 	return strings.Join(parts, "; ") + " (inferrules.yaml), offline"
+}
+
+// nat64Text says which NAT64 address a lookup was asked about.
+func nat64Text(res engine.LookupResult) string {
+	n := res.NAT64
+	if n.DNS64 {
+		return fmt.Sprintf("the resolver also answered %s, which it made up (DNS64): this address inside the network's NAT64 prefix %s, the carrier's translator. %s has no IPv6 address of its own", n.Address, n.Prefix, res.Host)
+	}
+	return fmt.Sprintf("%s is this address inside the NAT64 prefix %s, a carrier's IPv4 translator; this is the address it reaches", n.Address, n.Prefix)
 }
 
 // servedByText says which CDN serves a looked-up hostname and what that

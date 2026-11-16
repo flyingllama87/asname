@@ -20,8 +20,10 @@ type JSONLookupResult struct {
 	// ServedBy is the CDN the hostname is served through: the address is
 	// then that CDN's edge server nearest the resolver, not the site's own.
 	ServedBy *JSONServedBy `json:"served_by,omitempty"`
-	Country  *JSONCountry  `json:"country,omitempty"`
-	City     *JSONCity     `json:"city,omitempty"`
+	// NAT64 says the address asked about was IP inside a NAT64 prefix.
+	NAT64   *JSONNAT64   `json:"nat64,omitempty"`
+	Country *JSONCountry `json:"country,omitempty"`
+	City    *JSONCity    `json:"city,omitempty"`
 	// CityMaxMind is MaxMind's estimate, beside City's, when asname has
 	// MaxMind's city database too.
 	CityMaxMind *JSONCity       `json:"city_maxmind,omitempty"`
@@ -60,6 +62,15 @@ type JSONASN struct {
 	// NoIPv6Routes says the ASN database has no IPv6 routes, so an IPv6
 	// address's network is unknown rather than unannounced.
 	NoIPv6Routes bool `json:"no_ipv6_routes,omitempty"`
+}
+
+// JSONNAT64 is the NAT64 address a lookup was asked about, and its prefix.
+// DNS64 is set when the resolver made the address up for a hostname that
+// has no IPv6 address.
+type JSONNAT64 struct {
+	Address string `json:"address"`
+	Prefix  string `json:"prefix"`
+	DNS64   bool   `json:"dns64,omitempty"`
 }
 
 // JSONServedBy is the CDN a looked-up hostname is served through.
@@ -245,6 +256,9 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		out.Version = 6
 	}
 
+	if n := res.NAT64; n != nil {
+		out.NAT64 = &JSONNAT64{Address: n.Address, Prefix: n.Prefix, DNS64: n.DNS64}
+	}
 	if res.ServedBy != nil {
 		out.ServedBy = &JSONServedBy{CDN: res.ServedBy.CDN, Via: res.ServedBy.Via, Name: res.ServedBy.Name}
 	}
