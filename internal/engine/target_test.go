@@ -141,28 +141,6 @@ func TestDedupeIPs(t *testing.T) {
 	}, got)
 }
 
-func TestEntryFromLine(t *testing.T) {
-	cases := []struct {
-		in    string
-		want  string
-		valid bool
-	}{
-		{"8.8.8.8", "8.8.8.8", true},
-		{"  8.8.8.8  ", "8.8.8.8", true},
-		{"8.8.8.8 # comment", "8.8.8.8", true},
-		{"8.8.8.8\tGOOGLE", "8.8.8.8", true},
-		{"# comment", "", false},
-		{"", "", false},
-		{"   ", "", false},
-	}
-
-	for _, tc := range cases {
-		got, ok := EntryFromLine(tc.in)
-		require.Equal(t, tc.valid, ok, "input %q", tc.in)
-		require.Equal(t, tc.want, got, "input %q", tc.in)
-	}
-}
-
 func TestParseASNTarget(t *testing.T) {
 	cases := []struct {
 		in   string

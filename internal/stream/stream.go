@@ -73,17 +73,12 @@ scan:
 		default:
 		}
 
-		line := scanner.Text()
-		entry, ok := engine.EntryFromLine(line)
-		if !ok || entry == "" {
-			continue
-		}
-
-		t := engine.NewTarget(entry)
-		select {
-		case <-ctx.Done():
-			break scan
-		case targetsCh <- t:
+		for _, entry := range engine.EntriesFromLine(scanner.Text()) {
+			select {
+			case <-ctx.Done():
+				break scan
+			case targetsCh <- engine.NewTarget(entry):
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {

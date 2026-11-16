@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/flyingllama87/asname/internal/sources"
 )
 
 const (
@@ -129,14 +127,16 @@ func readTargetFile(path string) ([]Target, error) {
 	defer f.Close()
 
 	var targets []Target
+	seen := map[string]bool{}
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		entry, ok := EntryFromLine(scanner.Text())
-		if !ok {
-			continue
+		for _, entry := range EntriesFromLine(scanner.Text()) {
+			if k := strings.ToLower(entry); !seen[k] {
+				seen[k] = true
+				targets = append(targets, NewTarget(entry))
+			}
 		}
-		targets = append(targets, NewTarget(entry))
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("reading %s: %v", path, err)
@@ -145,14 +145,6 @@ func readTargetFile(path string) ([]Target, error) {
 		return nil, fmt.Errorf("no entries found in %s", path)
 	}
 	return targets, nil
-}
-
-func EntryFromLine(line string) (string, bool) {
-	if i := strings.Index(line, "#"); i >= 0 {
-		line = line[:i]
-	}
-	field, _, ok := sources.SplitFirstField(strings.TrimSpace(line))
-	return field, ok
 }
 
 func ResolveTargets(ctx context.Context, targets []Target) {

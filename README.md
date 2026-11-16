@@ -7,7 +7,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 ## Features
 
 - **Blazing Fast**: Uses offline LC-trie databases for instantaneous IP lookups.
-- **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file listing any mix of them.
+- **Takes Whatever You Have**: An IP address, a hostname, a URL you pasted from a browser, or a file or stream of anything: a list (bulleted or not), a log, an alert, a web page. IPs, URLs, domains and ASNs are picked out of it, defanged ones (`hxxp`, `[.]`) included.
 - **ASN & Prefix Lookups**: Query any ASN (`AS15169`) to see its owner, country, classification, and all announced IPv4/IPv6 prefixes.
 - **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs with their announced prefixes, IP ranges and CIDRs.
 - **Country Listings**: List every IP block registered to a country as CIDRs (`asname country AU`), ready for a firewall or allowlist.

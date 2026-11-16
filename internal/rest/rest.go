@@ -400,12 +400,10 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 		prefixesParam = firstNonEmpty(boolParam(req.OnlinePrefixes), prefixesParam)
 		onlineParam = firstNonEmpty(boolParam(req.Online), onlineParam)
 	} else {
-		lines := strings.Split(string(bodyBytes), "\n")
-		for _, l := range lines {
-			entry, ok := engine.EntryFromLine(l)
-			if ok && entry != "" {
-				targetStrings = append(targetStrings, entry)
-			}
+		// Every target in the text, repeats kept, so results line up with
+		// what was sent.
+		for _, l := range strings.Split(string(bodyBytes), "\n") {
+			targetStrings = append(targetStrings, engine.EntriesFromLine(l)...)
 		}
 	}
 
