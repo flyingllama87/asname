@@ -48,6 +48,7 @@ import { iconLoader } from '@carbon/web-components/es/globals/internal/icon-load
 import Asleep20 from '@carbon/icons/es/asleep/20.js';
 import Light20 from '@carbon/icons/es/light/20.js';
 import Settings20 from '@carbon/icons/es/settings/20.js';
+import Help16 from '@carbon/icons/es/help/16.js';
 
 import { html, nothing, render } from 'lit';
 import { api, ApiError, getApiBase, setApiBase } from './api.js';
@@ -1321,14 +1322,25 @@ function view() {
     ${headerView()}
     <main id="main-content">
       <section class="intro">
-        <h1>Who is behind an IP address?</h1>
-        <p>
-          asname takes an IP address, hostname, URL or AS number and tells you the network that routes it, who the
-          address block is registered to, where it most likely is, what kind of network it is (cloud, hosting, VPN,
-          Tor, home broadband, mobile…) and whether public blocklists name it, with a plain-language summary of what
-          that means. Everything comes from databases on this machine, so lookups are instant and nothing you look up
-          leaves it, unless you turn on Online lookups.
-        </p>
+        <h1>asname Web Interface</h1>
+        <div class="subtitle">
+          <span>Who is behind an IP address: its network, owner, location and reputation, from databases on this machine.</span>
+          <cds-toggletip class="tip" autoalign alignment="bottom" button-label="What asname does">
+            <span slot="trigger" class="help-trigger">${iconLoader(Help16)}</span>
+            <div slot="body-text" class="tip-body">
+              <p>
+                asname takes an IP address, hostname, URL or AS number and tells you the network that routes it, who
+                the address block is registered to, where it most likely is, what kind of network it is (cloud,
+                hosting, VPN, Tor, home broadband, mobile…) and whether public blocklists name it, with a
+                plain-language summary of what that means.
+              </p>
+              <p>
+                Everything comes from databases on this machine, so lookups are instant and nothing you look up leaves
+                it, unless you turn on Online lookups.
+              </p>
+            </div>
+          </cds-toggletip>
+        </div>
       </section>
       ${tabsView()}
       <div class="notifications">${bannerView()}</div>

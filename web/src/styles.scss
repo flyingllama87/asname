@@ -529,18 +529,30 @@ details.tips {
   flex: 0 0 18rem;
 }
 
-// What the tool does, above the tabs.
+// The title, and a one-line description with the full one behind a (?).
 .intro {
-  max-width: 52rem;
-  margin-bottom: $spacing-07;
+  margin-bottom: $spacing-06;
 
   h1 {
     @include type.type-style('heading-04');
-    margin-bottom: $spacing-03;
+    margin-bottom: $spacing-02;
   }
 
-  p {
-    @include type.type-style('body-02');
+  .subtitle {
+    @include type.type-style('body-01');
     color: $text-secondary;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: $spacing-02;
+  }
+
+  .help-trigger {
+    display: inline-flex;
+    fill: $icon-secondary;
+  }
+
+  .tip-body p + p {
+    margin-top: $spacing-03;
   }
 }
