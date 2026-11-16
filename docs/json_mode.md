@@ -75,10 +75,10 @@ Each line matches the following schema:
 | `host` | `string \| null` | Extracted hostname if input was a hostname or URL; `null` for literal IP. |
 | `ip` | `string` | Canonical IP address string. |
 | `version` | `integer` | IP version (`4` or `6`). |
-| `asn` | `object \| null` | ASN resolution details. `number` is integer (0 if unannounced), `announced` is boolean. |
+| `asn` | `object \| null` | ASN resolution details. `number` is integer (0 if unannounced), `announced` is boolean, `name_source` is `"rdap"` when the name came from the registry because the offline AS names list lacks the ASN. |
 | `country` | `object \| null` | ISO 3166-1 alpha-2 `code` and full country `name`. |
 | `city` | `object \| null` | Resolved city name (omitted or null if city DB not enabled / not found). |
-| `netblock` | `object \| null` | Registry assignment details (`handle`, `organization`, and `source`: `"offline"`, `"whois"`, or `null`). |
+| `netblock` | `object \| null` | Registry assignment details (`handle`, `organization`, and `source`: `"offline"`, `"rdap"`, `"whois"`, or `null`; `live_query` is true for the online two). |
 | `category` | `object \| null` | Classification tag array (e.g. `["cloud:aws", "cdn"]`). |
 | `reverse_dns` | `object \| null` | PTR lookup result (`names` string array). Omitted or `null` unless `-r` is enabled. |
 

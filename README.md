@@ -423,6 +423,15 @@ lookups and says so. A throttled whois server answers with a well-formed but
 empty document; that is reported as a failure rather than silently shown as an
 unknown netblock.
 
+**AS names, too.** The offline AS names list (RIPE NCC's `asn.txt`) can lag a
+newly registered ASN by a day or more. When it has no name for an ASN, the same
+opt-in asks that ASN's registry over RDAP (`<server>/autnum/<n>`, found through
+IANA's `asn.json` bootstrap file) and shows the name like the list would,
+`GOOGLE - Google LLC`, marked `[rdap]` (`"name_source": "rdap"` in `--json`). It
+uses the same consent answer and the same 25-query allowance; a name found once
+is reused for the rest of the run (or, for the REST server, until it restarts).
+There is no whois fallback for AS names.
+
 `--whois` also works with no netblock database at all, if you would rather ask
 the registries every time than keep 370 MB on disk.
 
@@ -1152,7 +1161,7 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/category.db`: The IP and ASN to category index. Only present if you have enabled category lookups; under 1 MB.
 - `~/.asname/reputation.db`: The IP and ASN to blocklist index. Only present if you have enabled reputation lookups; ~10 MB.
 - `~/.asname/whois-consent.json`: Whether you agreed to live registry (RDAP or whois) lookups, and when you were asked. Delete it to be asked again; it expires after an hour anyway.
-- `~/.asname/rdap-ipv4.json`, `rdap-ipv6.json`: IANA's RDAP bootstrap files, saying which registry's RDAP server holds which addresses. Written on the first online netblock lookup and fetched again after a week; safe to delete.
+- `~/.asname/rdap-ipv4.json`, `rdap-ipv6.json`, `rdap-asn.json`: IANA's RDAP bootstrap files, saying which registry's RDAP server holds which addresses and AS numbers. Written on the first online netblock lookup and fetched again after a week; safe to delete.
 - `~/.asname/online-prefixes-consent.json`: The same, for looking up an ASN's prefixes on RIPEstat.
 - `~/.asname/ipv6-routes`: Present when `asname update --ipv6`, or the web UI, opted into IPv6 routes; see [IPv6 routes](#ipv6-routes).
 - `~/.asname/settings.json`: The refresh age chosen in the web UI, if one was; see [Refresh age](#refresh-age).

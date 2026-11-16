@@ -50,7 +50,7 @@ When colors are active:
   - Country / City: Bright Green
   - Netblock: Bright Cyan
   - Category tags: Bright Yellow / Blue badges
-  - Live WHOIS indicator: Yellow `[Live WHOIS]`
+  - Live lookup indicator: Yellow `Live RDAP` or `Live WHOIS`
 
 When colors are inactive (piped or `NO_COLOR`):
 - Uses clean ASCII/Unicode structure (`───`) and whitespace indentation without ANSI escape codes.
