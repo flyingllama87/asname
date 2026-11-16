@@ -79,7 +79,7 @@ Each line matches the following schema:
 | `country` | `object \| null` | ISO 3166-1 alpha-2 `code` and full country `name`. |
 | `city` | `object \| null` | Resolved city name (omitted or null if city DB not enabled / not found). |
 | `netblock` | `object \| null` | Registry assignment details (`handle`, `organization`, and `source`: `"offline"`, `"rdap"`, `"whois"`, or `null`; `live_query` is true for the online two). |
-| `category` | `object \| null` | Classification tag array (e.g. `["cloud:aws", "cdn"]`), plus `inferred`: tags asname's own rules add from the AS name (`inferred_from: "name"`) or its list of well-known networks (`"list"`), kept apart as weaker evidence. |
+| `category` | `object \| null` | Classification tag array (e.g. `["cloud:aws", "cdn"]`), plus `inferred`: `[{"tag", "from"}]`, tags asname's own rules add from the range's registry netname (`"netname"`, `range:broadband` and so on), the AS name (`"name"`) or its list of well-known networks (`"list"`), kept apart as weaker evidence. |
 | `reverse_dns` | `object \| null` | PTR lookup result (`names` string array). Omitted or `null` unless `-r` is enabled. |
 
 ---

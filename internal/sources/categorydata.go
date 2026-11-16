@@ -6,9 +6,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -113,6 +115,22 @@ func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) (e
 		logf(ctx, "asname: %s: %d ASNs\n", InferSourceName, n)
 		noteSource(ctx, InferSourceName, n, "")
 	}
+	// Netname rules need the netblock database, which is optional.
+	if NetblockDBPresent(cfg.NetblockPath) {
+		if st, err := b.importNetnames(cfg.NetblockPath, cfg.DBPath); err != nil {
+			logf(ctx, "asname: warning: %s: %v\n", InferNetnameSourceName, err)
+			noteFailed(ctx, InferNetnameSourceName)
+		} else {
+			n := 0
+			for _, c := range st.ranges {
+				n += c
+			}
+			logf(ctx, "asname: %s: %d ranges\n", InferNetnameSourceName, n)
+			noteSource(ctx, InferNetnameSourceName, n, "")
+		}
+	} else {
+		noteUnused(ctx, InferNetnameSourceName, "not used: needs the netblock database")
+	}
 
 	data, err := b.Marshal()
 	if err != nil {
@@ -137,6 +155,9 @@ type categoryBuilder struct {
 	// inferred holds the tags asname's own rules give each AS
 	// (inferrules.yaml), kept apart from the sources' tags.
 	inferred map[uint32]InferredTags
+	// rangeTags holds the range: tags the netname rules give registry
+	// ranges, by prefix; kept apart like inferred.
+	rangeTags map[netip.Prefix]map[string]bool
 	// lookupHost resolves the hostnames some VPN providers list instead of
 	// addresses.
 	lookupHost func(ctx context.Context, host string) ([]string, error)
@@ -149,6 +170,7 @@ func newCategoryBuilder(ctx context.Context) *categoryBuilder {
 		asns:       make(map[uint32]map[string]bool),
 		vpnLists:   make(map[string]VPNList),
 		inferred:   make(map[uint32]InferredTags),
+		rangeTags:  make(map[netip.Prefix]map[string]bool),
 		lookupHost: net.DefaultResolver.LookupHost,
 	}
 }
@@ -504,6 +526,179 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 	out = append(out, asnEntries...)
 	out = append(out, vpnLists...)
 	out = append(out, b.marshalInferred()...)
+	ranges, err := b.marshalRangeTags()
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, ranges...)
+	return out, nil
+}
+
+// InferNetnameSourceName names asname's netname rules among the sources.
+const InferNetnameSourceName = "asname netname rules"
+
+// netnameStats counts what importNetnames tagged, for logs and evaluation.
+type netnameStats struct {
+	ranges, skipped map[string]int
+	addrs4          map[string]uint64
+	samples         map[string][]string
+}
+
+// importNetnames gives range: tags to the netblock database's ranges whose
+// netnames the rules recognise (inferrules.yaml), skipping ranges inside
+// networks that only host servers. b.asns and b.inferred must already hold
+// this build's AS tags; asnDBPath says which AS announces each range.
+func (b *categoryBuilder) importNetnames(netblockPath, asnDBPath string) (netnameStats, error) {
+	st := netnameStats{ranges: map[string]int{}, skipped: map[string]int{}, addrs4: map[string]uint64{}, samples: map[string][]string{}}
+	rules, err := DefaultInferRules()
+	if err != nil {
+		return st, err
+	}
+	nb, err := OpenNetblockDB(netblockPath)
+	if err != nil {
+		return st, err
+	}
+	defer nb.Close()
+	f, err := os.Open(asnDBPath)
+	if err != nil {
+		return st, fmt.Errorf("needs the ASN database: %v", err)
+	}
+	asnDB, err := database.NewFromDump(f)
+	f.Close()
+	if err != nil {
+		return st, fmt.Errorf("reading the ASN database: %v", err)
+	}
+
+	// Netnames repeat across ranges, so each is classified once.
+	byOffset := map[uint32][]string{}
+	hostingOnly := map[uint32]bool{}
+	asnKnown := map[uint32]bool{}
+	seen := 0
+	err = nb.EachRange(func(r NetblockRange) error {
+		if r.NetnameOff == 0 {
+			return nil
+		}
+		tags, ok := byOffset[r.NetnameOff]
+		if !ok {
+			name, err := nb.str(r.NetnameOff)
+			if err != nil {
+				return err
+			}
+			tags = rules.InferNetname(name)
+			byOffset[r.NetnameOff] = tags
+		}
+		if len(tags) == 0 {
+			return nil
+		}
+		var asn uint32
+		if as, err := asnDB.Lookup(net.IP(r.Start.AsSlice()).To16()); err == nil {
+			asn = as.Number
+		}
+		if !asnKnown[asn] {
+			asnKnown[asn] = true
+			all := slices.Collect(maps.Keys(b.asns[asn]))
+			all = append(all, b.inferred[asn].Tags...)
+			hostingOnly[asn] = HostingOnly(all)
+		}
+		keep := tags[:0:0]
+		for _, tag := range tags {
+			if hostingOnly[asn] {
+				st.skipped[tag]++
+				continue
+			}
+			keep = append(keep, tag)
+		}
+		if len(keep) == 0 {
+			return nil
+		}
+		for _, cidr := range rangeCIDRs(r.Start, r.End) {
+			set := b.rangeTags[cidr]
+			if set == nil {
+				set = map[string]bool{}
+				b.rangeTags[cidr] = set
+			}
+			for _, tag := range keep {
+				set[tag] = true
+			}
+		}
+		seen++
+		for _, tag := range keep {
+			st.ranges[tag]++
+			if r.Start.Is4() {
+				st.addrs4[tag] += uint64(addrUint32(r.End)-addrUint32(r.Start)) + 1
+			}
+			// An even spread of samples for review.
+			if st.ranges[tag]%97 == 1 && len(st.samples[tag]) < 60 {
+				name, _ := nb.str(r.NetnameOff)
+				st.samples[tag] = append(st.samples[tag], fmt.Sprintf("%s-%s %s AS%d", r.Start, r.End, name, asn))
+			}
+		}
+		return nil
+	})
+	return st, err
+}
+
+func addrUint32(a netip.Addr) uint32 {
+	b := a.As4()
+	return binary.BigEndian.Uint32(b[:])
+}
+
+// rangeCIDRs covers start..end with the fewest prefixes.
+func rangeCIDRs(start, end netip.Addr) []netip.Prefix {
+	var strs []string
+	if start.Is4() {
+		strs = IPv4RangeToCIDRs(addrUint32(start), addrUint32(end))
+	} else {
+		strs = IPv6RangeToCIDRs(start.As16(), end.As16())
+	}
+	out := make([]netip.Prefix, 0, len(strs))
+	for _, s := range strs {
+		if p, err := netip.ParsePrefix(s); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// marshalRangeTags encodes the netname range tags after the inferred AS
+// tags: the length of a prefix table, the table (each prefix maps to an
+// index into the sets that follow), the number of sets, and the sets, each
+// tags joined by ", " and NUL-terminated.
+func (b *categoryBuilder) marshalRangeTags() ([]byte, error) {
+	sets := []string{""}
+	index := map[string]uint32{"": 0}
+	var trie trieBuilder = database.NewBuilder()
+	for p, tags := range b.rangeTags {
+		key := JoinTags(tags)
+		i, ok := index[key]
+		if !ok {
+			i = uint32(len(sets))
+			sets = append(sets, key)
+			index[key] = i
+		}
+		ipNet := &net.IPNet{IP: net.IP(p.Addr().AsSlice()), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}
+		if err := trie.InsertMapping(ipNet, i); err != nil {
+			return nil, fmt.Errorf("inserting %s: %v", p, err)
+		}
+	}
+	var trieBytes []byte
+	if len(b.rangeTags) > 0 {
+		trie.SetFillFactor(OptimizationFillFactor)
+		built, err := trie.Build()
+		if err != nil {
+			return nil, fmt.Errorf("building range table: %v", err)
+		}
+		if trieBytes, err = built.MarshalBinary(); err != nil {
+			return nil, err
+		}
+	}
+	out := binary.LittleEndian.AppendUint64(nil, uint64(len(trieBytes)))
+	out = append(out, trieBytes...)
+	out = binary.LittleEndian.AppendUint32(out, uint32(len(sets)-1))
+	for _, set := range sets[1:] {
+		out = append(out, set...)
+		out = append(out, 0)
+	}
 	return out, nil
 }
 

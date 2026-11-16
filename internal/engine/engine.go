@@ -232,11 +232,10 @@ type LookupResult struct {
 	NetblockCountry string
 	NetblockCreated string
 	Category        string
-	// InferredCategory holds tags asname's own rules give the AS (from its
-	// registered name, or asname's list of well-known networks) that
-	// Category does not already have; InferredFrom is "name" or "list".
-	InferredCategory []string
-	InferredFrom     string
+	// Inferred holds tags asname's own rules give the address's range (from
+	// its registry netname) and its AS (from the AS name, or asname's list
+	// of well-known networks) that Category does not already have.
+	Inferred []InferredTag
 	// VPNLists says, for each vpn:<provider> tag in Category, where its
 	// addresses came from and when that list was current.
 	VPNLists map[string]sources.VPNList
@@ -439,6 +438,9 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		} else {
 			res.Category += ", " + tags
 		}
+	}
+	if e.categoryDB != nil {
+		e.addInferredTags(&res, e.categoryDB.InferredRange(ip), sources.InferredFromNetname)
 	}
 	if haveASN {
 		e.addInferred(&res, asn)
@@ -713,26 +715,36 @@ func (e *Engine) onlineASName(ctx context.Context, asn uint32) (string, bool) {
 	return name, true
 }
 
-// addInferred adds the tags asname's own rules give asn that res.Category
-// lacks, kept apart so they can be shown as inferred.
+// InferredTag is one tag asname's own rules add, and what it was
+// inferred from: sources.InferredFromNetname, InferredFromName or
+// InferredFromList.
+type InferredTag struct {
+	Tag  string
+	From string
+}
+
+// addInferred adds the tags asname's own rules give asn that res lacks,
+// kept apart so they can be shown as inferred.
 func (e *Engine) addInferred(res *LookupResult, asn uint32) {
 	if e.categoryDB == nil {
 		return
 	}
 	inf := e.categoryDB.Inferred(asn)
-	if len(inf.Tags) == 0 {
-		return
-	}
+	e.addInferredTags(res, inf.Tags, inf.From)
+}
+
+func (e *Engine) addInferredTags(res *LookupResult, tags []string, from string) {
 	have := map[string]bool{}
 	for _, tag := range strings.Split(res.Category, ", ") {
 		have[tag] = true
 	}
-	for _, tag := range inf.Tags {
-		if !have[tag] {
-			res.InferredCategory = append(res.InferredCategory, tag)
-		}
+	for _, t := range res.Inferred {
+		have[t.Tag] = true
 	}
-	if len(res.InferredCategory) > 0 {
-		res.InferredFrom = inf.From
+	for _, tag := range tags {
+		if tag != "" && !have[tag] {
+			res.Inferred = append(res.Inferred, InferredTag{Tag: tag, From: from})
+			have[tag] = true
+		}
 	}
 }

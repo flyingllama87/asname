@@ -23,9 +23,10 @@ export const FIELD_HELP = {
   category: `What kind of network or address this is. Tags with a colon (cloud:aws, vpn:nordvpn, leased:ipxo) and
     tor-exit are about this address itself, from lists the providers publish. Tags without one (hosting, isp, vpn,
     cdn...) describe the network operator as a whole, so "vpn" on 8.8.8.8 means Google runs VPNs somewhere, not that
-    this address is one. Outlined tags are inferred by asname itself, from words in the network's registered name
-    ("... University", "... Telecom", "... Bank") or its own list of well-known networks: usually right, but weaker
-    evidence than the others.`,
+    this address is one. Outlined tags are inferred by asname itself: range: tags from the registry's name for this
+    address's range (a netname like "RU-ROSTELECOM-ADSL" or "MTS-LTE-POOL"), the others from words in the network's
+    registered name ("... University", "... Telecom", "... Bank") or asname's list of well-known networks. Usually
+    right, but weaker evidence than the rest.`,
   reputation: `Whether public blocklists name this address, and what they say about its whole network (ASN). Being
     listed is evidence, not proof; how strong depends on the list.`,
   rdns: `The hostname the address's owner set for it (its PTR record). It can hint at a role (mail server, VPN,
@@ -122,6 +123,17 @@ const OPERATOR_TAGS = {
   anycast: 'the address is anycast: the same address is served from many places at once',
 };
 
+// RANGE_TAGS explains the range: tags asname infers from registry netnames.
+const RANGE_TAGS = {
+  broadband: `the registry names it a fixed-line access pool (DSL, PPPoE, fibre, cable or dynamic addresses), so the
+    address is a customer's home or small-office connection, not a server.`,
+  mobile: `the registry names it a mobile data pool (LTE, 3G, GPRS, GGSN, APN), so the address is a phone or mobile
+    router, usually behind carrier NAT shared with many other users.`,
+  cgnat: `the registry names it carrier-grade NAT: one address is shared by many subscribers at once, so the address
+    alone does not identify anyone. The ISP needs the source port and exact time.`,
+  hosting: 'the registry names it a hosting, VPS or data-centre range inside a network that is otherwise not a host: a server, not a person.',
+};
+
 // categoryTagHelp explains one category tag.
 export function categoryTagHelp(tag) {
   const [kind, value] = tag.includes(':') ? tag.split(/:(.*)/) : [tag, ''];
@@ -140,6 +152,7 @@ export function categoryTagHelp(tag) {
   if (kind === 'leased' && value) {
     return `Rented out through the IP leasing broker ${brokerName(value)}. Whoever uses it now may change often and may not be who the registry lists.`;
   }
+  if (kind === 'range' && RANGE_TAGS[value]) return `About this address's range, from its registry netname: ${RANGE_TAGS[value]}`;
   if (OPERATOR_TAGS[tag]) return `About the network, not this address: ${OPERATOR_TAGS[tag]}.`;
   return 'A classification of the network or address.';
 }
@@ -198,7 +211,7 @@ export function findings(r, loaded = {}) {
   const lists = rep.lists || [];
   const asnRep = rep.asn;
   const tags = r.category?.tags || [];
-  const inferred = r.category?.inferred || [];
+  const inferred = (r.category?.inferred || []).map((t) => t.tag);
   const isASN = !r.ip;
   const asn = r.asn?.asn_string || 'this network';
 
@@ -246,9 +259,25 @@ export function findings(r, loaded = {}) {
     add('info', 'Not announced on the internet: private, reserved or unused space. Traffic that claims to come from it is internal or spoofed.');
   }
 
-  // What kind of network, unless the address itself is classified. asname's
-  // own inferred tags count too, said as such.
-  if (!tags.some((t) => t.includes(':') || t === 'tor-exit')) {
+  // What the registry calls this address's range, from its netname.
+  const ranges = inferred.filter((t) => t.startsWith('range:'));
+  if (ranges.includes('range:cgnat')) {
+    add('medium', 'Carrier-grade NAT (inferred from the range\'s netname): many subscribers share this address at once. To identify one, the ISP needs the source port and the exact time, not just the address.');
+  }
+  const rangeKnown = ranges.some((t) => ['range:broadband', 'range:mobile', 'range:hosting'].includes(t));
+  if (!tags.some((t) => t.includes(':') || t === 'tor-exit') && rangeKnown) {
+    if (ranges.includes('range:mobile')) {
+      add('info', 'A mobile data pool (inferred from the range\'s netname): a phone or mobile router, almost certainly a person. These addresses are shared through carrier NAT and change often, so tie activity to a time and port as well as the address.');
+    } else if (ranges.includes('range:broadband')) {
+      add('info', 'A broadband access pool (inferred from the range\'s netname): a home or small-office connection, so probably a real person or small business. The address may be reassigned over time, so tie activity to a time.');
+    } else {
+      add('info', 'A hosting range (inferred from the range\'s netname): a server rather than a person, run by whoever the netblock names.');
+    }
+  }
+
+  // What kind of network, unless the address itself or its range is
+  // classified. asname's own inferred tags count too, said as such.
+  if (!tags.some((t) => t.includes(':') || t === 'tor-exit') && !rangeKnown) {
     const has = (t) => tags.includes(t) || inferred.includes(t);
     const guess = (...ts) => (ts.some((t) => tags.includes(t)) ? '' : ' (inferred from its name)');
     if (has('isp') || has('mobile')) {

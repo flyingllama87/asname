@@ -28,6 +28,9 @@ type CategoryDB struct {
 	sets     []string
 	vpnLists map[string]VPNList
 	inferred map[uint32]InferredTags
+	// ranges and rangeSets hold the netname rules' range: tags.
+	ranges    database.Database
+	rangeSets []string
 }
 
 // VPNList says where the addresses behind a vpn:<provider> tag came from, and
@@ -134,7 +137,58 @@ func OpenCategoryDB(path string) (*CategoryDB, error) {
 		db.inferred[asn] = inf
 		rest = after
 	}
+
+	// Databases built before the netname rules end here.
+	if len(rest) < 8 {
+		return db, nil
+	}
+	rangeLen := binary.LittleEndian.Uint64(rest[:8])
+	rest = rest[8:]
+	if uint64(len(rest)) < rangeLen+4 {
+		return nil, fmt.Errorf("truncated database: range tags are short")
+	}
+	if rangeLen > 0 {
+		if db.ranges, err = database.NewFromDump(bytes.NewReader(rest[:rangeLen])); err != nil {
+			return nil, fmt.Errorf("parsing range table: %v", err)
+		}
+	}
+	rest = rest[rangeLen:]
+	rangeSetCount := binary.LittleEndian.Uint32(rest[:4])
+	rest = rest[4:]
+	db.rangeSets = make([]string, 1, rangeSetCount+1)
+	for range rangeSetCount {
+		set, after, ok := bytes.Cut(rest, []byte{0})
+		if !ok {
+			return nil, fmt.Errorf("truncated database: range tag sets are short")
+		}
+		db.rangeSets = append(db.rangeSets, string(set))
+		rest = after
+	}
 	return db, nil
+}
+
+// InferredRange returns the range: tags the netname rules gave the
+// registry range holding ip, or none.
+func (d *CategoryDB) InferredRange(ip net.IP) []string {
+	if d.ranges == nil {
+		return nil
+	}
+	v, err := d.ranges.Lookup(ip)
+	if err != nil || v.Number == 0 || int(v.Number) >= len(d.rangeSets) {
+		return nil
+	}
+	return strings.Split(d.rangeSets[v.Number], ", ")
+}
+
+// asnTags returns every AS's tags, for evaluating the rules.
+func (d *CategoryDB) asnTags() map[uint32][]string {
+	out := make(map[uint32][]string, len(d.asns))
+	for asn, set := range d.asns {
+		if set != 0 && int(set) < len(d.sets) {
+			out[asn] = strings.Split(d.sets[set], ", ")
+		}
+	}
+	return out
 }
 
 // Inferred returns the tags asname's own rules gave asn when the database

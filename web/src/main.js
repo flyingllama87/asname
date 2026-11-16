@@ -92,6 +92,7 @@ const SRC = {
   category: 'Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline',
   inferredName: "asname's rules on words in the AS name (inferrules.yaml), offline",
   inferredList: "asname's list of well-known networks (inferrules.yaml), offline",
+  inferredNetname: "asname's rules on the registry netname (inferrules.yaml), offline",
   rdns: 'Live DNS PTR query',
   rep: 'Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline',
   ripeStat: 'Live RIPEstat announced-prefixes API',
@@ -752,14 +753,18 @@ function resultCard(r, i) {
 
   // Category
   const catTags = r.category?.tags || [];
-  const inferredTags = r.category?.inferred || [];
-  const inferredFrom = r.category?.inferred_from === 'list' ? "asname's list of known networks" : 'the AS name';
+  // asname's own tags: [{tag, from}], from "netname", "name" or "list".
+  const inferredList = r.category?.inferred || [];
+  const inferredTags = inferredList.map((t) => t.tag);
+  const fromText = { netname: "the range's netname", name: 'the AS name', list: "asname's list of known networks" };
   let categoryBody = nothing;
   const inferredView = inferredTags.length
-    ? html`<div class="tags inferred-tags">
-        ${inferredTags.map((t) => html`<cds-tag size="sm" type="outline">${t}</cds-tag>`)}
-        <span class="meta">inferred from ${inferredFrom}</span>
-      </div>`
+    ? [...new Set(inferredList.map((t) => t.from))].map(
+        (from) => html`<div class="tags inferred-tags">
+          ${inferredList.filter((t) => t.from === from).map((t) => html`<cds-tag size="sm" type="outline">${t.tag}</cds-tag>`)}
+          <span class="meta">inferred from ${fromText[from] || from}</span>
+        </div>`,
+      )
     : nothing;
   if (catTags.length) {
     categoryBody = html`<div class="tags">${catTags.map((t) => html`<cds-tag size="sm" type=${t.includes(':') || t === 'tor-exit' || t === 'anonymised-holder' ? 'purple' : 'teal'}>${t}</cds-tag>`)}</div>${inferredView}`;
@@ -770,7 +775,9 @@ function resultCard(r, i) {
     categoryBody = unknown();
     sources.push(['Category', SRC.category]);
   }
-  if (inferredTags.length) sources.push(['Inferred', r.category?.inferred_from === 'list' ? SRC.inferredList : SRC.inferredName]);
+  for (const from of new Set(inferredList.map((t) => t.from))) {
+    sources.push(['Inferred', from === 'list' ? SRC.inferredList : from === 'netname' ? SRC.inferredNetname : SRC.inferredName]);
+  }
   const categoryHelp = tagList(
     FIELD_HELP.category,
     [...catTags, ...inferredTags.filter((t) => !catTags.includes(t))].map((t) => [inferredTags.includes(t) && !catTags.includes(t) ? `${t} (inferred)` : t, categoryTagHelp(t)]),

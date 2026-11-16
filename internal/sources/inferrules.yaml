@@ -167,3 +167,32 @@ asns:
   - {asn: 16625, tags: [cdn], expect: Akamai}
   - {asn: 15133, tags: [cdn], expect: Edgecast}
   - {asn: 22822, tags: [cdn], expect: Limelight}
+
+# Registry netnames say what a range is used for: "RU-ROSTELECOM-ADSL",
+# "PPPoE_reserv", "MTS-LTE-POOL". A netname is split into words at anything
+# that is not a letter or digit, lower-cased, with trailing digits dropped
+# ("ADSL2" is "adsl"); the words below are matched whole. The tags describe
+# the range, not the operator, so they carry "range:".
+#
+# These name what a connection is (an access line, a mobile data pool, a
+# shared NAT address), not who uses it: a DSL range may be one small
+# office's line. They are skipped inside networks that only host servers
+# (hosting, content or CDN, and not ISP, mobile or transit), where names like
+# "US_broadband_Internet" or "DHCP-for-VPC" describe a customer or a cloud
+# feature rather than an access network.
+netnames:
+  words:
+    broadband: [dsl, adsl, vdsl, xdsl, pppoe, bras, bng, ftth, fttb, fttx, gpon, epon, xpon, docsis, residential,
+      dynamic, dyn, dhcp, dialup, broadband, subscribers, abonents]
+    mobile_tech: [lte, 3g, 4g, 5g, gprs, umts, wcdma, hspa, ggsn, apn, volte]
+    mobile: [mobile, mob]
+    pool: [pool, pools, users, subscribers, abonents, dynamic, dyn, nat, cgn, cgnat, data, internet]
+    cgnat: [cgnat, cgn, nat44, lsn, natpool]
+    not_cgnat: [bypass, nocgn, nocgnat]
+    hosting: [vps, vds, hosting, webhosting, colocation, datacenter, datacentre]
+  rules:
+    - {tag: "range:cgnat", match: [cgnat], not: [not_cgnat]}
+    - {tag: "range:mobile", match: [mobile_tech]}
+    - {tag: "range:mobile", match: [mobile, pool]}
+    - {tag: "range:broadband", match: [broadband], not: [hosting, mobile_tech]}
+    - {tag: "range:hosting", match: [hosting], not: [broadband, mobile_tech, cgnat]}

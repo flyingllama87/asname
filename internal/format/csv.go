@@ -88,7 +88,9 @@ func FormatCSVLookupOutput(res engine.LookupResult) string {
 	}
 	if j.Category != nil {
 		row["category"] = strings.Join(j.Category.Tags, " ")
-		row["category_inferred"] = strings.Join(j.Category.Inferred, " ")
+		for _, t := range j.Category.Inferred {
+			row["category_inferred"] = strings.TrimSpace(row["category_inferred"] + " " + t.Tag)
+		}
 	}
 	if j.Reputation != nil {
 		row["reputation"] = strings.Join(j.Reputation.Lists, " ")

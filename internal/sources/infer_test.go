@@ -1,9 +1,12 @@
 package sources
 
 import (
+	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -186,4 +189,87 @@ func anyOf(set map[string]bool, tags []string) bool {
 		}
 	}
 	return false
+}
+
+// TestInferNetnamesAgainstData applies the netname rules to every range of
+// a real netblock database (ASNAME_INFER_EVAL, holding netblock.db,
+// asname.db, asn_db.txt and category.db) and reports how many ranges each
+// tag covers, how many were skipped inside hosting networks, and a sample
+// of each to read (ASNAME_INFER_EVAL_VERBOSE=1).
+func TestInferNetnamesAgainstData(t *testing.T) {
+	dir := os.Getenv("ASNAME_INFER_EVAL")
+	if dir == "" {
+		t.Skip("set ASNAME_INFER_EVAL to a data directory to measure the rules")
+	}
+	cat, err := OpenCategoryDB(filepath.Join(dir, CategoryFilename))
+	require.NoError(t, err)
+	names, err := LoadNames(filepath.Join(dir, NamesFilename))
+	require.NoError(t, err)
+	r, err := DefaultInferRules()
+	require.NoError(t, err)
+
+	b := newCategoryBuilder(context.Background())
+	for asn, tags := range cat.asnTags() {
+		for _, tag := range tags {
+			b.addASN(asn, tag)
+		}
+	}
+	for asn, name := range names {
+		if inf := r.Infer(asn, name); len(inf.Tags) > 0 {
+			b.inferred[asn] = inf
+		}
+	}
+	stats, err := b.importNetnames(filepath.Join(dir, NetblockFilename), filepath.Join(dir, DBFilename))
+	require.NoError(t, err)
+	for _, tag := range slices.Sorted(maps.Keys(stats.ranges)) {
+		t.Logf("%-16s %8d ranges, %6.1fM IPv4 addresses; %d ranges skipped inside hosting networks",
+			tag, stats.ranges[tag], float64(stats.addrs4[tag])/1e6, stats.skipped[tag])
+	}
+	if os.Getenv("ASNAME_INFER_EVAL_VERBOSE") != "" {
+		for _, tag := range slices.Sorted(maps.Keys(stats.samples)) {
+			for _, s := range stats.samples[tag] {
+				t.Logf("%s %s", tag, s)
+			}
+		}
+	}
+}
+
+func TestInferNetname(t *testing.T) {
+	r, err := DefaultInferRules()
+	require.NoError(t, err)
+	cases := map[string][]string{
+		// Real netnames.
+		"IP2000-ADSL-BAS":              {"range:broadband"},
+		"ERTH-SPB-PPPOE-50-NET":        {"range:broadband"},
+		"EWETEL-DYN-POOL-0185":         {"range:broadband"},
+		"KZ-TNSPLUS-FTTB":              {"range:broadband"},
+		"AS8758-DYNAMIC-DSL-DHCP-POOL": {"range:broadband"},
+		"RABAT_3G_MarocTelecom":        {"range:mobile"},
+		"GGSN-3G-ISAT-ID":              {"range:mobile"},
+		"MTS-MOBILE-POOL":              {"range:mobile"},
+		"MOSLINE-CGNAT0":               {"range:cgnat"},
+		"UK-CGN-20190823":              {"range:cgnat"},
+		"NETKZ_ALMATY_VPS":             {"range:hosting"},
+		"INFOMANIAK-HOSTING":           {"range:hosting"},
+		"ADSL2-POOL":                   {"range:broadband"},
+		// A customer's company name is not a mobile pool.
+		"MOBILE-FUNCTION-GMBH":         nil,
+		"RSPC-UK-Mobile-Phones-Direct": nil,
+		// "bypass" means the range avoids the NAT.
+		"WLINK_BROADBAND_DYNAMIC_BRAS-JWL-01_DEFAULT-POOL-CGNAT-BYPASS": {"range:broadband"},
+		// Words inside other words do not count.
+		"DSLAMMGMT": nil,
+		"GOOGLE":    nil,
+	}
+	for name, want := range cases {
+		require.Equal(t, want, r.InferNetname(name), name)
+	}
+}
+
+func TestHostingOnly(t *testing.T) {
+	require.True(t, HostingOnly([]string{"hosting", "vpn"}))
+	require.True(t, HostingOnly([]string{"content"}))
+	require.False(t, HostingOnly([]string{"hosting", "isp"}), "an ISP that also hosts")
+	require.False(t, HostingOnly([]string{"enterprise"}))
+	require.False(t, HostingOnly(nil))
 }

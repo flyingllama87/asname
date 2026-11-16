@@ -92,6 +92,9 @@ func SourceCatalog(key string) []CatalogSource {
 			CatalogSource{Name: InferSourceName, URL: "https://github.com/flyingllama87/asname/blob/main/internal/sources/inferrules.yaml",
 				Condition: "with the AS names list",
 				Provides:  "asname's own rules: education, government, finance, healthcare, ISP, mobile and hosting from words in the AS's registered name, and a short list of well-known networks. Shown as inferred, alongside the other sources' tags."},
+			CatalogSource{Name: InferNetnameSourceName, URL: "https://github.com/flyingllama87/asname/blob/main/internal/sources/inferrules.yaml",
+				Condition: "with the netblock database",
+				Provides:  "asname's own rules on registry netnames: broadband pools (DSL, PPPoE, fibre, dynamic), mobile data pools (LTE, 3G, GGSN), carrier-grade NAT and hosting ranges, tagged range:... per address range. Shown as inferred."},
 		)
 		return out
 	case KeyReputation:

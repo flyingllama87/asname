@@ -2,6 +2,8 @@ package sources
 
 import (
 	"context"
+	"fmt"
+	"github.com/flyingllama87/asname/pkg/database"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -259,4 +261,69 @@ func TestCategoryInferredNeedsNames(t *testing.T) {
 	b := newCategoryBuilder(context.Background())
 	_, err := b.importInferred(filepath.Join(t.TempDir(), "missing.txt"))
 	require.ErrorContains(t, err, "AS names list")
+}
+
+func TestCategoryNetnameRangeTags(t *testing.T) {
+	dir := t.TempDir()
+	nbPath := buildTestNetblockDB(t, func(b *netblockBuilder) {
+		b.add(net.ParseIP("10.0.0.0"), net.ParseIP("10.0.3.255"), "ACME-NET", "Acme Telecom", NetblockMeta{})
+		b.add(net.ParseIP("10.0.1.0"), net.ParseIP("10.0.1.255"), "ACME-ADSL-POOL", "Acme Telecom", NetblockMeta{})
+		b.add(net.ParseIP("10.1.0.0"), net.ParseIP("10.1.0.255"), "US_broadband_Internet", "Customer", NetblockMeta{})
+		start, end, _ := ParseNetRange("2001:db8::/48")
+		b.add(start, end, "ACME-LTE-POOL", "Acme Telecom", NetblockMeta{})
+	})
+
+	asns := database.NewBuilder()
+	for cidr, asn := range map[string]uint32{"10.0.0.0/16": 64500, "10.1.0.0/16": 64501, "2001:db8::/32": 64500} {
+		_, n, err := net.ParseCIDR(cidr)
+		require.NoError(t, err)
+		require.NoError(t, asns.InsertMapping(n, asn))
+	}
+	asnDB, err := asns.Build()
+	require.NoError(t, err)
+	asnBytes, err := asnDB.MarshalBinary()
+	require.NoError(t, err)
+	asnPath := filepath.Join(dir, DBFilename)
+	require.NoError(t, os.WriteFile(asnPath, asnBytes, 0o644))
+
+	db := buildTestCategoryDB(t, func(b *categoryBuilder) {
+		b.addASN(64500, "isp")
+		b.addASN(64501, "hosting") // only hosts servers: its "broadband" is a customer's name
+		st, err := b.importNetnames(nbPath, asnPath)
+		require.NoError(t, err)
+		require.Equal(t, 1, st.ranges["range:broadband"])
+		require.Equal(t, 1, st.skipped["range:broadband"])
+		require.Equal(t, 1, st.ranges["range:mobile"])
+	})
+
+	require.Equal(t, []string{"range:broadband"}, db.InferredRange(net.ParseIP("10.0.1.7")))
+	require.Nil(t, db.InferredRange(net.ParseIP("10.0.0.7")), "the parent range has no such word")
+	require.Nil(t, db.InferredRange(net.ParseIP("10.0.2.0")), "the parent resumes after the pool")
+	require.Nil(t, db.InferredRange(net.ParseIP("10.1.0.1")), "skipped inside a hosting network")
+	require.Equal(t, []string{"range:mobile"}, db.InferredRange(net.ParseIP("2001:db8::1")))
+}
+
+func TestNetblockEachRangeMatchesLookup(t *testing.T) {
+	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
+		b.add(net.ParseIP("183.177.52.0"), net.ParseIP("183.177.55.255"), "EQUINIX-AU", "Equinix", NetblockMeta{})
+		b.add(net.ParseIP("183.177.54.128"), net.ParseIP("183.177.54.135"), "SISS-SY4", "SISS", NetblockMeta{})
+		b.add(net.ParseIP("255.255.255.0"), net.ParseIP("255.255.255.255"), "LAST-V4", "", NetblockMeta{})
+	})
+	nb, err := OpenNetblockDB(path)
+	require.NoError(t, err)
+	defer nb.Close()
+
+	var got []string
+	require.NoError(t, nb.EachRange(func(r NetblockRange) error {
+		name, err := nb.str(r.NetnameOff)
+		require.NoError(t, err)
+		got = append(got, fmt.Sprintf("%s-%s %s", r.Start, r.End, name))
+		return nil
+	}))
+	require.Equal(t, []string{
+		"183.177.52.0-183.177.54.127 EQUINIX-AU",
+		"183.177.54.128-183.177.54.135 SISS-SY4",
+		"183.177.54.136-183.177.55.255 EQUINIX-AU",
+		"255.255.255.0-255.255.255.255 LAST-V4",
+	}, got)
 }

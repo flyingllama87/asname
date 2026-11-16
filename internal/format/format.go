@@ -47,7 +47,7 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 			{label: "Name", value: nameWithSource(res), width: UniformNameWidth},
 			{label: "Country", value: res.Country, width: UniformCountryWidth},
 		}
-		if res.Category != "" || len(res.InferredCategory) > 0 {
+		if res.Category != "" || len(res.Inferred) > 0 {
 			fields = append(fields, outputField{label: "Category", value: categoryWithInferred(res), width: UniformCategoryWidth})
 		}
 		if len(res.Prefixes) > 0 {
@@ -94,7 +94,7 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 	if res.NetblockCountry != "" && res.NetblockCountry != res.Country {
 		fields = append(fields, outputField{label: "Block country", value: res.NetblockCountry, width: UniformCountryWidth})
 	}
-	if res.Category != "" || len(res.InferredCategory) > 0 {
+	if res.Category != "" || len(res.Inferred) > 0 {
 		fields = append(fields, outputField{label: "Category", value: categoryWithInferred(res), width: UniformCategoryWidth})
 	}
 	if res.RDNS != "" {
@@ -234,12 +234,21 @@ func nameWithSource(res engine.LookupResult) string {
 // categoryWithInferred is the category with asname's inferred tags after
 // it: "isp; inferred: finance", or "inferred: finance" alone.
 func categoryWithInferred(res engine.LookupResult) string {
-	if len(res.InferredCategory) == 0 {
+	if len(res.Inferred) == 0 {
 		return res.Category
 	}
-	inferred := "inferred: " + strings.Join(res.InferredCategory, ", ")
+	inferred := "inferred: " + strings.Join(InferredTagNames(res.Inferred), ", ")
 	if res.Category == "" || res.Category == "Unknown" {
 		return inferred
 	}
 	return res.Category + "; " + inferred
+}
+
+// InferredTagNames lists the tags of inferred, in order.
+func InferredTagNames(inferred []engine.InferredTag) []string {
+	out := make([]string, len(inferred))
+	for i, t := range inferred {
+		out[i] = t.Tag
+	}
+	return out
 }

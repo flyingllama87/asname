@@ -177,27 +177,25 @@ func TestShouldColorize(t *testing.T) {
 func TestFormatInferredCategory(t *testing.T) {
 	res := samplePrettyResult()
 	res.Category = "isp"
-	res.InferredCategory = []string{"finance"}
-	res.InferredFrom = sources.InferredFromName
+	res.Inferred = []engine.InferredTag{{Tag: "range:broadband", From: sources.InferredFromNetname}, {Tag: "finance", From: sources.InferredFromName}}
 
 	out := FormatPrettyLookupOutput(res, 0, 1, false)
 	require.Contains(t, out, "Category:          isp")
-	require.Contains(t, out, "Inferred:          finance [from the AS name]")
-	require.Contains(t, out, "Inferred:          asname's rules on words in the AS name")
+	require.Contains(t, out, "Inferred:          range:broadband [from the range's netname]")
+	require.Contains(t, out, "                   finance [from the AS name]")
+	require.Contains(t, out, "Inferred:          asname's rules on the registry netname; asname's rules on words in the AS name")
 
-	require.Equal(t, "isp; inferred: finance", categoryWithInferred(res))
+	require.Equal(t, "isp; inferred: range:broadband, finance", categoryWithInferred(res))
 	j := ToJSONResult(res)
 	require.Equal(t, []string{"isp"}, j.Category.Tags)
-	require.Equal(t, []string{"finance"}, j.Category.Inferred)
-	require.Equal(t, "name", j.Category.InferredFrom)
+	require.Equal(t, []JSONInferredTag{{Tag: "range:broadband", From: "netname"}, {Tag: "finance", From: "name"}}, j.Category.Inferred)
 
 	// Only inferred: the category says so rather than Unknown.
 	res.Category = "Unknown"
-	res.InferredCategory, res.InferredFrom = []string{"hosting"}, sources.InferredFromList
+	res.Inferred = []engine.InferredTag{{Tag: "hosting", From: sources.InferredFromList}}
 	require.Equal(t, "inferred: hosting", categoryWithInferred(res))
 	j = ToJSONResult(res)
 	require.Equal(t, []string{}, j.Category.Tags)
-	require.Equal(t, []string{"hosting"}, j.Category.Inferred)
 	out = FormatPrettyLookupOutput(res, 0, 1, false)
 	require.Contains(t, out, "[asname's list of known networks]")
 }

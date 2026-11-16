@@ -39,11 +39,11 @@ type Result struct {
 	NetblockCountry string `json:"netblock_country,omitempty"`
 	NetblockCreated string `json:"netblock_created,omitempty"`
 	Category        string `json:"category,omitempty"`
-	// CategoryInferred holds tags asname's own rules add from the AS's
-	// registered name ("name") or its list of well-known networks ("list"),
-	// as CategoryInferredFrom says; they are weaker evidence than Category.
-	CategoryInferred     []string `json:"category_inferred,omitempty"`
-	CategoryInferredFrom string   `json:"category_inferred_from,omitempty"`
+	// CategoryInferred holds tags asname's own rules add, weaker evidence
+	// than Category, each with what it was inferred from: "netname" (the
+	// range's registry netname), "name" (the AS name) or "list" (asname's
+	// list of well-known networks).
+	CategoryInferred []InferredTag `json:"category_inferred,omitempty"`
 	// Reputation names the public blocklists listing the address, such as
 	// "ipsum:7" (IPsum, on 7 of its source lists), "firehol-level2" or
 	// "spamhaus-drop:SBL123456". ASNReputation is what the lists say about
@@ -148,30 +148,29 @@ func known(s string) string {
 
 func resultFromEngine(r engine.LookupResult) Result {
 	return Result{
-		Target:               r.Target,
-		Host:                 r.Host,
-		IP:                   r.IP,
-		ASN:                  known(r.ASN),
-		Name:                 known(r.Name),
-		Country:              known(r.Country),
-		City:                 known(r.City),
-		Netblock:             known(r.Netblock),
-		NetblockLive:         r.NetblockLive,
-		NetblockSource:       r.NetblockSource,
-		NameSource:           r.NameSource,
-		NetblockCountry:      r.NetblockCountry,
-		NetblockCreated:      r.NetblockCreated,
-		Category:             known(r.Category),
-		CategoryInferred:     r.InferredCategory,
-		CategoryInferredFrom: r.InferredFrom,
-		Reputation:           r.Reputation,
-		ASNReputation:        asnReputationFromEngine(r.ASNReputation),
-		RDNS:                 known(r.RDNS),
-		IsASN:                r.IsASN,
-		Prefixes:             r.Prefixes,
-		IPv4Prefixes:         r.IPv4Prefixes,
-		IPv6Prefixes:         r.IPv6Prefixes,
-		PrefixSource:         r.PrefixSource,
+		Target:           r.Target,
+		Host:             r.Host,
+		IP:               r.IP,
+		ASN:              known(r.ASN),
+		Name:             known(r.Name),
+		Country:          known(r.Country),
+		City:             known(r.City),
+		Netblock:         known(r.Netblock),
+		NetblockLive:     r.NetblockLive,
+		NetblockSource:   r.NetblockSource,
+		NameSource:       r.NameSource,
+		NetblockCountry:  r.NetblockCountry,
+		NetblockCreated:  r.NetblockCreated,
+		Category:         known(r.Category),
+		CategoryInferred: inferredTags(r.Inferred),
+		Reputation:       r.Reputation,
+		ASNReputation:    asnReputationFromEngine(r.ASNReputation),
+		RDNS:             known(r.RDNS),
+		IsASN:            r.IsASN,
+		Prefixes:         r.Prefixes,
+		IPv4Prefixes:     r.IPv4Prefixes,
+		IPv6Prefixes:     r.IPv6Prefixes,
+		PrefixSource:     r.PrefixSource,
 	}
 }
 
@@ -319,4 +318,21 @@ func netblockResultFromEngine(r engine.NetblockEnrichedResult) NetblockResult {
 		ASName:     known(r.ASName),
 		Country:    known(r.Country),
 	}
+}
+
+// InferredTag is a category tag asname inferred, and what from.
+type InferredTag struct {
+	Tag  string `json:"tag"`
+	From string `json:"from"`
+}
+
+func inferredTags(in []engine.InferredTag) []InferredTag {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]InferredTag, len(in))
+	for i, t := range in {
+		out[i] = InferredTag{Tag: t.Tag, From: t.From}
+	}
+	return out
 }

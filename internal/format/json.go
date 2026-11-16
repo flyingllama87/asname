@@ -73,11 +73,27 @@ type JSONNetblock struct {
 type JSONCategory struct {
 	Tags []string `json:"tags"`
 	Raw  string   `json:"raw"`
-	// Inferred holds tags asname's own rules add from the AS's registered
-	// name ("name") or its list of well-known networks ("list"), shown
-	// apart from the sources' tags.
-	Inferred     []string `json:"inferred,omitempty"`
-	InferredFrom string   `json:"inferred_from,omitempty"`
+	// Inferred holds tags asname's own rules add, shown apart from the
+	// sources' tags, each with what it was inferred from: "netname" (the
+	// range's registry netname), "name" (the AS name) or "list" (asname's
+	// list of well-known networks).
+	Inferred []JSONInferredTag `json:"inferred,omitempty"`
+}
+
+type JSONInferredTag struct {
+	Tag  string `json:"tag"`
+	From string `json:"from"`
+}
+
+func jsonInferred(in []engine.InferredTag) []JSONInferredTag {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]JSONInferredTag, len(in))
+	for i, t := range in {
+		out[i] = JSONInferredTag{Tag: t.Tag, From: t.From}
+	}
+	return out
 }
 
 // JSONReputation is what public blocklists say about a result. Lists names
@@ -157,12 +173,12 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 				out.Country = &JSONCountry{Code: res.Country, Name: res.Country}
 			}
 		}
-		if res.Category != "" || len(res.InferredCategory) > 0 {
+		if res.Category != "" || len(res.Inferred) > 0 {
 			tags := []string{}
 			if res.Category != "" {
 				tags = strings.Split(res.Category, ", ")
 			}
-			out.Category = &JSONCategory{Tags: tags, Raw: res.Category, Inferred: res.InferredCategory, InferredFrom: res.InferredFrom}
+			out.Category = &JSONCategory{Tags: tags, Raw: res.Category, Inferred: jsonInferred(res.Inferred)}
 		}
 		out.Reputation = newJSONReputation(res)
 		if len(res.Prefixes) > 0 {
@@ -251,7 +267,7 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		}
 	}
 
-	if (res.Category != "" && res.Category != "Unknown") || len(res.InferredCategory) > 0 {
+	if (res.Category != "" && res.Category != "Unknown") || len(res.Inferred) > 0 {
 		tags := []string{}
 		raw := ""
 		if res.Category != "Unknown" {
@@ -264,10 +280,9 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 			}
 		}
 		out.Category = &JSONCategory{
-			Tags:         tags,
-			Raw:          raw,
-			Inferred:     res.InferredCategory,
-			InferredFrom: res.InferredFrom,
+			Tags:     tags,
+			Raw:      raw,
+			Inferred: jsonInferred(res.Inferred),
 		}
 	}
 

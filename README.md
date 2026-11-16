@@ -602,7 +602,8 @@ IP: 104.156.233.174 | ASN: AS20473 | Name: AS-VULTR - The Constant Company, LLC,
 
 Like the other optional databases, the flag is needed once; after that its
 presence on disk is enough. `--no-category` suppresses it for a run. The
-database is small, about 2.5 MB, and builds in under a minute.
+database is about 3 MB, or about 13 MB with the netblock database present (for
+the netname tags below), and builds in a minute or two.
 
 **The two halves of it are not equally trustworthy, and the difference matters.**
 
@@ -654,8 +655,9 @@ something. `biznet` means the network sells business connectivity, which
 describes an ISP rather than the business at the far end.
 
 *Inferred tags* are asname's own, and are shown apart from the rest: as
-`inferred: finance` after the category, an `Inferred:` line in `--pretty`,
-`"inferred"` and `"inferred_from"` in the JSON `category`, a
+`inferred: finance` after the category, an `Inferred:` line in `--pretty`
+saying what each was inferred from, `"inferred": [{"tag": "finance", "from":
+"name"}]` in the JSON `category` (`from` is `name`, `list` or `netname`), a
 `category_inferred` CSV column, and outlined tags in the web UI. About three ASNs
 in four are not described by PeeringDB or bgp.tools at all, yet most say what
 they are in their registered name: "Kennesaw State University", "Patelco
@@ -691,6 +693,40 @@ measure them against your own data:
 ASNAME_INFER_EVAL=~/.asname go test ./internal/sources -run InferRulesAgainstReference -v
 # add ASNAME_INFER_EVAL_VERBOSE=1 to list every disagreement
 ```
+
+**Netnames say even more, about the address itself.** Registries name each
+range, and access networks name theirs for what they are: `IP2000-ADSL-BAS`,
+`ERTH-SPB-PPPOE-50-NET`, `RABAT_3G_MarocTelecom`, `MOSLINE-CGNAT0`. With the
+netblock database present, the category build reads every range's netname and
+tags it `range:broadband` (DSL, PPPoE, fibre, cable or dynamic pools),
+`range:mobile` (LTE, 3G, GPRS, GGSN, APN), `range:cgnat` (carrier-grade NAT,
+where one address is shared by many subscribers and identifying one needs the
+port and time) or `range:hosting` (VPS, hosting or data-centre ranges inside
+networks that are otherwise not hosts). Unlike the AS tags these are about the
+address's own range:
+
+```bash
+$ asname 2.6.213.10
+IP: 2.6.213.10 | ASN: AS3215 | Name: AS3215 Orange S.A., FR | ... | Netblock: IP2000-ADSL-BAS (BSBOR651 Bordeaux Bloc 2) | Category: isp, mobile; inferred: range:broadband
+```
+
+A netname is split into words and matched whole, so "DSLAM" is not "DSL",
+and only words that name a kind of connection count. "mobile" needs a pool
+word beside it, because `MOBILE-FUNCTION-GMBH` is a customer, and `epc` and
+`pgw` were dropped after matching a company and someone's initials. Inside
+networks that only host servers, netnames are not trusted at all: Leaseweb
+names ranges `US_broadband_Internet` and OVH has `DHCP-for-VPC`. On the
+November 2026 data this tags about 352,000 broadband ranges (107 million IPv4
+addresses), 4,700 mobile (24 million), 1,200 CGNAT and 14,000 hosting ranges.
+To measure them, with samples to read:
+
+```bash
+ASNAME_INFER_EVAL=~/.asname ASNAME_INFER_EVAL_VERBOSE=1 go test ./internal/sources -run InferNetnamesAgainstData -v
+```
+
+What a netname says is what the connection is, not who is on it: a DSL range
+may be one small office's line, and a pool named "dynamic" years ago may
+since have been reassigned.
 
 They are still guesses from a name. A bank's AS can carry its IT
 subsidiary, and a telecom equipment maker can read like a telecom. So they never

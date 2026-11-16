@@ -198,7 +198,7 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		formattedCountry := FormatCountryPretty(res.Country)
 		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(formattedCountry), st.notice("AS registration")))
 
-		if res.Category != "" || len(res.InferredCategory) > 0 {
+		if res.Category != "" || len(res.Inferred) > 0 {
 			b.WriteString("\n")
 			b.WriteString(fmt.Sprintf("  %s\n", st.section("Network Classification:")))
 			category := res.Category
@@ -236,7 +236,7 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		if res.Category != "" {
 			rows = append(rows, [2]string{"Category", srcCategory})
 		}
-		if len(res.InferredCategory) > 0 {
+		if len(res.Inferred) > 0 {
 			rows = append(rows, [2]string{"Inferred", inferredSrc(res)})
 		}
 		if res.ASNReputation != nil {
@@ -322,7 +322,7 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		}
 	}
 
-	if res.Category != "" || len(res.InferredCategory) > 0 {
+	if res.Category != "" || len(res.Inferred) > 0 {
 		b.WriteString("\n")
 		b.WriteString(fmt.Sprintf("  %s\n", st.section("Network Classification:")))
 		category := res.Category
@@ -363,7 +363,7 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	if res.Category != "" {
 		rows = append(rows, [2]string{"Category", srcCategory})
 	}
-	if len(res.InferredCategory) > 0 {
+	if len(res.Inferred) > 0 {
 		rows = append(rows, [2]string{"Inferred", inferredSrc(res)})
 	}
 	for _, tag := range slices.Sorted(maps.Keys(res.VPNLists)) {
@@ -547,24 +547,55 @@ func nameSrc(res engine.LookupResult) string {
 	return srcASNames
 }
 
-// writeInferred prints the tags asname's own rules add, saying what they
-// were inferred from.
+// writeInferred prints the tags asname's own rules add, a line for each
+// thing they were inferred from.
 func writeInferred(b *strings.Builder, st prettyStyler, res engine.LookupResult) {
-	if len(res.InferredCategory) == 0 {
-		return
+	label := "Inferred:         "
+	for _, from := range inferredFroms(res) {
+		var tags []string
+		for _, t := range res.Inferred {
+			if t.From == from {
+				tags = append(tags, t.Tag)
+			}
+		}
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label(label), st.category(strings.Join(tags, ", ")), st.notice(inferredFromText(from))))
+		label = "                  "
 	}
-	from := "from the AS name"
-	if res.InferredFrom == sources.InferredFromList {
-		from = "asname's list of known networks"
+}
+
+// inferredFroms lists what res's inferred tags came from, in order.
+func inferredFroms(res engine.LookupResult) []string {
+	var out []string
+	for _, t := range res.Inferred {
+		if !slices.Contains(out, t.From) {
+			out = append(out, t.From)
+		}
 	}
-	b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Inferred:         "),
-		st.category(strings.Join(res.InferredCategory, ", ")), st.notice(from)))
+	return out
+}
+
+func inferredFromText(from string) string {
+	switch from {
+	case sources.InferredFromNetname:
+		return "from the range's netname"
+	case sources.InferredFromList:
+		return "asname's list of known networks"
+	}
+	return "from the AS name"
 }
 
 // inferredSrc is the Data Sources line for inferred tags.
 func inferredSrc(res engine.LookupResult) string {
-	if res.InferredFrom == sources.InferredFromList {
-		return "asname's list of well-known networks (inferrules.yaml), offline"
+	var parts []string
+	for _, from := range inferredFroms(res) {
+		switch from {
+		case sources.InferredFromNetname:
+			parts = append(parts, "asname's rules on the registry netname")
+		case sources.InferredFromList:
+			parts = append(parts, "asname's list of well-known networks")
+		default:
+			parts = append(parts, "asname's rules on words in the AS name")
+		}
 	}
-	return "asname's rules on words in the AS name (inferrules.yaml), offline"
+	return strings.Join(parts, "; ") + " (inferrules.yaml), offline"
 }

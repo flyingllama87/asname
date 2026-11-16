@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"math/bits"
 	"net"
+	"net/netip"
 	"os"
 	"sort"
 	"strings"
@@ -682,4 +683,89 @@ func IPv6RangeToCIDRs(start, end [16]byte) []string {
 		cur.Add(cur, step)
 	}
 	return cidrs
+}
+
+// NetblockRange is one segment of the netblock database: the addresses
+// from Start to End and the offsets of its netname and organisation in the
+// string table (0 for none). Netname and Org are filled in when asked for.
+type NetblockRange struct {
+	Start, End         netip.Addr
+	NetnameOff, OrgOff uint32
+}
+
+// EachRange calls fn for every segment that has a netname or organisation,
+// IPv4 then IPv6, in address order. It stops at the first error fn returns.
+func (d *NetblockDB) EachRange(fn func(NetblockRange) error) error {
+	if d == nil || d.f == nil {
+		return fmt.Errorf("netblock database is not open")
+	}
+	for _, v6 := range []bool{false, true} {
+		count, recSize, base, addrLen := d.v4Count, d.rec4, int64(netblockHeaderSize), 4
+		if v6 {
+			count, recSize, base, addrLen = d.v6Count, d.rec6, d.v6Off, 16
+		}
+		if count == 0 {
+			continue
+		}
+		const chunk = 32 * 1024
+		buf := make([]byte, (chunk+1)*int(recSize))
+		for first := 0; first < count; first += chunk {
+			n := min(chunk+1, count-first) // one more, for the last segment's end
+			if _, err := d.f.ReadAt(buf[:n*int(recSize)], base+int64(first)*recSize); err != nil && err != io.EOF {
+				return err
+			}
+			for i := 0; i < n && first+i < count && i < chunk; i++ {
+				rec := buf[i*int(recSize) : (i+1)*int(recSize)]
+				netOff := binary.LittleEndian.Uint32(rec[addrLen : addrLen+4])
+				orgOff := binary.LittleEndian.Uint32(rec[addrLen+4 : addrLen+8])
+				if netOff == 0 && orgOff == 0 {
+					continue
+				}
+				r := NetblockRange{NetnameOff: netOff, OrgOff: orgOff}
+				last := first+i+1 >= count
+				if v6 {
+					var s, e [16]byte
+					copy(s[:], rec[:16])
+					if last {
+						e = [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+					} else {
+						var next [16]byte
+						copy(next[:], buf[(i+1)*int(recSize):])
+						e = decBytes16(next)
+					}
+					r.Start, r.End = netip.AddrFrom16(s), netip.AddrFrom16(e)
+				} else {
+					s := binary.LittleEndian.Uint32(rec[:4])
+					e := uint32(0xffffffff)
+					if !last {
+						e = binary.LittleEndian.Uint32(buf[(i+1)*int(recSize):]) - 1
+					}
+					r.Start, r.End = addr4(s), addr4(e)
+				}
+				if err := fn(r); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// Strings returns the strings at the given offsets of the string table.
+func (d *NetblockDB) Strings(offsets map[uint32]bool) (map[uint32]string, error) {
+	out := make(map[uint32]string, len(offsets))
+	for off := range offsets {
+		s, err := d.str(off)
+		if err != nil {
+			return nil, err
+		}
+		out[off] = s
+	}
+	return out, nil
+}
+
+func addr4(v uint32) netip.Addr {
+	var b [4]byte
+	binary.BigEndian.PutUint32(b[:], v)
+	return netip.AddrFrom4(b)
 }
