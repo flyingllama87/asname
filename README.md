@@ -12,7 +12,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Organization Search**: Search AS names and millions of registry netblocks by organization name or netname (`asname search <query>`) to find matching ASNs with their announced prefixes, IP ranges and CIDRs.
 - **Country Listings**: List every IP block registered to a country as CIDRs (`asname country AU`), ready for a firewall or allowlist.
 - **City Listings**: List every IP block the city database locates in a city (`asname city "Brisbane, AU"`).
-- **Pretty Cards, JSONL & CSV**: Format results as clean multi-line cards (`--pretty`), streamable JSON objects (`--json`), or CSV for spreadsheets (`--csv`).
+- **Pretty Cards, One-Liners, JSONL & CSV**: Results print as clean multi-line cards by default, or one line each (`--oneline`), streamable JSON objects (`--json`), or CSV for spreadsheets (`--csv`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
 - **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it, along with the country the block itself is registered in and when it was registered.
@@ -134,17 +134,17 @@ A throttled or failing download (HTTP 429 or 5xx) is retried with backoff, honou
 
 ## Usage
 
-Simply pass an IP address to resolve its information:
+Simply pass an IP address to resolve its information. Lookup and search results print as multi-line cards by default (see [Pretty mode](#pretty-mode)); add `--oneline` (or `-o`) to print each result on one line instead, as the examples below do for brevity:
 
 ```bash
-$ asname 8.8.8.8
+$ asname -o 8.8.8.8
 IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 ```
 
 The argument can equally be a hostname. Every address the name resolves to is looked up, one line each:
 
 ```bash
-$ asname dns.google
+$ asname -o dns.google
 Host: dns.google | IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 Host: dns.google | IP: 8.8.4.4 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 ```
@@ -152,7 +152,7 @@ Host: dns.google | IP: 8.8.4.4 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | 
 Or a URL, so you can paste one straight from a browser. The scheme, credentials, port, path, query and fragment are stripped and whatever host remains is looked up:
 
 ```bash
-$ asname 'https://dns.google:443/resolve?name=example.com'
+$ asname -o 'https://dns.google:443/resolve?name=example.com'
 Host: dns.google | IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 ```
 
@@ -165,7 +165,7 @@ $ cat hosts.txt
 1.1.1.1          # cloudflare
 https://github.com/anthropics
 
-$ asname hosts.txt
+$ asname -o hosts.txt
 IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States
 IP: 1.1.1.1 | ASN: AS13335 | Name: CLOUDFLARENET - Cloudflare, Inc., US | Country: AU, Australia
 Host: github.com | IP: 4.237.22.38 | ASN: AS8075 | Name: MICROSOFT-CORP-MSN-AS-BLOCK - Microsoft Corporation, US | Country: US, United States
@@ -178,20 +178,20 @@ An argument that parses as an IP address is always treated as one; an ASN format
 Add `--reverse-dns` (or `-r`) to also send a reverse DNS query and include PTR names in the output:
 
 ```bash
-$ asname --reverse-dns 8.8.8.8
+$ asname -o --reverse-dns 8.8.8.8
 IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Reverse DNS: dns.google
 ```
 
 `--v4-only` and `--v6-only` keep one address family for lookups and for the blocks `country` and `city` list. `search` is IPv4 only unless you pass `--v6` (both families) or `--v6-only`.
 
-Flags can go before or after the arguments, so `asname 8.8.8.8 -r`, `asname city Brisbane -p` and `asname -p city Brisbane` all work. The output, address family and data file flags (`-p`, `-j`, `--csv`, `--color`, `--v4-only`, `--dir`, `--city-db`...) work with every command; the rest belong to lookups (`-r`, `--rest`...) or to `search` (`--limit`, `--asns-only`...) alone.
+Flags can go before or after the arguments, so `asname 8.8.8.8 -r`, `asname city Brisbane -p` and `asname -p city Brisbane` all work. The output, address family and data file flags (`-p`, `-o`, `-j`, `--csv`, `--color`, `--v4-only`, `--dir`, `--city-db`...) work with every command; the rest belong to lookups (`-r`, `--rest`...) or to `search` (`--limit`, `--asns-only`...) alone.
 
 ### ASN lookups
 
 Pass an Autonomous System Number directly (`AS15169`, `asn13335`, or just `AS` followed by the number) to look up the organization, country, network classification, and all announced BGP IP prefixes:
 
 ```bash
-$ asname AS15169
+$ asname -o AS15169
 ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | Category: cdn, content, hosting, vpn | Prefixes: 1415 announced (1239 IPv4, 176 IPv6)
 Announced Prefixes:
   8.8.4.0/24
@@ -200,10 +200,10 @@ Announced Prefixes:
   ...
 ```
 
-Add `--pretty` (or `-p`) for a structured card layout summarizing the prefix breakdown and sample list:
+Without `--oneline`, the default card summarizes the prefix breakdown and a sample list:
 
 ```bash
-$ asname --pretty AS15169
+$ asname AS15169
 Target: AS15169
 ────────────────────────────────────────────────────────────
   Autonomous System:
@@ -228,7 +228,7 @@ Add `--json` (or `-j`) to emit structured JSON Lines containing prefix counts an
 
 Prefixes are answered instantly and offline via `~/.asname/prefixes.db`, which is built automatically from BGP RIB dumps during `asname update`. It holds IPv4 prefixes only unless you opt into IPv6 routes; see [IPv6 routes](#ipv6-routes).
 
-An ASN the prefix database has nothing for, because it announces nothing or the database has not been built, can be looked up on the [RIPEstat](https://stat.ripe.net/) API instead. That is a network query, so like [whois](#filling-the-gaps-with-whois) it is asked about first, and the answer is remembered for an hour in `~/.asname/online-prefixes-consent.json`. Prefixes that came from RIPEstat are labelled as such in `--pretty` and `--json` output.
+An ASN the prefix database has nothing for, because it announces nothing or the database has not been built, can be looked up on the [RIPEstat](https://stat.ripe.net/) API instead. That is a network query, so like [whois](#filling-the-gaps-with-whois) it is asked about first, and the answer is remembered for an hour in `~/.asname/online-prefixes-consent.json`. Prefixes that came from RIPEstat are labelled as such in the card and `--json` output.
 
 - `--online-prefixes` (or `ASNAME_ONLINE_PREFIXES=1`) queries without asking.
 - `--no-online-prefixes` never queries and never asks.
@@ -241,7 +241,7 @@ City-level geolocation is optional and off by default, because the database is
 large. Enable it once with `--city` (or `-c`), which downloads it:
 
 ```bash
-$ asname --city 8.8.8.8
+$ asname -o --city 8.8.8.8
 IP: 8.8.8.8 | ASN: AS15169 | Name: GOOGLE - Google LLC, US | Country: US, United States | City: Mountain View, California, United States
 ```
 
@@ -249,7 +249,7 @@ After that the flag is not needed — the city is included whenever the database
 is present, and refreshed along with everything else:
 
 ```bash
-$ asname 1.1.1.1
+$ asname -o 1.1.1.1
 IP: 1.1.1.1 | ASN: AS13335 | Name: CLOUDFLARENET - Cloudflare, Inc., US | Country: AU, Australia | City: Sydney, New South Wales
 ```
 
@@ -275,7 +275,7 @@ and they publish those databases in bulk. `asname` can build a local index of
 them, enabled once with `--netblock` (or `-n`):
 
 ```bash
-$ asname --netblock 183.177.54.135
+$ asname -o --netblock 183.177.54.135
 IP: 183.177.54.135 | ASN: AS15830 | Name: Equinix Equinix (EMEA) Acquisition Enterprises B.V., NL | Country: AU, Australia | Netblock: SISS-SY4 (Secure Internet Storage Solutions)
 ```
 
@@ -416,7 +416,7 @@ first, so an organization that holds an ASN but no address space of its own
 is still found. Without the netblock database only the AS names are searched.
 
 ```bash
-$ asname search "Cloudflare"
+$ asname -o search "Cloudflare"
 ASN: AS13335 | Name: CLOUDFLARENET - Cloudflare, Inc., US | Country: US, United States | Prefixes: 1.0.0.0/24, 1.1.1.0/24, ...
 ASN: AS14789 | Name: CLOUDFLARENET - Cloudflare, Inc., US | Country: US, United States | Prefixes: ...
 ...
@@ -456,8 +456,8 @@ cat orgs.txt | asname search
 # ...with --csv or --json, each row starts with the query it matched
 cat orgs.txt | asname search --csv > results.csv
 
-# Output formats: pretty cards (--pretty), JSON Lines (--json) or CSV (--csv)
-asname search --pretty --limit 5 "Cloudflare"
+# Output formats: pretty cards (the default), one line each (--oneline), JSON Lines (--json) or CSV (--csv)
+asname search --limit 5 "Cloudflare"
 asname search --json "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + " " + .org'
 asname search --json --asns-only "Valve" | jq -r '.ipv4_prefixes[]?'
 ```
@@ -523,13 +523,13 @@ Who owns an address and what it is *for* are different questions. `--category`
 university, Tor exit, a named VPN provider's server and so on.
 
 ```bash
-$ asname -C 13.32.0.1
+$ asname -o -C 13.32.0.1
 IP: 13.32.0.1 | ASN: AS16509 | Name: AMAZON-02 - Amazon.com, Inc., US | Country: US, United States | Category: cdn, cloud:aws
 
-$ asname 139.130.4.5
+$ asname -o 139.130.4.5
 IP: 139.130.4.5 | ASN: AS1221 | Name: ASN-TELSTRA Telstra Limited, AU | Country: AU, Australia | Category: isp, mobile
 
-$ asname 104.156.233.174
+$ asname -o 104.156.233.174
 IP: 104.156.233.174 | ASN: AS20473 | Name: AS-VULTR - The Constant Company, LLC, US | Country: US, United States | Category: cloud:vultr, vpn:vpn-unlimited
 ```
 
@@ -559,7 +559,7 @@ A provider whose own list cannot be read, or whose hostnames mostly fail to
 resolve, falls back to gluetun's copy, so a network that filters VPN domains
 still gets a complete, if older, set. Each server address is tagged with its
 provider, as `vpn:nordvpn`, `vpn:private-internet-access` and so on, and
-`--pretty` shows under Data Sources which list it came from and its date.
+The card shows under Data Sources which list it came from and its date.
 
 Two limits apply. The lists hold the addresses a client *connects to*, plus
 exit addresses where NordVPN and AirVPN list them; most providers send traffic
@@ -627,7 +627,7 @@ database thinner than it should be — check the per-source counts if you care.
 Add `--uniform` (or `-u`) to print aligned fields:
 
 ```bash
-$ asname -u -r 8.8.8.8
+$ asname -o -u -r 8.8.8.8
 IP: 8.8.8.8                                | ASN: AS15169      | Name: GOOGLE - Google LLC, US                                      | Country: US, United States         | Reverse DNS: dns.google
 ```
 
@@ -635,17 +635,17 @@ IP: 8.8.8.8                                | ASN: AS15169      | Name: GOOGLE - 
 
 `--reputation` (or `-R`) reports which free public blocklists name an address, and what they say about the ASN announcing it. It is off until you ask for it once; after that the database's presence on disk is enough, for lookups and for `search`. `--no-reputation` suppresses it for a run.
 
-Reputation is shown in pretty, JSON and CSV output, not in the default one-line output:
+Reputation is shown in the default card, JSON and CSV output, not in `--oneline` output:
 
 ```bash
-$ asname -R -p 77.91.71.90
+$ asname -R 77.91.71.90
 ...
   Reputation:
     Address:           firehol-level2, firehol-level3, ipsum:7
     ASN:               11 listed IPs (1.43% of 768 announced IPv4), max 7 lists
 ...
 
-$ asname -p 8.8.8.8
+$ asname 8.8.8.8
 ...
   Reputation:
     Address:           not listed
@@ -669,7 +669,7 @@ The ASN-level summary is the useful signal for spotting a dodgy ASN:
 - **Listed IPs**: distinct addresses inside the ASN's routes that IPsum or FireHOL name, with the share of its announced IPv4 space when the prefix database has its routes. Every large network has some listed addresses, so judge by the share, not the count: Google's 233 are 0.01% of its space, while AS211486's 11 are 1.43% of three /24s.
 - **max N lists**: the highest IPsum count among those addresses.
 
-In `--pretty` mode the AS card for an ASN lookup or `search` result shows the ASN summary. `--json` carries the same data under `reputation`, including `listed_share_pct`, and `--csv` adds `reputation` and `asn_reputation` columns.
+In the default card output the AS card for an ASN lookup or `search` result shows the ASN summary. `--json` carries the same data under `reputation`, including `listed_share_pct`, and `--csv` adds `reputation` and `asn_reputation` columns.
 
 The database is about 10 MB and builds in under ten seconds. Like the other databases it is refreshed when older than `--max-age`. `asname update --reputation-only` refreshes it on demand. Per-ASN counts are attributed using the ASN database at build time, so `asname update` builds it last.
 
@@ -677,10 +677,10 @@ FireHOL level 1 is not used: it includes the full bogon list, so private and una
 
 ### Pretty mode
 
-Add `--pretty` (or `-p`) to display results in a structured, multi-line card layout with plenty of whitespace and terminal color highlights:
+Lookup and search results are displayed as a structured, multi-line card layout with plenty of whitespace and terminal color highlights. This is the default; `--pretty` (or `-p`) asks for it explicitly, and `--oneline` (or `-o`) prints one line per result instead. For `country` and `city`, whose default is a plain CIDR list, `--pretty` gives a card with block counts:
 
 ```bash
-$ asname --pretty 8.8.8.8
+$ asname 8.8.8.8
 Target: 8.8.8.8
 ────────────────────────────────────────────────────────────
   Address Details:

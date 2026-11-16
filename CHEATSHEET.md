@@ -42,12 +42,16 @@ asname hosts.txt
 
 ### Output Formats
 ```bash
-# Multi-line card layout with generous whitespace and colors
-asname -p 8.8.8.8
-asname --pretty AS15169
+# Multi-line card layout with generous whitespace and colors (the default)
+asname 8.8.8.8
+asname AS15169
+
+# One line per result
+asname -o 8.8.8.8
+asname --oneline dns.google
 
 # Force colors when piping pretty output to pagers
-asname -p --color 8.8.8.8 | less -R
+asname --color 8.8.8.8 | less -R
 
 # Aligned columnar output
 asname -u 8.8.8.8
@@ -86,8 +90,9 @@ cat orgs.txt | asname search
 # ...with --csv or --json, each row starts with the query it matched
 cat orgs.txt | asname search --csv > results.csv
 
-# Formats: pretty cards or JSON Lines
-asname search -p --limit 5 "Cloudflare"
+# Formats: pretty cards (default), one line each, or JSON Lines
+asname search --limit 5 "Cloudflare"
+asname search -o "Cloudflare"
 asname search -j "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + " " + .org'
 ```
 
@@ -132,11 +137,11 @@ asname -n 183.177.54.135
 asname -C 13.32.0.1
 
 # Reputation: Spamhaus DROP/ASN-DROP, IPsum, FireHOL hits for the IP and its ASN (builds ~10MB DB on first use)
-asname -R -p 77.91.71.90
-asname -p AS211486
+asname -R 77.91.71.90
+asname AS211486
 
-# Combine all enrichments in pretty mode
-asname -p -r -c -n -C 8.8.8.8
+# Combine all enrichments
+asname -r -c -n -C 8.8.8.8
 ```
 
 ---
@@ -146,8 +151,9 @@ asname -p -r -c -n -C 8.8.8.8
 Stream targets line-by-line in real-time with fastest-first concurrent DNS resolution.
 
 ```bash
-# Stream from stdin into pretty cards
-cat targets.txt | asname --stream -p
+# Stream from stdin into pretty cards (the default), or one line each
+cat targets.txt | asname --stream
+cat targets.txt | asname --stream -o
 
 # Real-time web server access log inspection
 tail -f /var/log/nginx/access.log | awk '{print $1}' | asname -s -j | jq -c '{ip, asn: .asn.asn_string, country: .country.code}'

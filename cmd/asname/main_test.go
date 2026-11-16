@@ -113,7 +113,7 @@ func lines(s string) []string {
 
 func TestSearchFindsASNsAndNetblocks(t *testing.T) {
 	dir := writeFixtures(t)
-	out, _, err := run(t, "search", "--dir", dir, "google")
+	out, _, err := run(t, "search", "-o", "--dir", dir, "google")
 	require.NoError(t, err)
 
 	got := lines(out)
@@ -174,7 +174,7 @@ func TestSearchIsCaseInsensitive(t *testing.T) {
 
 func TestSearchFindsASNOnlyOrganization(t *testing.T) {
 	dir := writeFixtures(t)
-	out, stderr, err := run(t, "search", "--dir", dir, "valve")
+	out, stderr, err := run(t, "search", "-o", "--dir", dir, "valve")
 	require.NoError(t, err)
 	require.Len(t, lines(out), 1, out)
 	assert.Contains(t, out, "AS64500")
@@ -185,23 +185,23 @@ func TestSearchFindsASNOnlyOrganization(t *testing.T) {
 func TestSearchScope(t *testing.T) {
 	dir := writeFixtures(t)
 
-	out, _, err := run(t, "search", "--dir", dir, "--asns-only", "google")
+	out, _, err := run(t, "search", "-o", "--dir", dir, "--asns-only", "google")
 	require.NoError(t, err)
 	require.Len(t, lines(out), 1, out)
 	assert.Contains(t, out, "AS15169")
 
-	out, _, err = run(t, "search", "--dir", dir, "--netblocks-only", "google")
+	out, _, err = run(t, "search", "-o", "--dir", dir, "--netblocks-only", "google")
 	require.NoError(t, err)
 	require.Len(t, lines(out), 2, out)
 	for _, l := range lines(out) {
 		assert.True(t, strings.HasPrefix(l, "Netblock: "), l)
 	}
 
-	_, stderr, err := run(t, "search", "--dir", dir, "--netblocks-only", "valve")
+	_, stderr, err := run(t, "search", "-o", "--dir", dir, "--netblocks-only", "valve")
 	require.NoError(t, err)
 	assert.Contains(t, stderr, `no netblocks found matching "valve"`)
 
-	_, _, err = run(t, "search", "--dir", dir, "--asns-only", "--netblocks-only", "google")
+	_, _, err = run(t, "search", "-o", "--dir", dir, "--asns-only", "--netblocks-only", "google")
 	assert.ErrorContains(t, err, "mutually exclusive")
 }
 
@@ -278,15 +278,15 @@ func TestSearchIPsOnly(t *testing.T) {
 func TestSearchLimit(t *testing.T) {
 	dir := writeFixtures(t)
 
-	out, _, err := run(t, "search", "--dir", dir, "--netblocks-only", "google")
+	out, _, err := run(t, "search", "-o", "--dir", dir, "--netblocks-only", "google")
 	require.NoError(t, err)
 	assert.Len(t, lines(out), 2, "no --limit is unlimited")
 
-	out, _, err = run(t, "search", "--dir", dir, "--netblocks-only", "--limit", "1", "google")
+	out, _, err = run(t, "search", "-o", "--dir", dir, "--netblocks-only", "--limit", "1", "google")
 	require.NoError(t, err)
 	assert.Len(t, lines(out), 1, out)
 
-	out, _, err = run(t, "search", "--dir", dir, "-l", "1", "google")
+	out, _, err = run(t, "search", "-o", "--dir", dir, "-l", "1", "google")
 	require.NoError(t, err)
 	assert.Len(t, lines(out), 2, "the limit applies to ASNs and netblocks separately: %s", out)
 }
@@ -312,18 +312,18 @@ func TestSearchWithoutNetblockDB(t *testing.T) {
 	dir := writeFixtures(t)
 	require.NoError(t, os.Remove(filepath.Join(dir, sources.NetblockFilename)))
 
-	out, stderr, err := run(t, "search", "--dir", dir, "google")
+	out, stderr, err := run(t, "search", "-o", "--dir", dir, "google")
 	require.NoError(t, err)
 	assert.Len(t, lines(out), 1, out)
 	assert.Contains(t, stderr, "netblock database is not present")
 
-	_, _, err = run(t, "search", "--dir", dir, "--netblocks-only", "google")
+	_, _, err = run(t, "search", "-o", "--dir", dir, "--netblocks-only", "google")
 	assert.ErrorContains(t, err, "netblock database is not present")
 }
 
 func TestOrgFlag(t *testing.T) {
 	dir := writeFixtures(t)
-	out, _, err := run(t, "--dir", dir, "--no-update", "--asns-only", "-O", "google")
+	out, _, err := run(t, "-o", "--dir", dir, "--no-update", "--asns-only", "-O", "google")
 	require.NoError(t, err)
 	require.Len(t, lines(out), 1, out)
 	assert.Contains(t, out, "AS15169")
@@ -633,5 +633,20 @@ func TestLookupASNStaysOfflineUnlessAllowed(t *testing.T) {
 
 func TestUpdateIPv6FlagsConflict(t *testing.T) {
 	_, _, err := run(t, "update", "--dir", t.TempDir(), "--ipv6", "--no-ipv6")
+	assert.ErrorContains(t, err, "mutually exclusive")
+}
+
+func TestPrettyIsDefaultAndOnelineOptsOut(t *testing.T) {
+	dir := writeFixtures(t)
+
+	out, _, err := run(t, "search", "--dir", dir, "--asns-only", "google")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Autonomous System Details:", "cards are the default")
+
+	out, _, err = run(t, "search", "--oneline", "--dir", dir, "--asns-only", "google")
+	require.NoError(t, err)
+	assert.Len(t, lines(out), 1, "--oneline prints one line per result")
+
+	_, _, err = run(t, "search", "-o", "-p", "--dir", dir, "google")
 	assert.ErrorContains(t, err, "mutually exclusive")
 }

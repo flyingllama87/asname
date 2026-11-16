@@ -114,7 +114,12 @@ func newApp() *cli.Command {
 			&cli.BoolFlag{
 				Name:    "pretty",
 				Aliases: []string{"p"},
-				Usage:   "display output in a multi-line formatted card layout with generous whitespace",
+				Usage:   "display lookup and search results as multi-line cards (the default); for country and city, a card with block counts",
+			},
+			&cli.BoolFlag{
+				Name:    "oneline",
+				Aliases: []string{"o"},
+				Usage:   "print each lookup or search result on one line instead of as a card",
 			},
 			&cli.BoolFlag{
 				Name:    "json",
@@ -416,8 +421,11 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 	if cmd.Bool("uniform") {
 		outputFlags++
 	}
+	if cmd.Bool("oneline") {
+		outputFlags++
+	}
 	if outputFlags > 1 {
-		return fmt.Errorf("--pretty, --json, --csv and --uniform are mutually exclusive")
+		return fmt.Errorf("--pretty, --oneline, --json, --csv and --uniform are mutually exclusive")
 	}
 
 	if cmd.String("org") != "" {
@@ -500,10 +508,10 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 			fmtMode = format.FormatJSON
 		case cmd.Bool("csv"):
 			fmtMode = format.FormatCSV
-		case cmd.Bool("pretty"):
-			fmtMode = format.FormatPretty
 		case cmd.Bool("uniform"):
 			fmtMode = format.FormatUniform
+		case prettyOutput(cmd):
+			fmtMode = format.FormatPretty
 		}
 
 		useColor := shouldColorize(cmd)
@@ -566,7 +574,7 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 	uniform := cmd.Bool("uniform")
 	isJSON := cmd.Bool("json")
 	isCSV := cmd.Bool("csv")
-	isPretty := cmd.Bool("pretty")
+	isPretty := prettyOutput(cmd)
 	useColor := shouldColorize(cmd)
 
 	if isCSV {
@@ -711,6 +719,16 @@ func nearestInt(cmd *cli.Command, name string) int {
 	return 0
 }
 
+// prettyOutput reports whether lookup and search results print as cards.
+// Cards are the default unless --oneline or another output format is chosen.
+func prettyOutput(cmd *cli.Command) bool {
+	if cmd.Bool("pretty") {
+		return true
+	}
+	return !cmd.Bool("oneline") && !cmd.Bool("json") && !cmd.Bool("csv") &&
+		!anyBool(cmd, "uniform") && !anyBool(cmd, "ips-only")
+}
+
 func btoi(b bool) int {
 	if b {
 		return 1
@@ -763,12 +781,15 @@ func runSearch(cmd *cli.Command, queries []string, fromStdin bool) error {
 	if anyBool(cmd, "uniform") {
 		outputFlags++
 	}
+	if cmd.Bool("oneline") {
+		outputFlags++
+	}
 	ipsOnly := anyBool(cmd, "ips-only")
 	if ipsOnly {
 		outputFlags++
 	}
 	if outputFlags > 1 {
-		return fmt.Errorf("--pretty, --json, --csv, --uniform and --ips-only are mutually exclusive")
+		return fmt.Errorf("--pretty, --oneline, --json, --csv, --uniform and --ips-only are mutually exclusive")
 	}
 
 	asnsOnly, netblocksOnly := anyBool(cmd, "asns-only"), anyBool(cmd, "netblocks-only")
@@ -877,7 +898,7 @@ func runSearch(cmd *cli.Command, queries []string, fromStdin bool) error {
 func writeSearchResults(cmd *cli.Command, out *bufio.Writer, query string, asns []engine.ASNSearchResult, netblocks []engine.NetblockEnrichedResult) error {
 	isJSON, isCSV := cmd.Bool("json"), cmd.Bool("csv")
 	uniform := anyBool(cmd, "uniform")
-	isPretty := cmd.Bool("pretty")
+	isPretty := prettyOutput(cmd)
 	useColor := shouldColorize(cmd)
 	total := len(asns) + len(netblocks)
 
