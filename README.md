@@ -814,14 +814,36 @@ curl -s -X POST http://127.0.0.1:8086/v1/bulk \
 curl -s http://127.0.0.1:8086/v1/status
 ```
 
+#### Online lookups
+
+A lookup can ask whois for a netblock the offline database cannot name (ARIN
+and LACNIC space; see [Filling the gaps with whois](#filling-the-gaps-with-whois)),
+and RIPEstat for the prefixes of an ASN the offline prefix database lacks. In
+REST mode nothing is asked unless the request says so, with `whois=true`,
+`online_prefixes=true`, or `online=true` for both (in a bulk JSON body,
+`"whois": true` and so on). `--whois` and `--online-prefixes` make them the
+default, which a request can turn off with `=false`; `--no-whois` and
+`--no-online-prefixes` turn them off for the server, and a request asking for one
+then answers `403`. Each request may make up to 25 whois queries.
+
+```bash
+# LACNIC space: no netblock offline, NIC.br's registration from whois
+curl -s "http://127.0.0.1:8086/v1/lookup?q=200.160.2.3&whois=true"
+
+# Prefixes from RIPEstat when the prefix database has none
+curl -s "http://127.0.0.1:8086/v1/lookup?q=AS13335&online_prefixes=true"
+```
+
 #### Updating databases through the API
 
 Started with `--allow-updates` (`ASNAME_ALLOW_UPDATES`), the server can also
 rebuild its databases, which is what the web UI's Databases tab uses. It also
-checks every 6 hours for databases older than `--max-age` and refreshes them,
-as a lookup on the command line would. An update runs in the background; the
-server keeps answering from the current files and switches to the new ones when
-the update finishes, without a restart.
+checks every 6 hours for databases older than the refresh age (see
+[Refresh age](#refresh-age)) and refreshes them, as a lookup on the command line
+would. An update runs in the background; the server keeps answering from the
+current files and switches to the new ones when the update finishes, without a
+restart. Without `--allow-updates`, a server refreshes stale databases only when
+it starts.
 
 ```bash
 $ asname --rest --allow-updates
@@ -847,8 +869,27 @@ The databases are named `asn` (which includes the ASN prefixes), `names`,
 `country`, `city`, `netblock`, `category` and `reputation`. Only one update runs
 at a time; asking for another answers `409`.
 
+The same server can change two settings kept in the data directory, which the
+`asname` command sharing it follows too: the refresh age, and whether ASN
+updates import IPv6 routes (as `asname update --ipv6` and `--no-ipv6` do, from
+the next update of the ASN database).
+
+```bash
+# Refresh databases older than a week; 0 is never
+curl -s -X PUT http://127.0.0.1:8086/v1/settings \
+  -H "Content-Type: application/json" -d '{"max_age_hours": 168}'
+
+# Import IPv6 routes from the next ASN update
+curl -s -X PUT http://127.0.0.1:8086/v1/settings \
+  -H "Content-Type: application/json" -d '{"ipv6_routes": true}'
+```
+
+A refresh age given to the server on its command line (`--max-age`,
+`ASNAME_MAX_AGE` or `--no-update`) cannot be changed this way; asking answers
+`409`.
+
 Updates download hundreds of megabytes and rewrite the data directory, so the
-server accepts them only from a page on its own origin: the request must be JSON,
+server accepts them, and setting changes, only from a page on its own origin: the request must be JSON,
 must not come from another site (`Origin`, `Sec-Fetch-Site`), and must be
 addressed to an IP address, `localhost` or this machine's own name. That stops a
 web page you visit from starting one, even through a domain re-pointed at your
@@ -871,13 +912,22 @@ asname --rest --allow-updates --web-dir web/dist
 It has three tabs:
 
 - **Lookup**: IPs, hostnames, URLs or ASNs, one per line, each shown as a card
-  with its ASN, country, city, netblock, category, reputation and announced
-  prefixes. Click an ASN to look it up.
-- **Search**: AS names and registry netblocks by organisation or network name.
+  with the fields `asname -p` shows: ASN, country, city, netblock, category,
+  reputation, reverse DNS and announced prefixes, with where each came from. A
+  field the databases have no answer for says so rather than being left out.
+  Click an ASN to look it up. An **Online lookups** switch asks whois and
+  RIPEstat for what the offline databases lack (try `200.160.2.3`).
+- **Search**: AS names and registry netblocks by organisation or network name,
+  with tips on finding an organisation registered under several forms of its
+  name. Click a column heading to sort.
 - **Databases**: what is on disk and loaded, how old each database is, and
   buttons to update the ones you choose, refresh everything, refresh only what
   is stale, or retry what the last update left out, with the update's log as it
-  runs. Without `--allow-updates` it shows the status only.
+  runs; and the refresh age and IPv6 routes settings. Without `--allow-updates`
+  it shows the status only.
+
+A banner on every tab says when a database is missing, older than the refresh
+age, or left incomplete by its last update, or when an update is running.
 
 The UI talks to the asname that served it. Settings can point it at another
 server instead, which must then run with `--cors`, and which only accepts
@@ -916,9 +966,23 @@ make uninstall-user-service
 
 Both run `asname --rest --allow-updates --web-dir /usr/local/share/asname/web`.
 `LISTEN`, `BINDIR` and `WEBDIR` change the address and paths, e.g.
-`sudo make install-service LISTEN=127.0.0.1:9000`. Re-running an install target
-after `make install` or `make install-web` picks up the new files; restart the
-service to use them.
+`sudo make install-service LISTEN=127.0.0.1:9000`. The refresh age is left to the
+web UI unless `MAX_AGE` fixes it, e.g. `sudo make install-service MAX_AGE=168h`
+for a week. Re-running an install target after `make install` or
+`make install-web` picks up the new files; restart the service to use them.
+
+### Refresh age
+
+Databases are refreshed when older than 30 days. To change that, either:
+
+- pass `--max-age` (or set `ASNAME_MAX_AGE`), such as `--max-age 168h` for a
+  week or `--max-age 0` for never, which applies to that run; or
+- choose it on the web UI's Databases tab (or with `PUT /v1/settings`), which
+  saves it in the data directory as `settings.json`, where the `asname` command
+  and any server sharing the directory follow it.
+
+`--max-age` and `ASNAME_MAX_AGE` win over the saved age, and `--no-update` turns
+refreshing off.
 
 ### Manual Updates
 
@@ -1010,7 +1074,8 @@ By default, `asname` stores its auto-updating databases in your home directory u
 - `~/.asname/reputation.db`: The IP and ASN to blocklist index. Only present if you have enabled reputation lookups; ~10 MB.
 - `~/.asname/whois-consent.json`: Whether you agreed to live whois lookups, and when you were asked. Delete it to be asked again; it expires after an hour anyway.
 - `~/.asname/online-prefixes-consent.json`: The same, for looking up an ASN's prefixes on RIPEstat.
-- `~/.asname/ipv6-routes`: Present when `asname update --ipv6` opted into IPv6 routes; see [IPv6 routes](#ipv6-routes).
+- `~/.asname/ipv6-routes`: Present when `asname update --ipv6`, or the web UI, opted into IPv6 routes; see [IPv6 routes](#ipv6-routes).
+- `~/.asname/settings.json`: The refresh age chosen in the web UI, if one was; see [Refresh age](#refresh-age).
 - `~/.asname/contact.json`: The contact address sent to bgp.tools, or a note that you declined. Delete it to be asked again.
 - `~/.asname/update-record.json`: When each database was last updated and which of its sources could not be read; see [Incremental updates](#incremental-updates).
 - `~/.asname/cache/`: The source files downloaded to build the databases above (BGP RIB dump, RIR delegation and whois dumps, cloud provider ranges, VPN server lists, bgp.tools tags, PeeringDB, blocklists and so on). Entries are reused for 24 hours and deleted once older than that, so an update that fails partway through does not download the same files again on the next attempt. An interrupted download is resumed where it stopped rather than restarted. A download that receives nothing for 60 seconds is abandoned as interrupted, so a connection that stops forwarding data cannot hang an update. A source that downloads but will not parse is dropped from the cache so the next update fetches it again. Because the cache applies to every update, two updates less than 24 hours apart build from the same data; delete the directory to force fresh downloads. The directory is safe to delete at any time.

@@ -220,6 +220,11 @@ curl -s -X POST http://127.0.0.1:8086/v1/bulk \
 
 # Databases on disk and loaded, their age, and the last or running update
 curl -s http://127.0.0.1:8086/v1/status
+
+# Ask whois / RIPEstat for what the offline databases lack (off by default in REST mode;
+# online=true asks for both; refused with 403 if the server runs with --no-whois / --no-online-prefixes)
+curl -s "http://127.0.0.1:8086/v1/lookup?q=200.160.2.3&whois=true"
+curl -s "http://127.0.0.1:8086/v1/lookup?q=AS13335&online_prefixes=true"
 ```
 
 ### Updating Databases over the API (`--allow-updates`)
@@ -236,6 +241,11 @@ curl -s -X POST http://127.0.0.1:8086/v1/update -H "Content-Type: application/js
 # Watch the log, or cancel
 curl -s http://127.0.0.1:8086/v1/update
 curl -s -X DELETE http://127.0.0.1:8086/v1/update -H "Content-Type: application/json"
+
+# Settings kept in the data directory (the CLI follows them too):
+# refresh age in hours (0 = never) and IPv6 routes from the next ASN update
+curl -s -X PUT http://127.0.0.1:8086/v1/settings -H "Content-Type: application/json" -d '{"max_age_hours": 168}'
+curl -s -X PUT http://127.0.0.1:8086/v1/settings -H "Content-Type: application/json" -d '{"ipv6_routes": true}'
 
 # Updates are refused from other sites and from hostnames that aren't this machine,
 # and the server swaps in the new databases when one finishes, without a restart.
@@ -259,8 +269,9 @@ make install-user-service
 journalctl --user -u asname -f
 make uninstall-user-service
 
-# Another address
+# Another address, or a refresh age fixed at install (otherwise the web UI sets it)
 sudo make install-service LISTEN=127.0.0.1:9000
+sudo make install-service MAX_AGE=168h
 
 # Work on the UI with hot reload against a running `asname --rest`
 cd web && npm run dev                    # ASNAME_API=http://127.0.0.1:9000 to point elsewhere
@@ -271,6 +282,15 @@ cd web && npm run dev                    # ASNAME_API=http://127.0.0.1:9000 to p
 ## 4. Database Management & Updates
 
 `asname` auto-refreshes databases older than 30 days. You can also trigger manual updates.
+
+```bash
+# Change the refresh age for one run, or for every run in this shell (0 = never)
+asname --max-age 168h 8.8.8.8
+export ASNAME_MAX_AGE=168h
+
+# Or set it on the web UI's Databases tab, which saves it in ~/.asname/settings.json
+# for the CLI and the service alike; --max-age / ASNAME_MAX_AGE still win over it
+```
 
 ### Opt into everything
 
@@ -415,6 +435,7 @@ make install-user-service
 | `ASNAME_LISTEN` | REST API server bind host and port | `127.0.0.1:8086` |
 | `ASNAME_WEB_DIR` | Serve the web UI from this directory on the REST API server | `""` |
 | `ASNAME_ALLOW_UPDATES` | Let the REST API server update its databases (`/v1/update`) | `false` |
+| `ASNAME_MAX_AGE` | Refresh databases older than this (`168h`, `0` = never); overrides the age saved in the web UI | `720h` |
 | `ASNAME_WHOIS` | Enable online whois lookups without asking | `false` |
 | `ASNAME_ONLINE_PREFIXES` | Look up prefixes the offline database lacks on RIPEstat without asking | `false` |
 | `ASNAME_IPV6` | Import IPv6 routes on `asname update` (remembered for later updates) | `false` |
