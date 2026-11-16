@@ -1320,6 +1320,16 @@ function view() {
   return html`
     ${headerView()}
     <main id="main-content">
+      <section class="intro">
+        <h1>Who is behind an IP address?</h1>
+        <p>
+          asname takes an IP address, hostname, URL or AS number and tells you the network that routes it, who the
+          address block is registered to, where it most likely is, what kind of network it is (cloud, hosting, VPN,
+          Tor, home broadband, mobile…) and whether public blocklists name it, with a plain-language summary of what
+          that means. Everything comes from databases on this machine, so lookups are instant and nothing you look up
+          leaves it, unless you turn on Online lookups.
+        </p>
+      </section>
       ${tabsView()}
       <div class="notifications">${bannerView()}</div>
       ${body}
