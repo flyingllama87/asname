@@ -327,6 +327,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	if res.NAT64 != nil {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("NAT64:            "), st.value(nat64Text(res))))
 	}
+	if n := res.IPv6Skipped; n > 0 {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("IPv6:             "), st.notice(fmt.Sprintf("%s also has %d IPv6 %s, not looked up: the ASN database has no IPv6 routes (asname update --ipv6)", res.Host, n, plural(n, "address", "addresses")))))
+	}
 	if res.ServedBy != nil {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Served by:        "), st.value(servedByText(res))))
 	}
@@ -682,4 +685,11 @@ func servedByText(res engine.LookupResult) string {
 		how = "its DNS is hosted by " + sb.CDN + " (" + sb.Name + ")"
 	}
 	return fmt.Sprintf("%s, via %s: this address is %s's edge server nearest the resolver, not %s's own", sb.CDN, how, sb.CDN, res.Host)
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

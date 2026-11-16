@@ -49,3 +49,14 @@ func TestNAT64(t *testing.T) {
 	require.Equal(t, "2001:4860:4860::8888", got.IPs[0].String())
 	require.Nil(t, found)
 }
+
+func TestDropIPv6IfDualStack(t *testing.T) {
+	dual := Target{Host: "x", IPs: []net.IP{net.ParseIP("2001:db8::1"), net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::2")}}
+	got, n := dual.dropIPv6IfDualStack()
+	require.Equal(t, 2, n)
+	require.Len(t, got.IPs, 1)
+	only6 := Target{Host: "x", IPs: []net.IP{net.ParseIP("2001:db8::1")}}
+	got, n = only6.dropIPv6IfDualStack()
+	require.Zero(t, n)
+	require.Len(t, got.IPs, 1)
+}

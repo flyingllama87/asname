@@ -319,6 +319,10 @@ type LookupResult struct {
 	// NAT64 is set when the address asked about was this IPv4 address
 	// inside a NAT64 prefix; IP is then the IPv4 address.
 	NAT64 *NAT64
+	// IPv6Skipped counts a hostname's IPv6 addresses left out because the
+	// ASN database has no IPv6 routes and the name has IPv4 addresses too.
+	// Set on the hostname's first result only.
+	IPv6Skipped int
 }
 
 func (e *Engine) LookupTarget(t Target) ([]LookupResult, error) {
@@ -343,6 +347,10 @@ func (e *Engine) LookupTargetContext(ctx context.Context, t Target) ([]LookupRes
 		local = LocalNAT64Prefixes(ctx)
 	}
 	t, nat64 := t.UnmapNAT64(local)
+	skipped := 0
+	if t.Host != "" && !e.hasIPv6Routes() {
+		t, skipped = t.dropIPv6IfDualStack()
+	}
 	results := make([]LookupResult, 0, len(t.IPs))
 	for _, ip := range t.IPs {
 		res, err := e.Lookup(ip)
@@ -353,6 +361,9 @@ func (e *Engine) LookupTargetContext(ctx context.Context, t Target) ([]LookupRes
 		res.Host = t.Host
 		res.ServedBy = t.Served
 		res.NAT64 = nat64[ip.String()]
+		if len(results) == 0 {
+			res.IPv6Skipped = skipped
+		}
 		results = append(results, res)
 	}
 	return results, nil

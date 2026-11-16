@@ -983,6 +983,9 @@ function resultCard(r, i) {
           ${r.nat64
             ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">NAT64</cds-tag> ${r.nat64.dns64 ? `the resolver answered ${r.nat64.address}, a made-up DNS64 address that carries this IPv4 address` : `${r.nat64.address} carries this IPv4 address`}</div>`
             : nothing}
+          ${r.ipv6_skipped
+            ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">IPv6</cds-tag> ${r.host} also has ${r.ipv6_skipped} IPv6 ${r.ipv6_skipped === 1 ? 'address' : 'addresses'}, not looked up: this server's ASN database has no IPv6 routes</div>`
+            : nothing}
           ${r.served_by
             ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">Served by ${r.served_by.cdn}</cds-tag> this is a CDN edge server, not ${r.host}'s own address</div>`
             : nothing}

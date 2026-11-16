@@ -21,9 +21,12 @@ type JSONLookupResult struct {
 	// then that CDN's edge server nearest the resolver, not the site's own.
 	ServedBy *JSONServedBy `json:"served_by,omitempty"`
 	// NAT64 says the address asked about was IP inside a NAT64 prefix.
-	NAT64   *JSONNAT64   `json:"nat64,omitempty"`
-	Country *JSONCountry `json:"country,omitempty"`
-	City    *JSONCity    `json:"city,omitempty"`
+	NAT64 *JSONNAT64 `json:"nat64,omitempty"`
+	// IPv6Skipped counts the hostname's IPv6 addresses not looked up: the
+	// ASN database has no IPv6 routes. On the hostname's first result.
+	IPv6Skipped int          `json:"ipv6_skipped,omitempty"`
+	Country     *JSONCountry `json:"country,omitempty"`
+	City        *JSONCity    `json:"city,omitempty"`
 	// CityMaxMind is MaxMind's estimate, beside City's, when asname has
 	// MaxMind's city database too.
 	CityMaxMind *JSONCity       `json:"city_maxmind,omitempty"`
@@ -256,6 +259,7 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		out.Version = 6
 	}
 
+	out.IPv6Skipped = res.IPv6Skipped
 	if n := res.NAT64; n != nil {
 		out.NAT64 = &JSONNAT64{Address: n.Address, Prefix: n.Prefix, DNS64: n.DNS64}
 	}

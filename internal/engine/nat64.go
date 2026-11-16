@@ -162,3 +162,22 @@ func (t Target) hasPlainIPv6() bool {
 	}
 	return false
 }
+
+// dropIPv6IfDualStack leaves out t's IPv6 addresses when it has IPv4 ones
+// too, returning how many it left out. Without IPv6 routes asname cannot say
+// whose network an IPv6 address is on, so a dual-stack name is better
+// answered by its IPv4 addresses; an IPv6-only name keeps its own.
+func (t Target) dropIPv6IfDualStack() (Target, int) {
+	v4 := make([]net.IP, 0, len(t.IPs))
+	for _, ip := range t.IPs {
+		if ip.To4() != nil {
+			v4 = append(v4, ip)
+		}
+	}
+	if len(v4) == 0 || len(v4) == len(t.IPs) {
+		return t, 0
+	}
+	n := len(t.IPs) - len(v4)
+	t.IPs = v4
+	return t, n
+}
