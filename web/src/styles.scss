@@ -1,0 +1,290 @@
+// Carbon reset, theme tokens and type, compiled from @carbon/styles so the
+// UI works offline. The theme zones (.cds--white, .cds--g100) emit every
+// token as a CSS custom property, which the web components read.
+@use '@carbon/styles/scss/reset';
+@use '@carbon/styles/scss/zone';
+@use '@carbon/styles/scss/theme' as *;
+@use '@carbon/styles/scss/spacing' as *;
+@use '@carbon/styles/scss/type';
+
+html,
+body {
+  background: $background;
+  color: $text-primary;
+  font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
+}
+
+body {
+  @include type.type-style('body-01');
+  min-height: 100vh;
+}
+
+// Hide components until they are defined, so the page does not flash
+// unstyled markup.
+:not(:defined) {
+  visibility: hidden;
+}
+
+.header-global {
+  display: flex;
+  margin-left: auto;
+  height: 100%;
+}
+
+.header-version {
+  @include type.type-style('label-01');
+  display: flex;
+  align-items: center;
+  padding: 0 $spacing-05;
+  color: $text-secondary;
+  white-space: nowrap;
+}
+
+main {
+  padding: calc(3rem + #{$spacing-06}) $spacing-07 $spacing-09;
+  max-width: 96rem;
+  margin: 0 auto;
+
+  @media (max-width: 42rem) {
+    padding-left: $spacing-05;
+    padding-right: $spacing-05;
+  }
+}
+
+h1 {
+  @include type.type-style('heading-04');
+  margin-bottom: $spacing-03;
+}
+
+h2 {
+  @include type.type-style('heading-03');
+  margin: $spacing-07 0 $spacing-05;
+}
+
+h3 {
+  @include type.type-style('heading-02');
+}
+
+.lede {
+  @include type.type-style('body-02');
+  color: $text-secondary;
+  margin-bottom: $spacing-06;
+  max-width: 48rem;
+}
+
+.tabs {
+  margin-bottom: $spacing-07;
+}
+
+.form {
+  display: grid;
+  gap: $spacing-06;
+  max-width: 48rem;
+  margin-bottom: $spacing-07;
+}
+
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-06;
+  align-items: flex-end;
+}
+
+.form-row > .grow {
+  flex: 1 1 16rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-03;
+  align-items: center;
+}
+
+.hint {
+  @include type.type-style('helper-text-01');
+  color: $text-helper;
+}
+
+.notifications > * {
+  margin-bottom: $spacing-05;
+  max-width: none;
+}
+
+// Lookup result cards
+.results {
+  display: grid;
+  gap: $spacing-05;
+}
+
+.card {
+  background: $layer-01;
+  border-left: 3px solid $border-interactive;
+  padding: $spacing-05 $spacing-06 $spacing-06;
+}
+
+.card.listed {
+  border-left-color: $support-error;
+}
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-03;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: $spacing-05;
+}
+
+.card-title {
+  @include type.type-style('heading-03');
+  font-family: 'IBM Plex Mono', monospace;
+  overflow-wrap: anywhere;
+}
+
+.card-sub {
+  @include type.type-style('label-01');
+  color: $text-secondary;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: $spacing-05 $spacing-07;
+}
+
+.field dt {
+  @include type.type-style('label-01');
+  color: $text-secondary;
+  margin-bottom: $spacing-02;
+}
+
+.field dd {
+  @include type.type-style('body-01');
+  overflow-wrap: anywhere;
+}
+
+.field dd .meta {
+  @include type.type-style('helper-text-01');
+  color: $text-helper;
+  display: block;
+  margin-top: $spacing-01;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-02;
+}
+
+.tags cds-tag {
+  margin: 0;
+}
+
+.mono,
+code {
+  font-family: 'IBM Plex Mono', monospace;
+  @include type.type-style('code-01');
+}
+
+.prefixes {
+  margin-top: $spacing-05;
+}
+
+.prefix-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: $spacing-01 $spacing-05;
+  margin: $spacing-03 0;
+  font-family: 'IBM Plex Mono', monospace;
+  @include type.type-style('code-01');
+}
+
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: $link-primary;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+
+  &:hover {
+    color: $link-primary-hover;
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $focus;
+    outline-offset: 1px;
+  }
+}
+
+// Tables
+.table-wrap {
+  overflow-x: auto;
+  margin-bottom: $spacing-07;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.wrap {
+  overflow-wrap: anywhere;
+  max-width: 32rem;
+}
+
+// Databases
+.store-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-03 $spacing-07;
+  margin-bottom: $spacing-06;
+}
+
+.store-meta div {
+  @include type.type-style('body-01');
+}
+
+.store-meta dt {
+  @include type.type-style('label-01');
+  color: $text-secondary;
+}
+
+.update-panel {
+  background: $layer-01;
+  padding: $spacing-05 $spacing-06;
+  margin-bottom: $spacing-07;
+}
+
+.update-panel .actions {
+  margin-top: $spacing-05;
+}
+
+.log {
+  background: $layer-02;
+  color: $text-primary;
+  font-family: 'IBM Plex Mono', monospace;
+  @include type.type-style('code-01');
+  max-height: 24rem;
+  overflow: auto;
+  padding: $spacing-04 $spacing-05;
+  margin-top: $spacing-05;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  color: $text-secondary;
+  padding: $spacing-07 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
