@@ -1,0 +1,21 @@
+# asname REST API and web UI, as a systemd user service.
+# Installed by `make install-user-service`; @VARS@ are filled in by make.
+#
+# It runs as you and shares ~/.asname with the asname command, so nothing is
+# downloaded twice. It runs while you are logged in; to keep it running
+# after you log out, run `loginctl enable-linger`. Follow it with
+#   journalctl --user -u asname -f
+
+[Unit]
+Description=asname REST API and web UI
+Documentation=https://github.com/flyingllama87/asname
+
+[Service]
+Type=simple
+ExecStart=@BINDIR@/asname --rest --allow-updates --web-dir @WEBDIR@ --listen @LISTEN@
+Restart=on-failure
+RestartSec=10s
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
