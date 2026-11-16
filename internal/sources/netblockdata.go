@@ -35,6 +35,9 @@ type netblockSchema struct {
 	orgKey     string
 	orgNameKey string
 	descrKey   string
+	// rpsl marks the RIPE-style dumps, whose ranges carry country, created,
+	// mnt-by and geofeed attributes.
+	rpsl bool
 }
 
 var (
@@ -45,6 +48,7 @@ var (
 		orgKey:     "organisation",
 		orgNameKey: "org-name",
 		descrKey:   "descr",
+		rpsl:       true,
 	}
 	arinSchema = netblockSchema{
 		rangeKeys:  []string{"netrange", "v6netrange"},
@@ -196,6 +200,7 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 	}
 
 	orgs := make(map[string]string)
+	orgMnt := make(map[string]string)
 	for _, url := range src.orgURLs {
 		path, err := fetch(url)
 		if err != nil {
@@ -206,9 +211,12 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 			name := attrValue(attrs, src.schema.orgNameKey)
 			if handle != "" && name != "" {
 				orgs[handle] = name
+				if mnt := attrValue(attrs, "mnt-by"); mnt != "" && src.schema.rpsl {
+					orgMnt[handle] = mnt
+				}
 			}
 			return nil
-		}, src.schema.orgKey, src.schema.orgNameKey); err != nil {
+		}, src.schema.orgKey, src.schema.orgNameKey, "mnt-by"); err != nil {
 			return 0, err
 		}
 	}
@@ -216,6 +224,9 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 	want := append([]string{src.schema.netnameKey, src.schema.orgRefKey}, src.schema.rangeKeys...)
 	if src.schema.descrKey != "" {
 		want = append(want, src.schema.descrKey)
+	}
+	if src.schema.rpsl {
+		want = append(want, "country", "created", "mnt-by", "geofeed")
 	}
 
 	count := 0
@@ -239,12 +250,13 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 				return nil
 			}
 
+			orgRef := attrValue(attrs, src.schema.orgRefKey)
 			org := ""
 			if src.schema.descrKey != "" {
 				org = attrValue(attrs, src.schema.descrKey)
 			}
 			if org == "" {
-				org = orgs[attrValue(attrs, src.schema.orgRefKey)]
+				org = orgs[orgRef]
 			}
 			netname := attrValue(attrs, src.schema.netnameKey)
 			if netname == "" && org == "" {
@@ -254,7 +266,11 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 				return nil
 			}
 
-			b.add(start, end, netname, org)
+			var meta NetblockMeta
+			if src.schema.rpsl {
+				meta = rpslMeta(attrs, orgs[orgRef], orgMnt[orgRef])
+			}
+			b.add(start, end, netname, org, meta)
 			count++
 			return nil
 		}, want...); err != nil {
@@ -264,7 +280,8 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 	return count, nil
 }
 
-func (b *netblockBuilder) add(start, end net.IP, netname, org string) {
+func (b *netblockBuilder) add(start, end net.IP, netname, org string, meta NetblockMeta) {
+	m := b.internString(meta.encode())
 	if s4, e4 := start.To4(), end.To4(); s4 != nil && e4 != nil {
 		lo, hi := binary.BigEndian.Uint32(s4), binary.BigEndian.Uint32(e4)
 		if lo > hi || (lo == 0 && hi == math.MaxUint32) {
@@ -272,7 +289,7 @@ func (b *netblockBuilder) add(start, end net.IP, netname, org string) {
 		}
 		b.v4 = append(b.v4, interval[uint32]{
 			start: lo, end: hi,
-			netname: b.addString(netname), org: b.internString(org),
+			netname: b.addString(netname), org: b.internString(org), meta: m,
 		})
 		return
 	}
@@ -289,7 +306,7 @@ func (b *netblockBuilder) add(start, end net.IP, netname, org string) {
 	copy(hi[:], e16)
 	b.v6 = append(b.v6, interval[[16]byte]{
 		start: lo, end: hi,
-		netname: b.addString(netname), org: b.internString(org),
+		netname: b.addString(netname), org: b.internString(org), meta: m,
 	})
 }
 
@@ -341,6 +358,7 @@ func isUnspecifiedV6Range(start, end net.IP) bool {
 type NetblockRecord struct {
 	Start, End   net.IP
 	Netname, Org string
+	Meta         NetblockMeta
 }
 
 // WriteNetblockDB writes records to a netblock database at path. It exists for
@@ -348,7 +366,7 @@ type NetblockRecord struct {
 func WriteNetblockDB(path string, records []NetblockRecord) error {
 	b := newNetblockBuilder()
 	for _, r := range records {
-		b.add(r.Start, r.End, r.Netname, r.Org)
+		b.add(r.Start, r.End, r.Netname, r.Org, r.Meta)
 	}
 	_, err := b.write(path)
 	return err
@@ -388,6 +406,7 @@ func (b *netblockBuilder) write(path string) (int64, error) {
 		binary.LittleEndian.PutUint32(rec[0:4], seg.Start)
 		binary.LittleEndian.PutUint32(rec[4:8], seg.Netname)
 		binary.LittleEndian.PutUint32(rec[8:12], seg.Org)
+		binary.LittleEndian.PutUint32(rec[12:16], seg.Meta)
 		if _, err := w.Write(rec[:netblockSeg4Size]); err != nil {
 			return 0, err
 		}
@@ -396,6 +415,7 @@ func (b *netblockBuilder) write(path string) (int64, error) {
 		copy(rec[0:16], seg.Start[:])
 		binary.LittleEndian.PutUint32(rec[16:20], seg.Netname)
 		binary.LittleEndian.PutUint32(rec[20:24], seg.Org)
+		binary.LittleEndian.PutUint32(rec[24:28], seg.Meta)
 		if _, err := w.Write(rec[:netblockSeg6Size]); err != nil {
 			return 0, err
 		}
@@ -419,13 +439,17 @@ func (b *netblockBuilder) write(path string) (int64, error) {
 }
 
 type interval[K any] struct {
-	start, end   K
-	netname, org uint32
+	start, end         K
+	netname, org, meta uint32
 }
 
 type Segment[K any] struct {
-	Start        K
-	Netname, Org uint32
+	Start              K
+	Netname, Org, Meta uint32
+}
+
+func (s Segment[K]) same(netname, org, meta uint32) bool {
+	return s.Netname == netname && s.Org == org && s.Meta == meta
 }
 
 func Flatten[K any](ivs []interval[K], cmp func(a, b K) int, inc func(K) (K, bool)) []Segment[K] {
@@ -438,22 +462,22 @@ func Flatten[K any](ivs []interval[K], cmp func(a, b K) int, inc func(K) (K, boo
 
 	out := make([]Segment[K], 0, len(ivs)*2)
 
-	emit := func(at K, netname, org uint32) {
+	emit := func(at K, netname, org, meta uint32) {
 		if n := len(out); n > 0 && cmp(out[n-1].Start, at) == 0 {
-			out[n-1].Netname, out[n-1].Org = netname, org
-			if n > 1 && out[n-2].Netname == netname && out[n-2].Org == org {
+			out[n-1].Netname, out[n-1].Org, out[n-1].Meta = netname, org, meta
+			if n > 1 && out[n-2].same(netname, org, meta) {
 				out = out[:n-1]
 			}
 			return
 		}
 		if n := len(out); n == 0 {
-			if netname == 0 && org == 0 {
+			if netname == 0 && org == 0 && meta == 0 {
 				return
 			}
-		} else if out[n-1].Netname == netname && out[n-1].Org == org {
+		} else if out[n-1].same(netname, org, meta) {
 			return
 		}
-		out = append(out, Segment[K]{Start: at, Netname: netname, Org: org})
+		out = append(out, Segment[K]{Start: at, Netname: netname, Org: org, Meta: meta})
 	}
 
 	var stack []interval[K]
@@ -469,9 +493,9 @@ func Flatten[K any](ivs []interval[K], cmp func(a, b K) int, inc func(K) (K, boo
 			}
 			if len(stack) > 0 {
 				parent := stack[len(stack)-1]
-				emit(next, parent.netname, parent.org)
+				emit(next, parent.netname, parent.org, parent.meta)
 			} else {
-				emit(next, 0, 0)
+				emit(next, 0, 0, 0)
 			}
 		}
 	}
@@ -483,7 +507,7 @@ func Flatten[K any](ivs []interval[K], cmp func(a, b K) int, inc func(K) (K, boo
 				iv.end = top.end
 			}
 		}
-		emit(iv.start, iv.netname, iv.org)
+		emit(iv.start, iv.netname, iv.org, iv.meta)
 		stack = append(stack, iv)
 	}
 	closeEnded(func(interval[K]) bool { return true })

@@ -32,8 +32,8 @@ func lookupNetblock(t *testing.T, db *NetblockDB, ip string) string {
 
 func TestNetblockLookupPrefersTheMostSpecificRange(t *testing.T) {
 	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
-		b.add(net.ParseIP("183.177.52.0"), net.ParseIP("183.177.55.255"), "EQUINIX-AU", "Equinix Australia Pty Ltd")
-		b.add(net.ParseIP("183.177.54.128"), net.ParseIP("183.177.54.135"), "SISS-SY4", "Secure Internet Storage Solutions")
+		b.add(net.ParseIP("183.177.52.0"), net.ParseIP("183.177.55.255"), "EQUINIX-AU", "Equinix Australia Pty Ltd", NetblockMeta{})
+		b.add(net.ParseIP("183.177.54.128"), net.ParseIP("183.177.54.135"), "SISS-SY4", "Secure Internet Storage Solutions", NetblockMeta{})
 	})
 
 	db, err := OpenNetblockDB(path)
@@ -52,7 +52,7 @@ func TestNetblockLookupIPv6(t *testing.T) {
 	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
 		start, end, ok := ParseNetRange("2001:db8::/32")
 		require.True(t, ok)
-		b.add(start, end, "EXAMPLE-V6", "Example Ltd")
+		b.add(start, end, "EXAMPLE-V6", "Example Ltd", NetblockMeta{})
 	})
 
 	db, err := OpenNetblockDB(path)
@@ -66,9 +66,9 @@ func TestNetblockLookupIPv6(t *testing.T) {
 
 func TestNetblockLookupSeparatesAddressFamilies(t *testing.T) {
 	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
-		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE-V4", "Google LLC")
+		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE-V4", "Google LLC", NetblockMeta{})
 		start, end, _ := ParseNetRange("2001:4860::/32")
-		b.add(start, end, "GOOGLE-V6", "Google LLC")
+		b.add(start, end, "GOOGLE-V6", "Google LLC", NetblockMeta{})
 	})
 
 	db, err := OpenNetblockDB(path)
@@ -87,9 +87,9 @@ func TestNetblockLookupSeparatesAddressFamilies(t *testing.T) {
 
 func TestNetblockLookupAtEndOfAddressSpace(t *testing.T) {
 	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
-		b.add(net.ParseIP("255.255.255.0"), net.ParseIP("255.255.255.255"), "LAST-V4", "")
+		b.add(net.ParseIP("255.255.255.0"), net.ParseIP("255.255.255.255"), "LAST-V4", "", NetblockMeta{})
 		start, end, _ := ParseNetRange("ffff:ffff::/32")
-		b.add(start, end, "LAST-V6", "")
+		b.add(start, end, "LAST-V6", "", NetblockMeta{})
 	})
 
 	db, err := OpenNetblockDB(path)
@@ -110,7 +110,7 @@ func TestOpenNetblockDBRejectsForeignFile(t *testing.T) {
 
 func TestOpenNetblockDBRejectsTruncatedFile(t *testing.T) {
 	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
-		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE", "Google LLC")
+		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE", "Google LLC", NetblockMeta{})
 	})
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -298,8 +298,8 @@ func TestIsPlaceholderRange(t *testing.T) {
 
 func TestNetblockBuilderSkipsWholeAddressSpace(t *testing.T) {
 	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
-		b.add(net.ParseIP("0.0.0.0"), net.ParseIP("255.255.255.255"), "IANA-BLK", "The whole IPv4 address space")
-		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE", "Google LLC")
+		b.add(net.ParseIP("0.0.0.0"), net.ParseIP("255.255.255.255"), "IANA-BLK", "The whole IPv4 address space", NetblockMeta{})
+		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE", "Google LLC", NetblockMeta{})
 	})
 
 	db, err := OpenNetblockDB(path)
@@ -312,10 +312,10 @@ func TestNetblockBuilderSkipsWholeAddressSpace(t *testing.T) {
 
 func TestSearchOrg(t *testing.T) {
 	path := buildTestNetblockDB(t, func(b *netblockBuilder) {
-		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE-DNS", "Google LLC")
-		b.add(net.ParseIP("1.1.1.0"), net.ParseIP("1.1.1.255"), "CLOUDFLARE", "Cloudflare, Inc.")
+		b.add(net.ParseIP("8.8.8.0"), net.ParseIP("8.8.8.255"), "GOOGLE-DNS", "Google LLC", NetblockMeta{})
+		b.add(net.ParseIP("1.1.1.0"), net.ParseIP("1.1.1.255"), "CLOUDFLARE", "Cloudflare, Inc.", NetblockMeta{})
 		start6, end6, _ := ParseNetRange("2001:4860::/32")
-		b.add(start6, end6, "GOOGLE-V6", "Google LLC")
+		b.add(start6, end6, "GOOGLE-V6", "Google LLC", NetblockMeta{})
 	})
 
 	db, err := OpenNetblockDB(path)

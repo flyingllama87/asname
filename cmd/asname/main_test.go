@@ -545,8 +545,8 @@ func TestCSV(t *testing.T) {
 	out, _, err = run(t, "--dir", dir, "--no-update", "--no-whois", "8.8.8.8", "--csv")
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,category,reputation,asn_reputation,reverse_dns,prefixes,error",
-		"8.8.8.8,,8.8.8.8,4,AS15169,\"GOOGLE - Google LLC, US\",US,United States,,GOOGLE-DNS (Google LLC),offline,,,,,,",
+		"target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,netblock_country,netblock_created,category,reputation,asn_reputation,reverse_dns,prefixes,error",
+		"8.8.8.8,,8.8.8.8,4,AS15169,\"GOOGLE - Google LLC, US\",US,United States,,GOOGLE-DNS (Google LLC),offline,,,,,,,,",
 	}, lines(out))
 
 	for _, args := range [][]string{

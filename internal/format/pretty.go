@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/flyingllama87/asname/internal/engine"
 	"golang.org/x/term"
@@ -282,8 +283,15 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	b.WriteString("\n")
 
 	b.WriteString(fmt.Sprintf("  %s\n", st.section("Location:")))
-	formattedCountry := FormatCountryPretty(res.Country)
-	b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(formattedCountry), st.notice("RIR registration")))
+	if res.NetblockCountry != "" && res.NetblockCountry != res.Country {
+		// The range names its own country; the RIR delegation is that of the
+		// larger allocation it was carved from.
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(FormatCountryPretty(res.NetblockCountry)), st.notice("netblock registration")))
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Allocated in:     "), st.location(FormatCountryPretty(res.Country)), st.notice("RIR allocation")))
+	} else {
+		formattedCountry := FormatCountryPretty(res.Country)
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(formattedCountry), st.notice("RIR registration")))
+	}
 	if res.City != "" {
 		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("City:             "), st.location(res.City), st.notice("DB-IP geolocation")))
 	}
@@ -292,6 +300,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		b.WriteString("\n")
 		b.WriteString(fmt.Sprintf("  %s\n", st.section("Registry Netblock:")))
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Netname / Org:    "), st.netblock(res.Netblock)))
+		if created, err := time.Parse("2006-01-02", res.NetblockCreated); err == nil {
+			b.WriteString(fmt.Sprintf("    %s %s (%s ago)\n", st.label("Registered:       "), st.value(res.NetblockCreated), Age(time.Since(created))))
+		}
 		if res.NetblockLive {
 			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Source:           "), st.notice("Live WHOIS")))
 		} else {

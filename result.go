@@ -26,7 +26,13 @@ type Result struct {
 	City         string `json:"city,omitempty"`
 	Netblock     string `json:"netblock,omitempty"`
 	NetblockLive bool   `json:"netblock_live,omitempty"`
-	Category     string `json:"category,omitempty"`
+	// NetblockCountry is the country the registry range itself names, as
+	// "US, United States". Country is that of the RIR allocation the range
+	// sits in, which for a sub-allocated or leased block is often elsewhere.
+	// NetblockCreated is when the range was registered, YYYY-MM-DD.
+	NetblockCountry string `json:"netblock_country,omitempty"`
+	NetblockCreated string `json:"netblock_created,omitempty"`
+	Category        string `json:"category,omitempty"`
 	// Reputation names the public blocklists listing the address, such as
 	// "ipsum:7" (IPsum, on 7 of its source lists), "firehol-level2" or
 	// "spamhaus-drop:SBL123456". ASNReputation is what the lists say about
@@ -100,6 +106,9 @@ func (r Result) String() string {
 	if r.Netblock != "" {
 		s += " | Netblock: " + r.Netblock
 	}
+	if r.NetblockCountry != "" && r.NetblockCountry != r.Country {
+		s += " | Block country: " + r.NetblockCountry
+	}
 	if r.Category != "" {
 		s += " | Category: " + r.Category
 	}
@@ -128,24 +137,26 @@ func known(s string) string {
 
 func resultFromEngine(r engine.LookupResult) Result {
 	return Result{
-		Target:        r.Target,
-		Host:          r.Host,
-		IP:            r.IP,
-		ASN:           known(r.ASN),
-		Name:          known(r.Name),
-		Country:       known(r.Country),
-		City:          known(r.City),
-		Netblock:      known(r.Netblock),
-		NetblockLive:  r.NetblockLive,
-		Category:      known(r.Category),
-		Reputation:    r.Reputation,
-		ASNReputation: asnReputationFromEngine(r.ASNReputation),
-		RDNS:          known(r.RDNS),
-		IsASN:         r.IsASN,
-		Prefixes:      r.Prefixes,
-		IPv4Prefixes:  r.IPv4Prefixes,
-		IPv6Prefixes:  r.IPv6Prefixes,
-		PrefixSource:  r.PrefixSource,
+		Target:          r.Target,
+		Host:            r.Host,
+		IP:              r.IP,
+		ASN:             known(r.ASN),
+		Name:            known(r.Name),
+		Country:         known(r.Country),
+		City:            known(r.City),
+		Netblock:        known(r.Netblock),
+		NetblockLive:    r.NetblockLive,
+		NetblockCountry: r.NetblockCountry,
+		NetblockCreated: r.NetblockCreated,
+		Category:        known(r.Category),
+		Reputation:      r.Reputation,
+		ASNReputation:   asnReputationFromEngine(r.ASNReputation),
+		RDNS:            known(r.RDNS),
+		IsASN:           r.IsASN,
+		Prefixes:        r.Prefixes,
+		IPv4Prefixes:    r.IPv4Prefixes,
+		IPv6Prefixes:    r.IPv6Prefixes,
+		PrefixSource:    r.PrefixSource,
 	}
 }
 

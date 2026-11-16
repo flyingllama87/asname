@@ -168,6 +168,9 @@ func TestAgeAndBytes(t *testing.T) {
 		48 * time.Hour:        "2 days",
 		720 * time.Hour:       "30 days",
 		721*time.Hour + 59*60: "30 days",
+		215 * 24 * time.Hour:  "7 months",
+		665 * 24 * time.Hour:  "21 months",
+		800 * 24 * time.Hour:  "2 years",
 	} {
 		assert.Equal(t, want, Age(d), d.String())
 	}

@@ -63,7 +63,7 @@ func importARINDelegated(ctx context.Context, b *netblockBuilder, cache string, 
 		// The delegated file has no netname, and the AS handle is not one:
 		// it names the AS, and for an organisation holding several it is
 		// often an acquired company's handle. So only the organisation is set.
-		b.add(start, end, "", org)
+		b.add(start, end, "", org, NetblockMeta{})
 		count++
 	}); err != nil {
 		return count, err

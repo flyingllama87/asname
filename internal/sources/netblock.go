@@ -17,10 +17,15 @@ const (
 	NetblockEnvVar   = "ASNAME_NETBLOCK"
 	NetblockFilename = "netblock.db"
 
-	netblockMagic      = "ASNBLK\x00\x01"
+	netblockMagic      = "ASNBLK\x00\x02"
 	netblockHeaderSize = 40
-	netblockSeg4Size   = 12
-	netblockSeg6Size   = 24
+	netblockSeg4Size   = 16
+	netblockSeg6Size   = 28
+
+	// Version 1 records lack the metadata reference; they are still read.
+	netblockMagicV1    = "ASNBLK\x00\x01"
+	netblockSeg4SizeV1 = 12
+	netblockSeg6SizeV1 = 24
 )
 
 // NetblockDB maps an address to the registry netblock it was assigned in.
@@ -31,12 +36,17 @@ type NetblockDB struct {
 	v6Off   int64
 	strOff  int64
 	strLen  int64
+	// rec4 and rec6 are the record sizes; meta is false for a version 1
+	// database, whose records carry no metadata.
+	rec4, rec6 int64
+	meta       bool
 }
 
 // NetblockInfo is what the database knows about one address.
 type NetblockInfo struct {
 	Netname string
 	Org     string
+	NetblockMeta
 }
 
 func (i NetblockInfo) Empty() bool { return i.Netname == "" && i.Org == "" }
@@ -70,7 +80,12 @@ func OpenNetblockDB(path string) (*NetblockDB, error) {
 		f.Close()
 		return nil, fmt.Errorf("reading header: %v", err)
 	}
-	if string(hdr[:8]) != netblockMagic {
+	rec4, rec6, meta := int64(netblockSeg4Size), int64(netblockSeg6Size), true
+	switch string(hdr[:8]) {
+	case netblockMagic:
+	case netblockMagicV1:
+		rec4, rec6, meta = netblockSeg4SizeV1, netblockSeg6SizeV1, false
+	default:
 		f.Close()
 		return nil, fmt.Errorf("not an asname netblock database (rebuild with `asname update --netblock-only`)")
 	}
@@ -81,8 +96,11 @@ func OpenNetblockDB(path string) (*NetblockDB, error) {
 		v6Count: int(binary.LittleEndian.Uint32(hdr[20:24])),
 		strOff:  int64(binary.LittleEndian.Uint64(hdr[24:32])),
 		strLen:  int64(binary.LittleEndian.Uint64(hdr[32:40])),
+		rec4:    rec4,
+		rec6:    rec6,
+		meta:    meta,
 	}
-	db.v6Off = netblockHeaderSize + int64(db.v4Count)*netblockSeg4Size
+	db.v6Off = netblockHeaderSize + int64(db.v4Count)*rec4
 
 	info, err := f.Stat()
 	if err != nil {
@@ -134,7 +152,7 @@ func (d *NetblockDB) lookup4(v uint32) (NetblockInfo, error) {
 	if lo == 0 {
 		return NetblockInfo{}, nil
 	}
-	return d.info(netblockHeaderSize + int64(lo-1)*netblockSeg4Size + 4)
+	return d.info(netblockHeaderSize + int64(lo-1)*d.rec4 + 4)
 }
 
 func (d *NetblockDB) lookup6(v [16]byte) (NetblockInfo, error) {
@@ -154,12 +172,12 @@ func (d *NetblockDB) lookup6(v [16]byte) (NetblockInfo, error) {
 	if lo == 0 {
 		return NetblockInfo{}, nil
 	}
-	return d.info(d.v6Off + int64(lo-1)*netblockSeg6Size + 16)
+	return d.info(d.v6Off + int64(lo-1)*d.rec6 + 16)
 }
 
 func (d *NetblockDB) start4(i int) (uint32, error) {
 	var buf [4]byte
-	if _, err := d.f.ReadAt(buf[:], netblockHeaderSize+int64(i)*netblockSeg4Size); err != nil {
+	if _, err := d.f.ReadAt(buf[:], netblockHeaderSize+int64(i)*d.rec4); err != nil {
 		return 0, err
 	}
 	return binary.LittleEndian.Uint32(buf[:]), nil
@@ -167,16 +185,28 @@ func (d *NetblockDB) start4(i int) (uint32, error) {
 
 func (d *NetblockDB) start6(i int) ([16]byte, error) {
 	var buf [16]byte
-	if _, err := d.f.ReadAt(buf[:], d.v6Off+int64(i)*netblockSeg6Size); err != nil {
+	if _, err := d.f.ReadAt(buf[:], d.v6Off+int64(i)*d.rec6); err != nil {
 		return buf, err
 	}
 	return buf, nil
 }
 
 func (d *NetblockDB) info(off int64) (NetblockInfo, error) {
-	var buf [8]byte
-	if _, err := d.f.ReadAt(buf[:], off); err != nil {
+	var buf [12]byte
+	n := 8
+	if d.meta {
+		n = 12
+	}
+	if _, err := d.f.ReadAt(buf[:n], off); err != nil {
 		return NetblockInfo{}, err
+	}
+	var meta NetblockMeta
+	if d.meta {
+		raw, err := d.str(binary.LittleEndian.Uint32(buf[8:12]))
+		if err != nil {
+			return NetblockInfo{}, err
+		}
+		meta = decodeNetblockMeta(raw)
 	}
 	netname, err := d.str(binary.LittleEndian.Uint32(buf[0:4]))
 	if err != nil {
@@ -186,7 +216,7 @@ func (d *NetblockDB) info(off int64) (NetblockInfo, error) {
 	if err != nil {
 		return NetblockInfo{}, err
 	}
-	return NetblockInfo{Netname: netname, Org: org}, nil
+	return NetblockInfo{Netname: netname, Org: org, NetblockMeta: meta}, nil
 }
 
 func (d *NetblockDB) str(off uint32) (string, error) {
@@ -253,9 +283,9 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 
 	// 1. Search IPv4 segments
 	if !opts.V6Only && d.v4Count > 0 {
-		const recSize = netblockSeg4Size
+		recSize := int(d.rec4)
 		recBuf := make([]byte, 1024*recSize*64) // 64K records per chunk
-		totalBytes := int64(d.v4Count) * recSize
+		totalBytes := int64(d.v4Count) * int64(recSize)
 		var filePos int64 = 0
 
 		for filePos < totalBytes {
@@ -269,7 +299,7 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 			}
 			numRecs := n / recSize
 			for i := 0; i < numRecs; i++ {
-				globalIdx := int(filePos/recSize) + i
+				globalIdx := int(filePos/int64(recSize)) + i
 				rec := recBuf[i*recSize : (i+1)*recSize]
 				netnameOff := binary.LittleEndian.Uint32(rec[4:8])
 				orgOff := binary.LittleEndian.Uint32(rec[8:12])
@@ -285,7 +315,7 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 							endInt = binary.LittleEndian.Uint32(recBuf[(i+1)*recSize:(i+1)*recSize+4]) - 1
 						} else {
 							var nextStartBuf [4]byte
-							if _, err := d.f.ReadAt(nextStartBuf[:], netblockHeaderSize+int64(globalIdx+1)*recSize); err == nil {
+							if _, err := d.f.ReadAt(nextStartBuf[:], netblockHeaderSize+int64(globalIdx+1)*int64(recSize)); err == nil {
 								endInt = binary.LittleEndian.Uint32(nextStartBuf[:]) - 1
 							} else {
 								endInt = 0xffffffff
@@ -329,9 +359,9 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 
 	// 2. Search IPv6 segments
 	if !opts.V4Only && d.v6Count > 0 {
-		const recSize = netblockSeg6Size
+		recSize := int(d.rec6)
 		recBuf := make([]byte, 1024*recSize*32) // 32K records per chunk
-		totalBytes := int64(d.v6Count) * recSize
+		totalBytes := int64(d.v6Count) * int64(recSize)
 		var filePos int64 = 0
 
 		for filePos < totalBytes {
@@ -345,7 +375,7 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 			}
 			numRecs := n / recSize
 			for i := 0; i < numRecs; i++ {
-				globalIdx := int(filePos/recSize) + i
+				globalIdx := int(filePos/int64(recSize)) + i
 				rec := recBuf[i*recSize : (i+1)*recSize]
 				netnameOff := binary.LittleEndian.Uint32(rec[16:20])
 				orgOff := binary.LittleEndian.Uint32(rec[20:24])
@@ -363,7 +393,7 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 							copy(nextStart[:], recBuf[(i+1)*recSize:(i+1)*recSize+16])
 							endBytes = decBytes16(nextStart)
 						} else {
-							if _, err := d.f.ReadAt(nextStart[:], d.v6Off+int64(globalIdx+1)*recSize); err == nil {
+							if _, err := d.f.ReadAt(nextStart[:], d.v6Off+int64(globalIdx+1)*int64(recSize)); err == nil {
 								endBytes = decBytes16(nextStart)
 							} else {
 								for j := range endBytes {

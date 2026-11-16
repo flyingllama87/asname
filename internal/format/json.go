@@ -58,6 +58,10 @@ type JSONNetblock struct {
 	Raw          string `json:"raw"`
 	Source       string `json:"source"`
 	LiveQuery    bool   `json:"live_query"`
+	// Country is the country the range itself names; the top-level country
+	// is the RIR allocation it sits in. Created is YYYY-MM-DD.
+	Country *JSONCountry `json:"country,omitempty"`
+	Created string       `json:"created,omitempty"`
 }
 
 type JSONCategory struct {
@@ -220,6 +224,14 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 			Raw:          res.Netblock,
 			Source:       src,
 			LiveQuery:    res.NetblockLive,
+			Created:      res.NetblockCreated,
+		}
+		if res.NetblockCountry != "" {
+			code, name, _ := strings.Cut(res.NetblockCountry, ", ")
+			if name == "" {
+				name = code
+			}
+			out.Netblock.Country = &JSONCountry{Code: code, Name: name}
 		}
 	}
 

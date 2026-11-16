@@ -16,7 +16,7 @@ import (
 // LookupCSVHeader names the columns of FormatCSVLookupOutput and FormatCSVError.
 var LookupCSVHeader = []string{
 	"target", "host", "ip", "version", "asn", "as_name", "country_code", "country_name",
-	"city", "netblock", "netblock_source", "category", "reputation", "asn_reputation", "reverse_dns",
+	"city", "netblock", "netblock_source", "netblock_country", "netblock_created", "category", "reputation", "asn_reputation", "reverse_dns",
 	"prefixes", "error",
 }
 
@@ -67,6 +67,10 @@ func FormatCSVLookupOutput(res engine.LookupResult) string {
 	if j.Netblock != nil {
 		row["netblock"] = j.Netblock.Raw
 		row["netblock_source"] = j.Netblock.Source
+		if j.Netblock.Country != nil {
+			row["netblock_country"] = j.Netblock.Country.Code
+		}
+		row["netblock_created"] = j.Netblock.Created
 	}
 	if j.Category != nil {
 		row["category"] = strings.Join(j.Category.Tags, " ")

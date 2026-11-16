@@ -28,6 +28,14 @@ func LoadCountryDB(path string) (database.Database, error) {
 
 // LookupCountry returns "CC, Country Name" for an IP, or just "CC" when the
 // name is unknown, or "" when the IP is not in the database.
+// CountryLabel formats a country code as LookupCountry does: "US, United States".
+func CountryLabel(cc string) string {
+	if name, ok := CountryNames[cc]; ok {
+		return cc + ", " + name
+	}
+	return cc
+}
+
 func LookupCountry(db database.Database, ip net.IP) string {
 	as, err := db.Lookup(ip)
 	if err != nil {

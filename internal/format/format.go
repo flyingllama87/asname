@@ -90,6 +90,9 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 		}
 		fields = append(fields, outputField{label: "Netblock", value: netblock, width: UniformNetblockWidth})
 	}
+	if res.NetblockCountry != "" && res.NetblockCountry != res.Country {
+		fields = append(fields, outputField{label: "Block country", value: res.NetblockCountry, width: UniformCountryWidth})
+	}
 	if res.Category != "" {
 		fields = append(fields, outputField{label: "Category", value: res.Category, width: UniformCategoryWidth})
 	}
@@ -165,7 +168,14 @@ func FormatNetblockOutput(res engine.NetblockEnrichedResult, uniform bool) strin
 	return strings.Join(parts, FieldSeparator) + "\n"
 }
 
-// Age renders d coarsely, as "45 minutes", "14 hours" or "30 days".
+const (
+	day   = 24 * time.Hour
+	year  = 36525 * day / 100
+	month = year / 12
+)
+
+// Age renders d coarsely, as "45 minutes", "14 hours", "30 days", "7 months"
+// or "3 years".
 func Age(d time.Duration) string {
 	plural := func(n int, unit string) string {
 		if n == 1 {
@@ -180,8 +190,12 @@ func Age(d time.Duration) string {
 		return plural(int(d/time.Minute), "minute")
 	case d < 48*time.Hour:
 		return plural(int(d/time.Hour), "hour")
+	case d < 60*day:
+		return plural(int(d/day), "day")
+	case d < 2*year:
+		return plural(int(d/month), "month")
 	default:
-		return plural(int(d/(24*time.Hour)), "day")
+		return plural(int(d/year), "year")
 	}
 }
 

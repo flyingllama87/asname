@@ -47,7 +47,7 @@ func TestFormatCSVLookupOutput(t *testing.T) {
 		"target": "dns.google", "host": "dns.google", "ip": "8.8.8.8", "version": "4",
 		"asn": "AS15169", "as_name": "GOOGLE - Google LLC, US",
 		"country_code": "US", "country_name": "United States", "city": "Mountain View, California",
-		"netblock": "GOGL (Google LLC)", "netblock_source": "offline",
+		"netblock": "GOGL (Google LLC)", "netblock_source": "offline", "netblock_country": "", "netblock_created": "",
 		"category": "cdn hosting", "reputation": "", "asn_reputation": "", "reverse_dns": "dns.google", "prefixes": "", "error": "",
 	}, row)
 

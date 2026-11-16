@@ -174,7 +174,13 @@ type LookupResult struct {
 	City         string
 	Netblock     string
 	NetblockLive bool
-	Category     string
+	// NetblockCountry is the country the registry range itself names, as
+	// "US, United States"; Country is the RIR delegation of its parent
+	// allocation. NetblockCreated is when the range was registered,
+	// YYYY-MM-DD. Both are empty when the netblock database does not say.
+	NetblockCountry string
+	NetblockCreated string
+	Category        string
 	// VPNLists says, for each vpn:<provider> tag in Category, where its
 	// addresses came from and when that list was current.
 	VPNLists map[string]sources.VPNList
@@ -317,15 +323,20 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		}
 	}
 
+	var nb sources.NetblockInfo
+	if e.netblockDB != nil {
+		var err error
+		if nb, err = e.netblockDB.Lookup(ip); err != nil {
+			return LookupResult{}, fmt.Errorf("netblock lookup failed: %v", err)
+		}
+		if nb.Country != "" {
+			res.NetblockCountry = sources.CountryLabel(nb.Country)
+		}
+		res.NetblockCreated = nb.Created
+	}
+	netblockTags := nb.Tags
 	if e.showNetblock {
 		res.Netblock = "Unknown"
-		var nb sources.NetblockInfo
-		if e.netblockDB != nil {
-			var err error
-			if nb, err = e.netblockDB.Lookup(ip); err != nil {
-				return LookupResult{}, fmt.Errorf("netblock lookup failed: %v", err)
-			}
-		}
 		if nb.Empty() && res.Country != "Unknown" && e.whois.Allowed(res.IP) {
 			online, err := sources.LookupWhoisNetblock(res.IP)
 			if err != nil {
@@ -345,6 +356,15 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		if c := e.categoryDB.Lookup(ip, asn, haveASN); c != "" {
 			res.Category = c
 			res.VPNLists = e.categoryDB.VPNLists(c)
+		}
+	}
+	// Leasing and anonymised-holder flags come from the netblock database.
+	if len(netblockTags) > 0 {
+		tags := strings.Join(netblockTags, ", ")
+		if res.Category == "" || res.Category == "Unknown" {
+			res.Category = tags
+		} else {
+			res.Category += ", " + tags
 		}
 	}
 

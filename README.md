@@ -300,6 +300,29 @@ thing:**
 What is left over can be filled a query at a time over whois instead, see
 [Filling the gaps with whois](#filling-the-gaps-with-whois).
 
+#### Block country, age and leased space
+
+For RIPE, APNIC and AFRINIC ranges the index also keeps three things the range says about itself.
+
+**Country.** The `Country` field comes from the RIR delegation statistics, which record the country of whoever holds the larger allocation a range was carved from. A sub-allocated or leased block often names a different country of its own. When it does, the pretty card shows both, and the other formats add a block country field (`Block country` in the line output, `netblock.country` in JSON, `netblock_country` in CSV):
+
+```
+  Location:
+    Country:           United States (US) [netblock registration]
+    Allocated in:      Russia (RU) [RIR allocation]
+```
+
+**Age.** The date the range was registered, shown as `Registered: 2026-04-15 (7 months ago)` in the card, `netblock.created` in JSON and `netblock_created` in CSV. Space that was re-registered recently is common for short-lived scanning and proxy operations.
+
+**Leased and anonymised space.** Two flags are added to the category tags (see [Network categories](#network-categories)), so they appear wherever the category does:
+
+| Tag | Meaning | How it is detected |
+|---|---|---|
+| `leased:<broker>` | The range is rented out by an IP leasing broker (`ipxo`, `interlir`, `prefixbroker`, `ipbroker`, `lir-services`, `ipv4mall`) | The range or its organisation is maintained by the broker's RIPE maintainer, or its geofeed is hosted by the broker |
+| `anonymised-holder` | The holder's name is withheld behind a placeholder such as `Company 64d3452aYKe9ygar` | The organisation name matches that placeholder pattern |
+
+Leased space held by an anonymous company is typical of VPN, proxy and scanning operations, though not proof of one. A database built by asname 0.13 or earlier lacks these fields; `asname update --netblock-only` rebuilds it.
+
 ARIN does not publish its database openly. Access needs the [Bulk Whois Terms of
 Use](https://www.arin.net/reference/research/bulkwhois/) signed and the request
 approved, after which ARIN issue an API key. Their terms restrict redistribution,
