@@ -145,9 +145,9 @@ const (
 	srcNetblockCountry = "Netblock registration in RIR WHOIS dumps (RIPE NCC, APNIC, AFRINIC), offline"
 	srcWhois           = "Live WHOIS (IANA referral to the RIR)"
 	srcRDAP            = "Live RDAP (IANA bootstrap to the RIR)"
-	srcCategory        = "Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline"
+	srcCategory        = "Cloud provider ranges (incl. Azure Service Tags), Tor exits, VPN server lists, iCloud Private Relay, MISP warninglists, Team Cymru bogons, bgp.tools tags, PeeringDB, offline"
 	srcRDNS            = "Live DNS PTR query"
-	srcRep             = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline"
+	srcRep             = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker, offline"
 	srcRIPEStat        = "Live RIPEstat announced-prefixes API"
 )
 
@@ -185,6 +185,8 @@ func listName(entry string) string {
 		return "FireHOL level 2: attacks in the last 48 h"
 	case "firehol-level3":
 		return "FireHOL level 3: attacks in the last 30 days"
+	case "feodo":
+		return "Feodo Tracker: " + detail + " botnet C2"
 	case "spamhaus-drop":
 		if detail != "" {
 			return "Spamhaus DROP (" + detail + ")"
@@ -324,6 +326,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	if res.RDNS != "" {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Reverse DNS:      "), st.value(res.RDNS)))
 	}
+	if sp := res.Special; sp != nil {
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Special-purpose:  "), st.notice(specialText(*sp))))
+	}
 	if res.NAT64 != nil {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("NAT64:            "), st.value(nat64Text(res))))
 	}
@@ -355,6 +360,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	} else {
 		formattedCountry := FormatCountryPretty(res.Country)
 		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(formattedCountry), st.notice("RIR registration")))
+	}
+	if r := res.Relay; r != nil {
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Relay users:      "), st.location(r.String()), st.notice("iCloud Private Relay egress")))
 	}
 	if g := res.Geofeed; g != nil {
 		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Geofeed:          "), st.location(g.String()), st.notice("the network's own geofeed")))
@@ -436,7 +444,17 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		if !list.Date.IsZero() {
 			src = fmt.Sprintf("%s, as of %s, offline", list.Source, list.Date.Format("2006-01-02"))
 		}
-		rows = append(rows, [2]string{"VPN servers", src})
+		label := "VPN servers"
+		if !strings.HasPrefix(tag, "vpn:") {
+			label = tag
+		}
+		rows = append(rows, [2]string{label, src})
+	}
+	if res.Relay != nil {
+		rows = append(rows, [2]string{"Relay users", "Apple iCloud Private Relay egress ranges, offline"})
+	}
+	if res.Special != nil {
+		rows = append(rows, [2]string{"Special-purpose", "IANA special-purpose address registries (RFC 6890), built in"})
 	}
 	if res.Reputation != nil {
 		rows = append(rows, [2]string{"Reputation", srcRep})
@@ -664,6 +682,18 @@ func inferredSrc(res engine.LookupResult) string {
 		}
 	}
 	return strings.Join(parts, "; ") + " (inferrules.yaml), offline"
+}
+
+// specialText reads an IANA special-purpose block out.
+func specialText(sp sources.Special) string {
+	s := fmt.Sprintf("%s, %s (%s)", sp.Name, sp.Prefix, sp.RFC)
+	switch sp.Global {
+	case "false":
+		s += ", not reachable on the internet"
+	case "true":
+		s += ", reachable on the internet"
+	}
+	return s
 }
 
 // nat64Text says which NAT64 address a lookup was asked about.

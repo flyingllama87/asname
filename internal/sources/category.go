@@ -31,6 +31,9 @@ type CategoryDB struct {
 	// ranges and rangeSets hold the netname rules' range: tags.
 	ranges    database.Database
 	rangeSets []string
+	// relay and relayLocs hold the iCloud Private Relay locations.
+	relay     database.Database
+	relayLocs []RelayLocation
 }
 
 // VPNList says where the addresses behind a vpn:<provider> tag came from, and
@@ -164,7 +167,51 @@ func OpenCategoryDB(path string) (*CategoryDB, error) {
 		db.rangeSets = append(db.rangeSets, string(set))
 		rest = after
 	}
+
+	// Databases built before the Private Relay locations end here.
+	if len(rest) < 8 {
+		return db, nil
+	}
+	relayLen := binary.LittleEndian.Uint64(rest[:8])
+	rest = rest[8:]
+	if uint64(len(rest)) < relayLen+4 {
+		return nil, fmt.Errorf("truncated database: relay locations are short")
+	}
+	if relayLen > 0 {
+		if db.relay, err = database.NewFromDump(bytes.NewReader(rest[:relayLen])); err != nil {
+			return nil, fmt.Errorf("parsing relay table: %v", err)
+		}
+	}
+	rest = rest[relayLen:]
+	locCount := binary.LittleEndian.Uint32(rest[:4])
+	rest = rest[4:]
+	db.relayLocs = make([]RelayLocation, 1, locCount+1)
+	for range locCount {
+		loc, after, ok := bytes.Cut(rest, []byte{0})
+		if !ok {
+			return nil, fmt.Errorf("truncated database: relay locations are short")
+		}
+		f := strings.SplitN(string(loc), "|", 3)
+		for len(f) < 3 {
+			f = append(f, "")
+		}
+		db.relayLocs = append(db.relayLocs, RelayLocation{Country: f[0], Region: f[1], City: f[2]})
+		rest = after
+	}
 	return db, nil
+}
+
+// RelayLocation returns where Apple says the users of the iCloud Private
+// Relay egress range holding ip are.
+func (d *CategoryDB) RelayLocation(ip net.IP) (RelayLocation, bool) {
+	if d == nil || d.relay == nil {
+		return RelayLocation{}, false
+	}
+	v, err := d.relay.Lookup(ip)
+	if err != nil || v.Number == 0 || int(v.Number) >= len(d.relayLocs) {
+		return RelayLocation{}, false
+	}
+	return d.relayLocs[v.Number], true
 }
 
 // RangeTag is a tag asname's rules gave the registry range holding an
@@ -233,7 +280,9 @@ func (d *CategoryDB) Lookup(ip net.IP, asn uint32, haveASN bool) string {
 	if value, err := d.prefixes.Lookup(ip); err == nil {
 		d.collect(value.Number, tags)
 	}
-	if len(tags) == 0 && haveASN {
+	// The network's own tags count unless the address's tags already say
+	// what kind of network it is on.
+	if haveASN && !hasPrimaryTag(tags) {
 		d.collect(d.asns[asn], tags)
 	}
 	if len(tags) == 0 {
@@ -264,6 +313,15 @@ func (d *CategoryDB) LookupASN(asn uint32) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, ", ")
+}
+
+func hasPrimaryTag(tags map[string]bool) bool {
+	for t := range tags {
+		if !SupplementaryTag(t) {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *CategoryDB) collect(i uint32, tags map[string]bool) {

@@ -25,6 +25,7 @@ const (
 	ipsumList       = "https://raw.githubusercontent.com/stamparm/ipsum/master/ipsum.txt"
 	fireholLevel2   = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level2.netset"
 	fireholLevel3   = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level3.netset"
+	feodoTracker    = "https://feodotracker.abuse.ch/downloads/ipblocklist.json"
 
 	// maxExpandBits caps how large an IPv4 block is counted address by
 	// address towards an ASN's listed IPs; a larger block counts once.
@@ -54,6 +55,7 @@ func UpdateReputationDB(ctx context.Context, cfg Config) (err error) {
 		{"IPsum", func() (int, error) { return b.ImportIPsumFrom(ipsumList) }},
 		{"FireHOL level 2", func() (int, error) { return b.ImportNetsetFrom(fireholLevel2, "firehol-level2") }},
 		{"FireHOL level 3", func() (int, error) { return b.ImportNetsetFrom(fireholLevel3, "firehol-level3") }},
+		{"abuse.ch Feodo Tracker", func() (int, error) { return b.ImportFeodoFrom(feodoTracker) }},
 	}
 
 	imported := 0
@@ -143,12 +145,14 @@ func parsePrefix(s string) (netip.Prefix, bool) {
 }
 
 func (b *reputationBuilder) addPrefix(p netip.Prefix, tag string) {
-	set := b.prefixes[p]
-	if set == nil {
-		set = make(map[string]bool, 1)
-		b.prefixes[p] = set
+	for _, p := range splitMapped(p) {
+		set := b.prefixes[p]
+		if set == nil {
+			set = make(map[string]bool, 1)
+			b.prefixes[p] = set
+		}
+		set[tag] = true
 	}
-	set[tag] = true
 }
 
 func (b *reputationBuilder) asn(asn uint32) *ASNReputation {
@@ -235,6 +239,38 @@ func (b *reputationBuilder) ImportNetsetFrom(url, tag string) (int, error) {
 		count++
 	})
 	return count, err
+}
+
+// ImportFeodoFrom reads abuse.ch Feodo Tracker's botnet C2 list, tagging
+// each address feodo:<malware family>.
+func (b *reputationBuilder) ImportFeodoFrom(url string) (int, error) {
+	var recs []struct {
+		IP      string `json:"ip_address"`
+		Malware string `json:"malware"`
+	}
+	if err := fetchJSON(b.ctx, url, "", &recs); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, r := range recs {
+		p, ok := parsePrefix(r.IP)
+		if !ok {
+			continue
+		}
+		family := strings.Map(func(c rune) rune {
+			if c == ',' || c == ':' {
+				return -1
+			}
+			return c
+		}, strings.TrimSpace(r.Malware))
+		if family == "" {
+			family = "unknown"
+		}
+		b.addPrefix(p, "feodo:"+family)
+		b.listed[p] = true
+		count++
+	}
+	return count, nil
 }
 
 func (b *reputationBuilder) eachLine(url string, fn func(string)) error {

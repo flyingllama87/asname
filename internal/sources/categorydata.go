@@ -82,7 +82,11 @@ func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) (e
 		{"DigitalOcean", func() (int, error) { return b.ImportCIDRList(digitalOceanRanges, "", "cloud:digitalocean") }},
 		{"Linode", func() (int, error) { return b.ImportCIDRList(linodeRanges, "", "cloud:linode") }},
 		{"Vultr", func() (int, error) { return b.ImportCIDRList(vultrRanges, "", "cloud:vultr") }},
+		{"Azure", b.importAzure},
 		{"Tor", func() (int, error) { return b.ImportCIDRList(torExitList, "", "tor-exit") }},
+		{"iCloud Private Relay", func() (int, error) { return b.ImportICloudRelayFrom(icloudRelayEgress) }},
+		{"Team Cymru bogons", b.importBogons},
+		{"MISP warninglists", func() (int, error) { return b.ImportMISPFrom(mispWarninglists) }},
 		{"VPN providers", func() (int, error) { return b.ImportVPNServers(vpnAPIs, gluetunServerLists) }},
 		{"PeeringDB", b.importPeeringDB},
 	}
@@ -158,6 +162,9 @@ type categoryBuilder struct {
 	// rangeTags holds the range: tags the netname rules give registry
 	// ranges, by prefix; kept apart like inferred.
 	rangeTags map[netip.Prefix]map[string]bool
+	// relay holds where Apple says each iCloud Private Relay egress
+	// range's users are.
+	relay map[netip.Prefix]RelayLocation
 	// lookupHost resolves the hostnames some VPN providers list instead of
 	// addresses.
 	lookupHost func(ctx context.Context, host string) ([]string, error)
@@ -171,6 +178,7 @@ func newCategoryBuilder(ctx context.Context) *categoryBuilder {
 		vpnLists:   make(map[string]VPNList),
 		inferred:   make(map[uint32]InferredTags),
 		rangeTags:  make(map[netip.Prefix]map[string]bool),
+		relay:      make(map[netip.Prefix]RelayLocation),
 		lookupHost: net.DefaultResolver.LookupHost,
 	}
 }
@@ -444,18 +452,19 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 	// A VPN or Tor address inside a cloud range keeps the cloud's tags too.
 	prefixes := make(map[netip.Prefix]map[string]bool, len(b.prefixes))
 	for cidr, tags := range b.prefixes {
-		p, err := netip.ParsePrefix(cidr)
+		parsed, err := netip.ParsePrefix(cidr)
 		if err != nil {
 			continue
 		}
-		p = p.Masked()
-		set := prefixes[p]
-		if set == nil {
-			set = make(map[string]bool, len(tags))
-			prefixes[p] = set
-		}
-		for tag := range tags {
-			set[tag] = true
+		for _, p := range splitMapped(parsed) {
+			set := prefixes[p]
+			if set == nil {
+				set = make(map[string]bool, len(tags))
+				prefixes[p] = set
+			}
+			for tag := range tags {
+				set[tag] = true
+			}
 		}
 	}
 	inheritCovering(prefixes)
@@ -531,6 +540,11 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 		return nil, err
 	}
 	out = append(out, ranges...)
+	relay, err := b.marshalRelay()
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, relay...)
 	return out, nil
 }
 

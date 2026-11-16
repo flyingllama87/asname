@@ -86,7 +86,11 @@ func SourceCatalog(key string) []CatalogSource {
 			{Name: "DigitalOcean", URL: digitalOceanRanges, Provides: "DigitalOcean's published geofeed (cloud:digitalocean)."},
 			{Name: "Linode", URL: linodeRanges, Provides: "Linode/Akamai's geofeed (cloud:linode)."},
 			{Name: "Vultr", URL: vultrRanges, Provides: "Vultr's geofeed (cloud:vultr)."},
+			{Name: "Azure", URL: azureServiceTagsPage, Provides: "Microsoft Azure's public-cloud ranges from its weekly Service Tags file (cloud:azure; Front Door's edge also cdn)."},
 			{Name: "Tor", URL: torExitList, Provides: "Current Tor exit relays (tor-exit)."},
+			{Name: "iCloud Private Relay", URL: icloudRelayEgress, Provides: "Apple's Private Relay egress ranges, each with the region its users are in (relay:icloud)."},
+			{Name: "Team Cymru bogons", URL: "https://www.team-cymru.com/bogon-reference", Provides: "Space no registry has handed out, IPv4 and IPv6 (bogon)."},
+			{Name: "MISP warninglists", URL: "https://github.com/MISP/misp-warninglists", Provides: "Known scanners, crawlers, services, public resolvers and sinkholes, and clouds without a list of their own (scanner:, crawler:, service:, public-dns, sinkhole, cloud:...). IP lists only."},
 			{Name: "VPN providers", Provides: "Commercial VPN servers (vpn:<provider>): each provider's own list where it publishes one, otherwise gluetun's copy."},
 		}
 		for _, api := range vpnAPIs {
@@ -115,6 +119,7 @@ func SourceCatalog(key string) []CatalogSource {
 			{Name: "IPsum", URL: ipsumList, Provides: "Addresses seen attacking, counted by how many of ~30 blocklists name them."},
 			{Name: "FireHOL level 2", URL: fireholLevel2, Provides: "Addresses attacking in the last 48 hours, from several feeds."},
 			{Name: "FireHOL level 3", URL: fireholLevel3, Provides: "Addresses attacking in the last 30 days: broader, more false positives."},
+			{Name: "abuse.ch Feodo Tracker", URL: feodoTracker, Provides: "Botnet command-and-control servers, with the malware family each serves (feodo:<family>)."},
 		}
 	}
 	return nil
@@ -202,6 +207,9 @@ func categoryVPNLists(path string, mtime time.Time) []VPNListStatus {
 	var lists []VPNListStatus
 	if db, err := OpenCategoryDB(path); err == nil {
 		for tag, l := range db.vpnLists {
+			if !strings.HasPrefix(tag, "vpn:") {
+				continue // MISP lists' names, shown with lookups only
+			}
 			lists = append(lists, VPNListStatus{Tag: tag, Source: l.Source, Date: l.Date})
 		}
 		sort.Slice(lists, func(i, j int) bool { return lists[i].Tag < lists[j].Tag })

@@ -29,14 +29,19 @@ type JSONLookupResult struct {
 	City        *JSONCity    `json:"city,omitempty"`
 	// CityMaxMind is MaxMind's estimate, beside City's, when asname has
 	// MaxMind's city database too.
-	CityMaxMind *JSONCity       `json:"city_maxmind,omitempty"`
-	Geofeed     *JSONGeofeed    `json:"geofeed,omitempty"`
-	Netblock    *JSONNetblock   `json:"netblock,omitempty"`
-	Category    *JSONCategory   `json:"category,omitempty"`
-	Reputation  *JSONReputation `json:"reputation,omitempty"`
-	ReverseDNS  *JSONReverseDNS `json:"reverse_dns,omitempty"`
-	Prefixes    *JSONPrefixes   `json:"prefixes,omitempty"`
-	Error       string          `json:"error,omitempty"`
+	CityMaxMind *JSONCity    `json:"city_maxmind,omitempty"`
+	Geofeed     *JSONGeofeed `json:"geofeed,omitempty"`
+	// Relay is where Apple says the users of this iCloud Private Relay
+	// egress range are.
+	Relay *JSONRelay `json:"relay,omitempty"`
+	// Special is the IANA special-purpose block the address is in.
+	Special    *JSONSpecial    `json:"special,omitempty"`
+	Netblock   *JSONNetblock   `json:"netblock,omitempty"`
+	Category   *JSONCategory   `json:"category,omitempty"`
+	Reputation *JSONReputation `json:"reputation,omitempty"`
+	ReverseDNS *JSONReverseDNS `json:"reverse_dns,omitempty"`
+	Prefixes   *JSONPrefixes   `json:"prefixes,omitempty"`
+	Error      string          `json:"error,omitempty"`
 	// Text is the result as `asname -p` prints it, when asked for with
 	// text=true on the REST API, for copying into a ticket.
 	Text string `json:"text,omitempty"`
@@ -105,6 +110,24 @@ type JSONGeofeed struct {
 	City    string       `json:"city,omitempty"`
 	Name    string       `json:"name"`
 	Feed    string       `json:"feed"`
+}
+
+// JSONRelay is the location an iCloud Private Relay egress range stands for.
+type JSONRelay struct {
+	Provider string       `json:"provider"`
+	Country  *JSONCountry `json:"country"`
+	Region   string       `json:"region,omitempty"`
+	City     string       `json:"city,omitempty"`
+	Name     string       `json:"name"`
+}
+
+// JSONSpecial is an IANA special-purpose block (RFC 6890).
+type JSONSpecial struct {
+	Prefix string `json:"prefix"`
+	Name   string `json:"name"`
+	RFC    string `json:"rfc"`
+	// GloballyReachable is IANA's flag; absent when it depends.
+	GloballyReachable *bool `json:"globally_reachable,omitempty"`
 }
 
 type JSONNetblock struct {
@@ -307,6 +330,20 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		out.CityMaxMind = &JSONCity{Name: res.CityMaxMind, Present: true, Source: res.CityMaxMindSource}
 	}
 
+	if r := res.Relay; r != nil {
+		name := sources.CountryNames[r.Country]
+		if name == "" {
+			name = r.Country
+		}
+		out.Relay = &JSONRelay{Provider: "iCloud Private Relay", Country: &JSONCountry{Code: r.Country, Name: name}, Region: r.Region, City: r.City, Name: r.String()}
+	}
+	if sp := res.Special; sp != nil {
+		out.Special = &JSONSpecial{Prefix: sp.Prefix, Name: sp.Name, RFC: sp.RFC}
+		if sp.Global != "" {
+			g := sp.Global == "true"
+			out.Special.GloballyReachable = &g
+		}
+	}
 	if g := res.Geofeed; g != nil {
 		name := sources.CountryNames[g.Country]
 		if name == "" {

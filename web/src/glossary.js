@@ -109,6 +109,29 @@ export const GLOSSARY = [
         links: [wiki('Bogon_filtering')],
       },
       {
+        term: 'Bogon',
+        aka: 'unallocated space',
+        body: 'Address space no registry has handed out, plus the reserved blocks. asname marks it from Team Cymru\'s full bogon lists, which follow the registries\' allocations.',
+        practice: [
+          'Not announced and a bogon: nobody holds it, so traffic from it is spoofed.',
+          'Announced and a bogon: someone is routing space they were never given. That is squatting or a hijack, used for spam and attacks; treat it as hostile.',
+          'Not announced but not a bogon: allocated to someone who does not route it publicly. It may be used inside a private network.',
+        ],
+        detail: ['Team Cymru refreshes the lists every few hours; asname\'s copy is as old as its category database. A block allocated since then can still show as a bogon.'],
+        links: [['Team Cymru bogon reference', 'https://www.team-cymru.com/bogon-reference'], wiki('Bogon_filtering')],
+      },
+      {
+        term: 'Special-purpose address',
+        body: 'A block IANA sets aside for something other than ordinary addressing: private use (10/8, 172.16/12, 192.168/16), carrier-grade NAT (100.64/10), loopback, link-local, documentation (192.0.2/24, 2001:db8::/32), benchmarking, NAT64 (64:ff9b::/96), multicast and others.',
+        practice: [
+          'Most are not reachable on the internet. In your own logs they are internal hosts; in a report from outside they are a misconfiguration or spoofing.',
+          'Documentation ranges (192.0.2/24, 198.51.100/24, 203.0.113/24, 2001:db8::/32, 3fff::/20) appear in examples and test data, never in real traffic.',
+          '100.64/10 is a carrier\'s CGNAT space: you see it on your own router\'s WAN when behind CGNAT, never as a public source.',
+        ],
+        detail: ['asname carries a copy of IANA\'s two special-purpose registries (RFC 6890), with each block\'s RFC and whether it is globally reachable.'],
+        links: [['IANA IPv4 special-purpose registry', 'https://www.iana.org/assignments/iana-ipv4-special-registry/'], ['IANA IPv6 special-purpose registry', 'https://www.iana.org/assignments/iana-ipv6-special-registry/'], rfc(6890)],
+      },
+      {
         term: 'Reverse DNS',
         aka: 'PTR record, rDNS',
         body: 'The hostname the holder of an address has set for it.',
@@ -292,6 +315,16 @@ export const GLOSSARY = [
         links: [['db-ip.com', 'https://db-ip.com/db/lite.php']],
       },
       {
+        term: 'iCloud Private Relay',
+        body: 'Apple\'s relay for Safari and other traffic from iPhones, iPads and Macs whose owners pay for iCloud+. The site sees an address of the relay\'s, run on Akamai, Cloudflare or Fastly, not the user\'s.',
+        practice: [
+          'Many corporate and personal Apple devices show up this way: an iCloud Private Relay address is a person on an Apple device, not a server.',
+          'Apple publishes each egress range with the region its users are in, and keeps them in that region, so the location is roughly right, unlike a VPN\'s.',
+          'The address is shared by many users and Apple will not identify one. Do not block the ranges for one user\'s behaviour.',
+        ],
+        links: [['Apple: prepare your network for Private Relay', 'https://developer.apple.com/support/prepare-your-network-for-icloud-private-relay/'], ['Egress ranges', 'https://mask-api.icloud.com/egress-ip-ranges.csv']],
+      },
+      {
         term: 'Geofeed',
         aka: 'RFC 8805',
         body: 'A file a network publishes saying where its own ranges are, linked from its registry records.',
@@ -376,6 +409,35 @@ export const GLOSSARY = [
         links: [['Tor Project', 'https://www.torproject.org/'], ['Tor exit list', 'https://check.torproject.org/torbulkexitlist'], wiki('Tor_(network)')],
       },
       {
+        term: 'Botnet C2',
+        aka: 'command and control',
+        body: 'A server that infected machines contact for orders. abuse.ch\'s Feodo Tracker lists the C2 servers of banking and loader malware families (QakBot, Emotet, Dridex and others) with the family each serves.',
+        practice: [
+          'An internal host talking to a C2 is almost certainly infected: isolate it and find the malware family\'s other indicators.',
+          'Block C2 addresses outright; they have no legitimate use. They often sit on rented cloud servers, so check the date: a cloud address may have passed to an innocent customer since.',
+        ],
+        links: [['Feodo Tracker', 'https://feodotracker.abuse.ch/'], ['abuse.ch', 'https://abuse.ch/'], wiki('Botnet')],
+      },
+      {
+        term: 'Internet scanner',
+        body: 'A service that probes every address on the internet, for research (universities, Shadowserver) or to sell attack-surface data (Censys, Shodan and many others). asname marks the ranges they publish, from the MISP warninglists.',
+        practice: [
+          'Hits from a known scanner are background noise, not someone targeting you. Do not spend an investigation on them.',
+          'But what it found about you is now searchable: look yourself up on the scanner\'s site to see what it saw.',
+          'Attackers use scanners too, from ordinary hosting; an unlisted address scanning you is not innocent just because scanning is common.',
+        ],
+        links: [['MISP warninglists', 'https://github.com/MISP/misp-warninglists'], ['Shadowserver', 'https://www.shadowserver.org/']],
+      },
+      {
+        term: 'Sinkhole',
+        body: 'An address that researchers, a registrar or the police point a seized malicious domain at, to cut the malware off and count its victims.',
+        practice: [
+          'A device of yours talking to a sinkhole is infected with whatever used the domain: find out which domain it looked up.',
+          'The sinkhole itself is harmless; whoever runs it may already be notifying victims, including you.',
+        ],
+        links: [wiki('DNS_sinkhole'), ['MISP warninglists', 'https://github.com/MISP/misp-warninglists']],
+      },
+      {
         term: 'VPN',
         body: 'A service that relays its customers\' traffic through its own servers, hiding where they are.',
         practice: [
@@ -389,6 +451,12 @@ export const GLOSSARY = [
   {
     section: 'Data sources',
     terms: [
+      {
+        term: 'MISP warninglists',
+        body: 'Lists, maintained by the MISP threat-sharing project, of addresses that look suspicious but are not: scanners, crawlers, public DNS resolvers, sinkholes, cloud and service ranges. asname reads its IP lists into scanner:, crawler:, service:, cloud: and other tags.',
+        practice: ['A warninglist hit is a reason to stop before raising an alert, not a reason to trust the traffic: anyone can rent a cloud server.'],
+        links: [['github.com/MISP/misp-warninglists', 'https://github.com/MISP/misp-warninglists']],
+      },
       {
         term: 'PeeringDB',
         body: 'A database where networks describe themselves: what kind of network they are, where they connect, and how to reach their engineers.',
@@ -428,10 +496,18 @@ const TAG_PRACTICE = {
 };
 
 const SPECIAL_TAGS = [
-  { term: 'cloud:<provider>', body: 'Inside a cloud provider\'s published ranges (AWS, Google Cloud, Oracle, DigitalOcean, Linode, Vultr, Cloudflare, Fastly): a server one of its customers runs.', practice: 'Report to the cloud\'s abuse team, who can identify the customer. Addresses pass to new customers within minutes, so act on fresh evidence only.' },
+  { term: 'cloud:<provider>', body: 'Inside a cloud or CDN provider\'s published ranges (AWS, Azure, Google Cloud, Oracle, IBM, Alibaba, Huawei, Tencent, Hetzner, OVH, DigitalOcean, Linode, Vultr, Akamai, Cloudflare, Fastly and others): a server one of its customers runs.', practice: 'Report to the cloud\'s abuse team, who can identify the customer. Addresses pass to new customers within minutes, so act on fresh evidence only.' },
   { term: 'vpn:<provider>', body: 'On a VPN provider\'s published server list.', practice: 'The real user is elsewhere and shares the address with the provider\'s other customers.' },
   { term: 'tor-exit', body: 'On the Tor Project\'s list of exit nodes.', practice: 'An anonymous Tor user, untraceable; see Tor exit node above.' },
   { term: 'leased:<broker>', body: 'Rented out through an IP leasing broker.', practice: 'The registry names the landlord; report through the broker. See IP leasing above.' },
+  { term: 'scanner:<name>', body: 'A known internet scanner\'s published range (MISP warninglists).', practice: 'Background noise, not a targeted attack; see Internet scanner above.' },
+  { term: 'crawler:<name>', body: 'A search or AI crawler\'s published range: Googlebot, GPTBot.', practice: 'A bot fetching pages. Something claiming to be Googlebot from elsewhere is not.' },
+  { term: 'service:<name>', body: 'A service\'s published addresses: Zscaler, Microsoft 365, GitHub, Salesforce, a Cisco Umbrella block page, big mail providers.', practice: 'Zscaler means a corporate user behind its proxy; an Umbrella block page means a DNS filter refused the name.' },
+  { term: 'relay:icloud', body: 'An Apple iCloud Private Relay egress.', practice: 'A person on an Apple device, roughly where Apple says; see iCloud Private Relay above.' },
+  { term: 'public-dns', body: 'A DNS resolver that answers anyone (MISP warninglists).', practice: 'Normal as a destination on port 53; as a source of floods, a reflector in a DNS amplification attack.' },
+  { term: 'sinkhole', body: 'A known sinkhole for seized malicious domains.', practice: 'A device talking to it is probably infected; see Sinkhole above.' },
+  { term: 'parking', body: 'A domain-parking service.', practice: 'The domain is parked, not a working site.' },
+  { term: 'bogon', body: 'Unallocated or reserved space (Team Cymru).', practice: 'Spoofed if unannounced, hijacked if announced; see Bogon above.' },
   { term: 'anonymised-holder', body: 'The registry record withholds who holds the block.', practice: 'Contact the network carrying it instead; the holder cannot be reached directly.' },
 ];
 

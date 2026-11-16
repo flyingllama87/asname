@@ -104,8 +104,35 @@ const VPN_NAMES = {
 
 const titleCase = (s) => s.replace(/(^|[-_ ])(\w)/g, (_, sep, c) => (sep ? ' ' : '') + c.toUpperCase());
 export const vpnName = (id) => VPN_NAMES[id] || titleCase(id);
-const CLOUD_NAMES = { aws: 'AWS', gcp: 'Google Cloud', digitalocean: 'DigitalOcean', cloudflare: 'Cloudflare', oracle: 'Oracle Cloud', linode: 'Linode (Akamai)', vultr: 'Vultr', fastly: 'Fastly' };
+const CLOUD_NAMES = {
+  aws: 'AWS', gcp: 'Google Cloud', digitalocean: 'DigitalOcean', cloudflare: 'Cloudflare', oracle: 'Oracle Cloud',
+  linode: 'Linode (Akamai)', vultr: 'Vultr', fastly: 'Fastly', azure: 'Microsoft Azure', ibm: 'IBM Cloud',
+  alibaba: 'Alibaba Cloud', huawei: 'Huawei Cloud', tencent: 'Tencent Cloud', ovh: 'OVHcloud', cdn77: 'CDN77',
+  gcore: 'Gcore', bunny: 'Bunny CDN', godaddy: 'GoDaddy', coreweave: 'CoreWeave',
+};
 export const cloudName = (id) => CLOUD_NAMES[id] || titleCase(id);
+const SCANNER_NAMES = {
+  censys: 'Censys', shodan: 'Shodan', binaryedge: 'BinaryEdge', rapid7: 'Rapid7 Project Sonar', shadowserver: 'Shadowserver',
+  'palo-alto-xpanse': 'Palo Alto Cortex Xpanse', umich: 'University of Michigan', leakix: 'LeakIX', onyphe: 'Onyphe',
+  zoomeye: 'ZoomEye', fofa: 'FOFA', netlas: 'Netlas', ipinfo: 'IPinfo', tenableasm: 'Tenable ASM', mandiantasm: 'Mandiant ASM',
+  stretchoid: 'Stretchoid', driftnet: 'Driftnet', criminalip: 'Criminal IP', hunter: 'Hunter', quake: '360 Quake',
+};
+export const scannerName = (id) => SCANNER_NAMES[id] || titleCase(id);
+const SERVICE_NAMES = {
+  zscaler: 'Zscaler', salesforce: 'Salesforce', github: 'GitHub', telegram: 'Telegram', wikimedia: 'Wikimedia', apple: 'Apple',
+  'microsoft-365': 'Microsoft 365', 'palo-alto-cortex': 'Palo Alto Cortex Cloud', 'tenable-cloud': 'Tenable Cloud scanners',
+  'check-host': 'check-host.net', 'crl-ocsp': 'certificate revocation (CRL/OCSP)', 'umbrella-blockpage': 'Cisco Umbrella block page',
+  'mail-sending': 'a major mail provider\'s sending servers', 'mail-receiving': 'a major mail provider\'s receiving servers',
+};
+export const serviceName = (id) => SERVICE_NAMES[id] || titleCase(id);
+const SERVICE_PRACTICE = {
+  zscaler: 'a corporate user browsing through Zscaler\'s security proxy: the real user is an employee of one of its customers, somewhere else entirely',
+  'umbrella-blockpage': 'a name Cisco Umbrella blocked resolves here, so the device behind the lookup asked for something its DNS filter refused',
+  'tenable-cloud': 'a vulnerability scan someone ordered from Tenable: possibly your own organisation\'s',
+  'palo-alto-cortex': 'Palo Alto Networks\' cloud service',
+  'check-host': 'someone testing reachability with check-host.net',
+};
+const CRAWLER_NAMES = { googlebot: 'Googlebot', gptbot: 'OpenAI GPTBot' };
 const BROKER_NAMES = { ipxo: 'IPXO', prefixbroker: 'PrefixBroker' };
 const brokerName = (id) => BROKER_NAMES[id] || titleCase(id);
 
@@ -159,6 +186,16 @@ export function categoryTagHelp(tag) {
   if (kind === 'leased' && value) {
     return `Rented out through the IP leasing broker ${brokerName(value)}. Whoever uses it now may change often and may not be who the registry lists.`;
   }
+  if (kind === 'scanner' && value) {
+    return `A known internet scanner (${scannerName(value)}), from the MISP warninglists: it probes every address on the internet for research or attack-surface data. Its hits are background noise, not a targeted attack.`;
+  }
+  if (kind === 'crawler' && value) return `${CRAWLER_NAMES[value] || titleCase(value)}'s published crawler ranges: a search or AI crawler fetching pages.`;
+  if (kind === 'service' && value) return `${serviceName(value)}'s published addresses, from the MISP warninglists.`;
+  if (tag === 'relay:icloud') return 'An Apple iCloud Private Relay egress: an Apple device whose owner pays for iCloud+, relayed so sites cannot see their address. Apple publishes these ranges with the rough location each stands for.';
+  if (tag === 'public-dns') return 'A public DNS resolver anyone can use (from the MISP warninglists): a big public service such as 8.8.8.8, or a device left open to answer anyone.';
+  if (tag === 'sinkhole') return 'A sinkhole: researchers, a registrar or police took over a malicious domain and point it here. A device talking to it is probably infected.';
+  if (tag === 'parking') return 'A domain-parking service: parked domains point here, not to a real site.';
+  if (tag === 'bogon') return 'A bogon (Team Cymru): space no registry has handed out, or reserved space. Nothing should announce it, and nothing on the internet should come from it.';
   if (kind === 'range' && RANGE_TAGS[value]) return `About this address's range, from its registry netname: ${RANGE_TAGS[value]}`;
   if (OPERATOR_TAGS[tag]) return `About the network, not this address: ${OPERATOR_TAGS[tag]}.`;
   return 'A classification of the network or address.';
@@ -178,6 +215,8 @@ export function reputationTagHelp(entry) {
       return 'FireHOL level 2: reported attacking within the last 48 hours.';
     case 'firehol-level3':
       return 'FireHOL level 3: reported attacking within the last 30 days.';
+    case 'feodo':
+      return `abuse.ch Feodo Tracker: a botnet command-and-control (C2) server for ${detail}. Hosts talking to it are probably infected.`;
   }
   return 'A public blocklist names this address.';
 }
@@ -230,6 +269,9 @@ export function findings(r, loaded = {}) {
   if (asnRep?.spamhaus_asn_drop) {
     add('high', `The whole network (${asn}) is on Spamhaus ASN-DROP: Spamhaus considers it run by or for criminals. Treat traffic from any of its addresses as hostile.`);
   }
+  for (const f of lists.filter((l) => l.startsWith('feodo:'))) {
+    add('high', `A ${f.slice(6)} botnet command-and-control server (abuse.ch Feodo Tracker). Block it, and treat any internal host talking to it as infected.`);
+  }
   if (lists.includes('firehol-level2')) add('high', 'Reported attacking within the last 48 hours (FireHOL level 2).');
   const ipsum = lists.find((l) => l.startsWith('ipsum:'));
   if (ipsum) {
@@ -242,7 +284,10 @@ export function findings(r, loaded = {}) {
     const n = asnRep.drop_prefixes;
     add('medium', `${asn} announces ${n} block${n === 1 ? '' : 's'} on Spamhaus DROP${drop ? '' : ', though not the one this address is in'}: it carries some criminal-operated space, which says something about who it accepts as customers.`);
   }
-  if (asnRep && !asnRep.spamhaus_asn_drop && asnRep.listed_share_pct >= 1) {
+  const scanner = tags.find((t) => t.startsWith('scanner:'));
+  if (asnRep && !asnRep.spamhaus_asn_drop && asnRep.listed_share_pct >= 1 && scanner) {
+    add('info', `${fmtPct(asnRep.listed_share_pct)} of ${asn}'s address space is on blocklists. Expected for a scanner: blocklists record its scans.`);
+  } else if (asnRep && !asnRep.spamhaus_asn_drop && asnRep.listed_share_pct >= 1) {
     add('medium', `${fmtPct(asnRep.listed_share_pct)} of ${asn}'s address space is on blocklists, which is high: the network tolerates or attracts abuse.`);
   }
 
@@ -276,14 +321,39 @@ export function findings(r, loaded = {}) {
       add('medium', `The block was registered recently (${r.netblock.created}). Newly registered space is used for abuse more often than long-held space; it deserves a closer look.`);
     }
   }
-  for (const t of tags.filter((t) => t.startsWith('cloud:'))) {
+  for (const t of tags.includes('relay:icloud') ? [] : tags.filter((t) => t.startsWith('cloud:'))) {
     add('info', `Hosted at ${cloudName(t.slice(6))}: a server or service run by one of its customers, not a person at home. Report abuse to ${cloudName(t.slice(6))}, who know the customer.`);
   }
-  if (r.asn?.no_ipv6_routes) {
+  const sp = r.special;
+  if (sp) {
+    const reach = sp.globally_reachable === false ? ' It is not reachable on the internet, so traffic from it is from inside a network (yours, or a carrier\'s), or spoofed.' : '';
+    add('info', `Special-purpose: ${sp.name} (${sp.prefix}, ${sp.rfc}).${reach}`);
+  } else if (r.asn?.no_ipv6_routes) {
     add('info', 'Network unknown: this server\'s ASN database has no IPv6 routes. Turn on "Import IPv6 routes" on the Databases tab and update the ASN database.');
+  } else if (tags.includes('bogon')) {
+    if (r.asn?.announced === false) add('info', 'Unallocated (a bogon): no registry has handed this space to anyone, so nothing should use it. Traffic that claims to come from it is spoofed.');
+    else add('high', `Announced by ${asn} although no registry has handed it out (a bogon): squatted or hijacked space. Treat it as hostile.`);
   } else if (r.asn?.announced === false) {
-    add('info', 'Not announced on the internet: private, reserved or unused space. Traffic that claims to come from it is internal or spoofed.');
+    add('info', loaded.category
+      ? 'Allocated but not announced: a registry handed it out, but nobody routes it on the internet. It is unused, or used only inside a private network; traffic that claims to come from it is spoofed.'
+      : 'Not announced on the internet: private, reserved or unused space. Traffic that claims to come from it is internal or spoofed.');
   }
+  if (tags.includes('sinkhole')) add('medium', 'A sinkhole: a malicious domain was taken over and pointed here. A device of yours talking to it is probably infected with whatever used that domain.');
+  if (tags.includes('relay:icloud')) {
+    const where = r.relay ? `, roughly in ${r.relay.name}` : '';
+    add('medium', `iCloud Private Relay: an Apple device user with iCloud+${where}. The address is shared by many users and Apple will not say who; Private Relay keeps the user's rough region, so that location is about right.`);
+  }
+  for (const t of tags.filter((t) => t.startsWith('scanner:'))) {
+    add('info', `A known internet scanner (${scannerName(t.slice(8))}): it probes the whole internet for research or attack-surface data. Its hits are background noise, not a targeted attack, but what it found is now in its database.`);
+  }
+  for (const t of tags.filter((t) => t.startsWith('crawler:'))) {
+    add('info', `${CRAWLER_NAMES[t.slice(8)] || titleCase(t.slice(8))}, from its published crawler ranges: a crawler fetching pages, not a person.`);
+  }
+  for (const t of tags.filter((t) => t.startsWith('service:'))) {
+    const v = t.slice(8);
+    add('info', SERVICE_PRACTICE[v] ? `${serviceName(v)}: ${SERVICE_PRACTICE[v]}.` : `${serviceName(v)}'s published addresses.`);
+  }
+  if (tags.includes('public-dns')) add('info', 'A public DNS resolver anyone can query: a big service like 8.8.8.8, or a device left open. Traffic to it on port 53 is normal; from it, it may be a DNS amplification reflection.');
   if (!r.served_by && r.host && tags.includes('cdn')) {
     const cdn = tags.find((t) => t.startsWith('cloud:'));
     const name = cdn ? cloudName(cdn.slice(6)) : r.asn?.organization || 'a CDN';
@@ -423,6 +493,9 @@ export function whoIs(r) {
     return network ? `${network}${asn ? ` (${asn})` : ''}.` : null;
   }
   const owner = blockOwner(r);
+  if ((r.category?.tags || []).includes('relay:icloud')) {
+    return `Apple iCloud Private Relay, on ${network || 'a CDN'}${asn && asn !== 'N/A' ? ` (${asn})` : ''}: a person on an Apple device.`;
+  }
   if (r.served_by) {
     const inside = embeddedIn(r);
     const cdn = r.served_by.cdn;
@@ -453,7 +526,7 @@ export function whereIs(r) {
   const nb = r.netblock?.country;
   const reg = nb?.name || nb?.code || rir;
   const tags = r.category?.tags || [];
-  const movable = tags.includes('tor-exit') || tags.some((t) => t.startsWith('vpn:') || t.startsWith('cloud:'));
+  const movable = !r.relay && (tags.includes('tor-exit') || tags.some((t) => t.startsWith('vpn:') || t.startsWith('cloud:')));
   const leased = tags.some((t) => t.startsWith('leased:'));
   const history = nb && rir && nb.code !== r.country?.code ? ` Parent allocation: ${rir}.` : '';
   const caveat = r.served_by
@@ -466,6 +539,7 @@ export function whereIs(r) {
 
   // Each answer, by who gives it.
   const answers = [];
+  if (r.relay) answers.push({ who: 'iCloud Private Relay', place: r.relay.name, country: r.relay.country?.name || r.relay.country?.code });
   if (r.geofeed) answers.push({ who: 'geofeed', place: r.geofeed.name, country: r.geofeed.country?.name || r.geofeed.country?.code });
   if (r.city_maxmind?.present) answers.push({ who: short(r.city_maxmind.source), place: r.city_maxmind.name, country: country(r.city_maxmind.name) });
   if (r.city?.present) answers.push({ who: short(r.city.source), place: r.city.name, country: country(r.city.name) });

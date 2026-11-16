@@ -740,7 +740,7 @@ the netname and owner tags below), and builds in a minute or two.
 
 **The two halves of it are not equally trustworthy, and the difference matters.**
 
-*Prefixes* come from the providers themselves. AWS, Google, Oracle, Fastly,
+*Prefixes* come from the providers themselves. AWS, Azure, Google, Oracle, Fastly,
 Cloudflare, DigitalOcean, Linode and Vultr all publish the exact ranges they
 use, and AWS goes further and names the service, which is how `13.32.0.1` is
 reported as a CDN while `52.95.110.1` is just a machine. The Tor Project
@@ -748,6 +748,45 @@ publishes its exit list the same way. When one of these names an address, that
 is the provider speaking about its own network and it settles the question.
 An address inside one of these ranges that is also a Tor exit or VPN server
 reports both, for example `cloud:vultr, vpn:vpn-unlimited`.
+
+Azure's ranges come from Microsoft's weekly [Service Tags](https://www.microsoft.com/en-us/download/details.aspx?id=56519)
+file (the public cloud's `AzureCloud` ranges, with Front Door's edge also
+tagged `cdn`).
+
+*Known services* come from the [MISP warninglists](https://github.com/MISP/misp-warninglists),
+lists of addresses that look suspicious but are not, kept by the MISP
+threat-sharing project. asname reads their IP lists only:
+
+| Tag | Meaning |
+|---|---|
+| `scanner:<name>` | A known internet scanner's published range (Censys, Shodan, Rapid7, Shadowserver and about 90 more): background noise, not a targeted attack. |
+| `crawler:<name>` | Googlebot's or OpenAI's GPTBot's published crawler ranges. |
+| `service:<name>` | A service's own addresses: Zscaler (a corporate user behind its proxy), Microsoft 365, GitHub, Salesforce, Telegram, Apple, a Cisco Umbrella block page, big mail providers' sending and receiving servers. |
+| `public-dns` | A DNS resolver that answers anyone. |
+| `sinkhole` | A known sinkhole for seized malicious domains: a device talking to it is probably infected. |
+| `parking` | A domain-parking service. |
+| `cloud:<name>` | Clouds and CDNs with no first-hand list: IBM, Alibaba, Huawei, Tencent, Hetzner, OVH, Leaseweb, Scaleway, Akamai, Gcore, Bunny, CDN77, Imperva and others, plus Azure's China, Germany and US Government clouds. |
+
+These tags add to the network's own tags rather than replace them: an open
+resolver on a home connection still shows `isp`. With `-v` the card names the
+warninglist behind each.
+
+*iCloud Private Relay* egress ranges come from [Apple](https://mask-api.icloud.com/egress-ip-ranges.csv),
+tagged `relay:icloud`. Apple publishes each range with the region its users
+are in, and keeps them there, so the card shows that location as `Relay users`
+(JSON `relay`): roughly where the person is, unlike a VPN's.
+
+*Bogons* come from [Team Cymru's full bogon lists](https://www.team-cymru.com/bogon-reference),
+tagged `bogon`: space no registry has handed out. Unannounced, traffic from it
+is spoofed; announced, it is squatted or hijacked.
+
+*Special-purpose blocks* need no download: asname carries IANA's
+special-purpose address registries ([IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/),
+[IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/), RFC 6890)
+and names the block an address is in, with its RFC and whether it is reachable
+on the internet: `Special-purpose: Shared Address Space (carrier-grade NAT),
+100.64.0.0/10 (RFC 6598), not reachable on the internet` (JSON `special`).
+This works without any database.
 
 *VPN servers* come from the providers' own server lists where they publish
 one without a login: NordVPN, Mullvad, Surfshark, Private Internet Access,
@@ -974,6 +1013,7 @@ The address-level tags are:
 | `ipsum:N` | [IPsum](https://github.com/stamparm/ipsum) lists the address on N of the 30+ public feeds it aggregates. IPsum's author suggests 3 or more as a blocking threshold. |
 | `firehol-level2` | [FireHOL level 2](https://iplists.firehol.org/?ipset=firehol_level2): reported attacking within the last 48 hours. |
 | `firehol-level3` | [FireHOL level 3](https://iplists.firehol.org/?ipset=firehol_level3): reported attacking within the last 30 days. |
+| `feodo:<family>` | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/): a botnet command-and-control server for that malware family (QakBot, Emotet...). Block it; an internal host talking to it is probably infected. |
 
 The ASN-level summary is the useful signal for spotting a dodgy ASN:
 
@@ -1042,8 +1082,8 @@ $ asname -v 8.8.8.8
     City:              MaxMind GeoLite2 geolocation, offline
     City:              DB-IP geolocation, offline
     Netblock:          RIR WHOIS dumps, offline
-    Category:          Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline
-    Reputation:        Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline
+    Category:          Cloud provider ranges (incl. Azure Service Tags), Tor exits, VPN server lists, iCloud Private Relay, MISP warninglists, Team Cymru bogons, bgp.tools tags, PeeringDB, offline
+    Reputation:        Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker, offline
 ```
 
 Colors are enabled automatically on interactive terminals and suppressed when piped, unless forced with `--color`. Use `--no-color` (or set the `NO_COLOR` environment variable) to disable colors explicitly.
@@ -1480,14 +1520,17 @@ delegation statistics files (IP to country).
 Category data comes from the providers' own published ranges ([AWS](https://ip-ranges.amazonaws.com/ip-ranges.json),
 [Google Cloud](https://www.gstatic.com/ipranges/cloud.json), [Oracle](https://docs.oracle.com/en-us/iaas/tools/public_ip_ranges.json),
 [Fastly](https://api.fastly.com/public-ip-list), [Cloudflare](https://www.cloudflare.com/ips-v4),
-DigitalOcean, Linode and Vultr), the [Tor Project](https://check.torproject.org/torbulkexitlist)
+[Azure](https://www.microsoft.com/en-us/download/details.aspx?id=56519), DigitalOcean, Linode and Vultr),
+Apple's [iCloud Private Relay egress ranges](https://mask-api.icloud.com/egress-ip-ranges.csv),
+the [MISP warninglists](https://github.com/MISP/misp-warninglists) (CC0),
+[Team Cymru's bogon lists](https://www.team-cymru.com/bogon-reference), the [Tor Project](https://check.torproject.org/torbulkexitlist)
 exit list, the server lists NordVPN, Mullvad, Surfshark, Private Internet
 Access, IVPN, AirVPN, Windscribe and PrivadoVPN publish for their apps,
 [gluetun's VPN server lists](https://github.com/qdm12/gluetun-servers)
 (MIT licence) for other providers, [PeeringDB](https://www.peeringdb.com/) network types, and
 [bgp.tools](https://bgp.tools/) operator tags.
 
-Reputation data comes from [Spamhaus DROP and ASN-DROP](https://www.spamhaus.org/blocklists/do-not-route-or-peer/), [IPsum](https://github.com/stamparm/ipsum) and [FireHOL](https://github.com/firehol/blocklist-ipsets) levels 2 and 3. Spamhaus DROP is free for any use under the [Spamhaus DROP terms](https://www.spamhaus.org/drop/terms/).
+Reputation data comes from [Spamhaus DROP and ASN-DROP](https://www.spamhaus.org/blocklists/do-not-route-or-peer/), [IPsum](https://github.com/stamparm/ipsum), [FireHOL](https://github.com/firehol/blocklist-ipsets) levels 2 and 3 and [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/). Spamhaus DROP is free for any use under the [Spamhaus DROP terms](https://www.spamhaus.org/drop/terms/).
 
 Netblock data comes from the RIRs' bulk whois dumps, [APNIC](https://ftp.apnic.net/apnic/whois/),
 [RIPE NCC](https://ftp.ripe.net/ripe/dbase/split/) and [AFRINIC](https://ftp.afrinic.net/dbase/),

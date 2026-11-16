@@ -128,12 +128,14 @@ const SRC = {
   whois: 'Live WHOIS (IANA referral to the RIR)',
   rdap: 'Live RDAP (IANA bootstrap to the RIR)',
   online: 'Live RDAP, or WHOIS if RDAP fails',
-  category: 'Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline',
+  category: 'Cloud provider ranges (incl. Azure Service Tags), Tor exits, VPN server lists, iCloud Private Relay, MISP warninglists, Team Cymru bogons, bgp.tools tags, PeeringDB, offline',
+  relay: 'Apple iCloud Private Relay egress ranges, offline',
+  special: 'IANA special-purpose address registries (RFC 6890), built in',
   inferredName: "asname's rules on words in the AS name (inferrules.yaml), offline",
   inferredList: "asname's list of well-known networks (inferrules.yaml), offline",
   inferredNetname: "asname's rules on the registry netname (inferrules.yaml), offline",
   rdns: 'Live DNS PTR query',
-  rep: 'Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline',
+  rep: 'Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker, offline',
   ripeStat: 'Live RIPEstat announced-prefixes API',
 };
 
@@ -841,6 +843,7 @@ function resultCard(r, i) {
       cityBody = only ? only.name : unknown();
     }
     for (const x of rows) sources.push([`Location (${x.label})`, x.src]);
+    if (r.special) sources.push(['Special-purpose', SRC.special]);
   }
 
   // Netblock: shown when the netblock database is loaded or the registry was asked online.
@@ -855,6 +858,8 @@ function resultCard(r, i) {
           .join(' · ')}
       </span>`;
     sources.push(['Netblock', nb.live_query ? (nb.source === 'rdap' ? SRC.rdap : SRC.whois) : SRC.netblock]);
+  } else if (!isASN && r.special) {
+    netblockBody = html`${unknown('No registry record')}<span class="meta">Special-purpose space (${r.special.rfc}): no one holds it</span>`;
   } else if (!isASN && (loaded.netblock || askedWhois)) {
     netblockBody = html`${unknown(askedWhois ? 'None found, offline or online' : 'Not in the offline index')}
       ${!askedWhois && avail.whois
@@ -879,7 +884,7 @@ function resultCard(r, i) {
       )
     : nothing;
   if (catTags.length) {
-    categoryBody = html`<div class="tags">${catTags.map((t) => html`<cds-tag size="sm" type=${t.includes(':') || t === 'tor-exit' || t === 'anonymised-holder' ? 'purple' : 'teal'}>${t}</cds-tag>`)}</div>${inferredView}`;
+    categoryBody = html`<div class="tags">${catTags.map((t) => html`<cds-tag size="sm" type=${isAddrTag(t) ? 'purple' : 'teal'}>${t}</cds-tag>`)}</div>${inferredView}`;
     sources.push(['Category', SRC.category]);
   } else if (inferredTags.length) {
     categoryBody = inferredView;
@@ -916,7 +921,7 @@ function resultCard(r, i) {
   // Who: the organisation the block is registered to, beside the network
   // that carries it, each with the tags that describe it.
   const owner = blockOwner(r);
-  const isAddressTag = (t) => t.includes(':') || t === 'tor-exit' || t === 'anonymised-holder';
+  const isAddressTag = isAddrTag;
   const tagView = (t) => html`<cds-tag size="sm" type=${isAddressTag(t) ? 'purple' : 'teal'}>${t}</cds-tag>`;
   const inferredGroup = (from) => {
     const list = inferredList.filter((t) => t.from === from);
@@ -980,6 +985,9 @@ function resultCard(r, i) {
         <div>
           <div class="card-title">${title}</div>
           ${sub ? html`<div class="card-sub">${sub}</div>` : nothing}
+          ${r.special
+            ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">${r.special.rfc}</cds-tag> ${r.special.name}, ${r.special.prefix}${r.special.globally_reachable === false ? ': not reachable on the internet' : ''}</div>`
+            : nothing}
           ${r.nat64
             ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">NAT64</cds-tag> ${r.nat64.dns64 ? `the resolver answered ${r.nat64.address}, a made-up DNS64 address that carries this IPv4 address` : `${r.nat64.address} carries this IPv4 address`}</div>`
             : nothing}
@@ -1044,6 +1052,12 @@ function asnSummary(asn) {
   return asn?.spamhaus_asn_drop ? s.replace(/^Spamhaus ASN-DROP(; )?/, '') : s;
 }
 
+// isAddrTag says whether a category tag is about the address itself rather
+// than the network it is on.
+function isAddrTag(t) {
+  return t.includes(':') || ['tor-exit', 'anonymised-holder', 'public-dns', 'sinkhole', 'parking', 'bogon'].includes(t);
+}
+
 // listLabel names a blocklist entry ("ipsum:3", "spamhaus-drop:SBL123")
 // the way the tags show it.
 function listLabel(name) {
@@ -1055,6 +1069,8 @@ function listLabel(name) {
       return 'FireHOL L3 · 30 d';
     case 'ipsum':
       return `IPsum · ${detail} lists`;
+    case 'feodo':
+      return `Feodo C2 · ${detail}`;
     case 'spamhaus-drop':
       return detail ? `Spamhaus DROP · ${detail}` : 'Spamhaus DROP';
     default:
@@ -1104,6 +1120,7 @@ function fmtShare(p) {
 // label: the network's geofeed, MaxMind's estimate and DB-IP's.
 function locationRows(r) {
   const rows = [];
+  if (r.relay) rows.push({ label: 'Private Relay', who: 'iCloud Private Relay', name: r.relay.name, title: 'Where Apple says this egress range\'s users are', src: SRC.relay });
   if (r.geofeed) rows.push({ label: 'Geofeed', name: r.geofeed.name, title: r.geofeed.feed, src: `${SRC.geofeed}: ${r.geofeed.feed}` });
   if (r.city_maxmind?.present) {
     const who = r.city_maxmind.source || 'MaxMind';

@@ -319,6 +319,12 @@ type LookupResult struct {
 	// NAT64 is set when the address asked about was this IPv4 address
 	// inside a NAT64 prefix; IP is then the IPv4 address.
 	NAT64 *NAT64
+	// Special is the IANA special-purpose block the address is in (private
+	// use, carrier NAT, documentation...), or nil.
+	Special *sources.Special
+	// Relay is where Apple says the users of the iCloud Private Relay
+	// egress range holding the address are, or nil.
+	Relay *sources.RelayLocation
 	// IPv6Skipped counts a hostname's IPv6 addresses left out because the
 	// ASN database has no IPv6 routes and the name has IPv4 addresses too.
 	// Set on the hostname's first result only.
@@ -520,11 +526,17 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		}
 	}
 
+	if s, ok := sources.SpecialPurpose(ip); ok {
+		res.Special = &s
+	}
 	if e.categoryDB != nil {
 		res.Category = "Unknown"
 		if c := e.categoryDB.Lookup(ip, asn, haveASN); c != "" {
 			res.Category = c
 			res.VPNLists = e.categoryDB.VPNLists(c)
+		}
+		if loc, ok := e.categoryDB.RelayLocation(ip); ok {
+			res.Relay = &loc
 		}
 	}
 	// Leasing and anonymised-holder flags come from the netblock database.
