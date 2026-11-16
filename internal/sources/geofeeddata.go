@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -38,8 +40,18 @@ const (
 	geofeedHostConns = 4
 )
 
-// geofeedHTTPClient fetches the feeds; tests replace it.
-var geofeedHTTPClient = &http.Client{Timeout: geofeedTimeout, CheckRedirect: geofeedRedirect}
+// geofeedHTTPClient fetches the feeds; tests replace it. Its connections
+// are kept only briefly once idle: enough to reuse one for a host's next
+// feed, not to hold one open to each of thousands of hosts once done.
+var geofeedHTTPClient = &http.Client{Timeout: geofeedTimeout, CheckRedirect: geofeedRedirect, Transport: geofeedTransport()}
+
+func geofeedTransport() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.IdleConnTimeout = 5 * time.Second
+	t.MaxIdleConns = geofeedWorkers
+	t.MaxIdleConnsPerHost = geofeedHostConns
+	return t
+}
 
 func geofeedRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 5 {
@@ -212,6 +224,7 @@ func UpdateGeofeedDB(ctx context.Context, cfg Config) (err error) {
 		feeds++
 	}
 	logf(ctx, "asname: %d geofeeds on %d hosts, named by %d registry ranges\n", feeds, len(byHost), len(urlID))
+	cache := newFeedCache(filepath.Join(cfg.CacheDir(), "geofeeds"))
 
 	results := make(chan geofeedResult, geofeedWorkers)
 	type hostJob struct {
@@ -229,7 +242,7 @@ func UpdateGeofeedDB(ctx context.Context, cfg Config) (err error) {
 					if ctx.Err() != nil {
 						return
 					}
-					entries, bad, err := job.gate.fetch(ctx, urls[id])
+					entries, bad, err := job.gate.fetch(ctx, urls[id], cache)
 					results <- geofeedResult{id: id, entries: entries, bad: bad, err: err}
 				}
 			}
@@ -341,6 +354,7 @@ func UpdateGeofeedDB(ctx context.Context, cfg Config) (err error) {
 			logf(ctx, "asname: geofeeds: %d of %d fetched (%d failed)\n", read+failed, feeds, failed)
 		}
 	}
+	geofeedHTTPClient.CloseIdleConnections()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -375,39 +389,103 @@ func UpdateGeofeedDB(ctx context.Context, cfg Config) (err error) {
 }
 
 // fetchGeofeed downloads and parses one feed.
-func fetchGeofeed(ctx context.Context, feedURL string) ([]geofeedEntry, int, error) {
+// fetchGeofeedBody downloads one feed.
+func fetchGeofeedBody(ctx context.Context, feedURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", defaultUserAgent())
 	req.Header.Set("Accept", "text/csv, text/plain;q=0.9, */*;q=0.5")
 	resp, err := geofeedHTTPClient.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
 		wait, _ := retryAfter(resp.Header.Get("Retry-After"))
-		return nil, 0, &slowDownError{status: resp.Status, wait: wait}
+		return nil, &slowDownError{status: resp.Status, wait: wait}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, 0, fmt.Errorf("GET %s: %s", feedURL, resp.Status)
+		return nil, fmt.Errorf("GET %s: %s", feedURL, resp.Status)
 	}
-	body := io.LimitReader(resp.Body, maxGeofeedSize+1)
-	cr := &countingReader{r: body}
-	entries, bad, err := parseGeofeed(cr)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxGeofeedSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxGeofeedSize {
+		return nil, errors.New("feed too large")
+	}
+	return body, nil
+}
+
+// parseGeofeedBody parses a downloaded feed.
+func parseGeofeedBody(body []byte) ([]geofeedEntry, int, error) {
+	entries, bad, err := parseGeofeed(bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, err
-	}
-	if cr.n > maxGeofeedSize {
-		return nil, 0, errors.New("feed too large")
 	}
 	// An HTML page or other non-feed parses to nothing but bad lines.
 	if len(entries) == 0 && bad > 0 {
 		return nil, bad, errors.New("not a geofeed")
 	}
 	return entries, bad, nil
+}
+
+// fetchGeofeed downloads and parses one feed, without the cache or pacing.
+func fetchGeofeed(ctx context.Context, feedURL string) ([]geofeedEntry, int, error) {
+	body, err := fetchGeofeedBody(ctx, feedURL)
+	if err != nil {
+		return nil, 0, err
+	}
+	return parseGeofeedBody(body)
+}
+
+// feedCache keeps each feed, or why it could not be had, for CacheTTL, so
+// a rebuild or retry the same day asks no host again for what it already
+// answered. A nil feedCache keeps nothing.
+type feedCache struct{ dir string }
+
+func newFeedCache(dir string) *feedCache {
+	if dir == "" || os.MkdirAll(dir, 0o755) != nil {
+		return nil
+	}
+	pruneCache(dir)
+	return &feedCache{dir: dir}
+}
+
+func (c *feedCache) path(feedURL string) string { return filepath.Join(c.dir, cacheName(feedURL)) }
+
+// get returns the cached feed, or the cached reason it failed.
+func (c *feedCache) get(feedURL string) (body []byte, failure error, ok bool) {
+	if c == nil {
+		return nil, nil, false
+	}
+	p := c.path(feedURL)
+	if info, err := os.Stat(p); err == nil && time.Since(info.ModTime()) < CacheTTL {
+		if b, err := os.ReadFile(p); err == nil {
+			return b, nil, true
+		}
+	}
+	if info, err := os.Stat(p + ".failed"); err == nil && time.Since(info.ModTime()) < CacheTTL {
+		if b, err := os.ReadFile(p + ".failed"); err == nil {
+			return nil, errors.New(string(b)), true
+		}
+	}
+	return nil, nil, false
+}
+
+func (c *feedCache) put(feedURL string, body []byte) {
+	if c != nil {
+		os.Remove(c.path(feedURL) + ".failed")
+		_ = WriteFileAtomic(c.path(feedURL), body)
+	}
+}
+
+func (c *feedCache) fail(feedURL string, err error) {
+	if c != nil {
+		_ = WriteFileAtomic(c.path(feedURL)+".failed", []byte(err.Error()))
+	}
 }
 
 type countingReader struct {
@@ -551,42 +629,55 @@ type hostGate struct {
 	misses int
 }
 
-// fetch fetches one feed through the gate.
-func (g *hostGate) fetch(ctx context.Context, feedURL string) ([]geofeedEntry, int, error) {
+// fetch fetches one feed through the gate, or from cache.
+func (g *hostGate) fetch(ctx context.Context, feedURL string, cache *feedCache) ([]geofeedEntry, int, error) {
+	if body, failure, ok := cache.get(feedURL); ok {
+		if failure != nil {
+			return nil, 0, failure
+		}
+		return parseGeofeedBody(body)
+	}
 	var err error
 	for attempt := 1; attempt <= geofeedAttempts; attempt++ {
 		if g.down() {
-			return nil, 0, errors.New("host unreachable")
+			err = errors.New("host unreachable")
+			break
 		}
 		if werr := g.wait(ctx); werr != nil {
 			return nil, 0, werr
 		}
-		var entries []geofeedEntry
-		var bad int
-		entries, bad, err = fetchGeofeed(ctx, feedURL)
+		var body []byte
+		body, err = fetchGeofeedBody(ctx, feedURL)
 		var slow *slowDownError
 		var uerr *url.Error
 		switch {
 		case err == nil:
 			g.reached()
-			return entries, bad, nil
+			cache.put(feedURL, body)
+			return parseGeofeedBody(body)
 		case ctx.Err() != nil:
 			return nil, 0, ctx.Err()
 		case errors.As(err, &slow):
 			g.slowDown(slow.wait)
+			continue
 		case errors.As(err, &uerr):
 			// Dropped or refused: perhaps too many at once, perhaps down.
 			g.slowDown(0)
-		default:
-			// A 404 or a bad file: the host is up, the feed is not.
-			g.reached()
-			return nil, bad, err
+			continue
 		}
+		// A 404 or the like: the host is up, the feed is not.
+		g.reached()
+		break
 	}
 	var slow *slowDownError
-	if !errors.As(err, &slow) {
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
 		g.missed()
 	}
+	if errors.As(err, &slow) {
+		err = fmt.Errorf("rate limited (429): %s", slow.status)
+	}
+	cache.fail(feedURL, err)
 	return nil, 0, err
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -101,14 +102,18 @@ func TestUpdateGeofeedDB(t *testing.T) {
 	mux.HandleFunc("/page.html", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html><body>Not here</body></html>\n"))
 	})
-	srv := httptest.NewTLSServer(mux)
+	var hits atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		mux.ServeHTTP(w, r)
+	}))
 	defer srv.Close()
 	old := geofeedHTTPClient
 	geofeedHTTPClient = srv.Client()
 	defer func() { geofeedHTTPClient = old }()
 
 	dir := t.TempDir()
-	cfg := Config{NetblockPath: filepath.Join(dir, NetblockFilename), GeofeedPath: filepath.Join(dir, GeofeedFilename)}
+	cfg := Config{NetblockPath: filepath.Join(dir, NetblockFilename), GeofeedPath: filepath.Join(dir, GeofeedFilename), CachePath: filepath.Join(dir, "cache")}
 	ref := func(start, end, path string) geofeedRef {
 		return geofeedRef{Start: netip.MustParseAddr(start), End: netip.MustParseAddr(end), URL: srv.URL + path}
 	}
@@ -153,11 +158,22 @@ func TestUpdateGeofeedDB(t *testing.T) {
 	}
 	loc, _ := db.Lookup(net.ParseIP("192.0.2.200"))
 	require.Equal(t, srv.URL+"/b.csv", loc.Feed)
+
+	// A rebuild the same day asks no host again: the feeds, and the ones
+	// that failed, come from the cache.
+	before := hits.Load()
+	require.NoError(t, UpdateGeofeedDB(context.Background(), cfg))
+	require.Equal(t, before, hits.Load())
+	db, err = OpenGeofeedDB(cfg.GeofeedPath)
+	require.NoError(t, err)
+	loc, ok := db.Lookup(net.ParseIP("192.0.2.10"))
+	require.True(t, ok)
+	require.Equal(t, "Kerkrade, NL-LI, Netherlands", loc.String())
 }
 
 func TestUpdateGeofeedDBNeedsReferences(t *testing.T) {
 	dir := t.TempDir()
-	cfg := Config{NetblockPath: filepath.Join(dir, NetblockFilename), GeofeedPath: filepath.Join(dir, GeofeedFilename)}
+	cfg := Config{NetblockPath: filepath.Join(dir, NetblockFilename), GeofeedPath: filepath.Join(dir, GeofeedFilename), CachePath: filepath.Join(dir, "cache")}
 	err := UpdateGeofeedDB(context.Background(), cfg)
 	require.ErrorContains(t, err, "--netblock-only")
 	require.False(t, GeofeedDBPresent(cfg.GeofeedPath))
@@ -180,7 +196,7 @@ func TestHostGateRetriesWhenAskedToSlowDown(t *testing.T) {
 	defer func() { geofeedHTTPClient = old }()
 
 	g := &hostGate{}
-	entries, _, err := g.fetch(context.Background(), srv.URL+"/f.csv")
+	entries, _, err := g.fetch(context.Background(), srv.URL+"/f.csv", nil)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	require.Equal(t, 2, hits)
@@ -192,9 +208,9 @@ func TestHostGateGivesUpOnADeadHost(t *testing.T) {
 	url := srv.URL
 	srv.Close() // nothing listens any more
 	g := &hostGate{misses: geofeedHostMisses - 1}
-	_, _, err := g.fetch(context.Background(), url+"/f.csv")
+	_, _, err := g.fetch(context.Background(), url+"/f.csv", nil)
 	require.Error(t, err)
 	require.True(t, g.down())
-	_, _, err = g.fetch(context.Background(), url+"/g.csv")
+	_, _, err = g.fetch(context.Background(), url+"/g.csv", nil)
 	require.ErrorContains(t, err, "host unreachable")
 }

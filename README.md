@@ -328,9 +328,12 @@ The netblock database finds the feeds, so it is needed first; RIPE, APNIC and
 AFRINIC registrations name some 6,000. ARIN's are found only with an ARIN bulk
 whois key. Fetching them is about 6,000 small downloads from the networks' own
 hosts, each host one connection at a time (a few for hosts serving many feeds),
-HTTPS only, in about five minutes. A host that cannot be reached three times
-in a row has its remaining feeds skipped. Expect a fifth of the feeds to be
-gone or broken at any time; the update log counts them by reason.
+HTTPS only, in about five minutes. A host that answers 429 or 503, or drops
+the connection, is slowed down and retried; one that still cannot be reached
+three times in a row has its remaining feeds skipped. Expect a fifth of the feeds to be
+gone or broken at any time; the update log counts them by reason. Each feed,
+and each failure, is kept in the download cache for 24 hours, so a retry or
+rebuild the same day asks no host again.
 
 **A feed only counts inside the ranges that name it.** Where registry ranges
 nest, the most specific one naming a feed decides which feed speaks for its
