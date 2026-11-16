@@ -232,6 +232,11 @@ type LookupResult struct {
 	NetblockCountry string
 	NetblockCreated string
 	Category        string
+	// InferredCategory holds tags asname's own rules give the AS (from its
+	// registered name, or asname's list of well-known networks) that
+	// Category does not already have; InferredFrom is "name" or "list".
+	InferredCategory []string
+	InferredFrom     string
 	// VPNLists says, for each vpn:<provider> tag in Category, where its
 	// addresses came from and when that list was current.
 	VPNLists map[string]sources.VPNList
@@ -309,6 +314,7 @@ func (e *Engine) LookupASNContext(ctx context.Context, asn uint32) (LookupResult
 
 	if e.categoryDB != nil {
 		res.Category = e.categoryDB.LookupASN(asn)
+		e.addInferred(&res, asn)
 	}
 
 	var prefixRes sources.ASNPrefixResult
@@ -433,6 +439,9 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		} else {
 			res.Category += ", " + tags
 		}
+	}
+	if haveASN {
+		e.addInferred(&res, asn)
 	}
 
 	if e.reputationDB != nil {
@@ -702,4 +711,28 @@ func (e *Engine) onlineASName(ctx context.Context, asn uint32) (string, bool) {
 	name := reg.Label()
 	e.rdapASNames.Store(asn, name)
 	return name, true
+}
+
+// addInferred adds the tags asname's own rules give asn that res.Category
+// lacks, kept apart so they can be shown as inferred.
+func (e *Engine) addInferred(res *LookupResult, asn uint32) {
+	if e.categoryDB == nil {
+		return
+	}
+	inf := e.categoryDB.Inferred(asn)
+	if len(inf.Tags) == 0 {
+		return
+	}
+	have := map[string]bool{}
+	for _, tag := range strings.Split(res.Category, ", ") {
+		have[tag] = true
+	}
+	for _, tag := range inf.Tags {
+		if !have[tag] {
+			res.InferredCategory = append(res.InferredCategory, tag)
+		}
+	}
+	if len(res.InferredCategory) > 0 {
+		res.InferredFrom = inf.From
+	}
 }

@@ -230,3 +230,33 @@ func TestImportPeeringDBMapsReportedTypes(t *testing.T) {
 	require.Equal(t, map[string]bool{"transit": true}, b.asns[6939])
 	require.NotContains(t, b.asns, uint32(64496))
 }
+
+func TestCategoryInferredTagsRoundTrip(t *testing.T) {
+	names := filepath.Join(t.TempDir(), NamesFilename)
+	require.NoError(t, os.WriteFile(names, []byte(
+		"AS21928       T-MOBILE-AS21928 - T-Mobile USA, Inc., US\n"+
+			"AS11481       AS-UTRGV - University of Texas Rio Grande Valley, US\n"+
+			"AS64500       EXAMPLE - Example Widgets Ltd, GB\n"), 0o644))
+
+	var n int
+	db := buildTestCategoryDB(t, func(b *categoryBuilder) {
+		b.addASN(21928, "isp")
+		b.addVPNServers("mullvad", VPNList{Source: "Mullvad relay API"}, []string{"192.0.2.1"})
+		var err error
+		n, err = b.importInferred(names)
+		require.NoError(t, err)
+	})
+	require.Equal(t, 2, n)
+	require.Equal(t, InferredTags{Tags: []string{"isp", "mobile"}, From: InferredFromList}, db.Inferred(21928))
+	require.Equal(t, InferredTags{Tags: []string{"education"}, From: InferredFromName}, db.Inferred(11481))
+	require.Empty(t, db.Inferred(64500).Tags)
+	// The sources' own tags and VPN lists are unaffected.
+	require.Equal(t, "isp", db.LookupASN(21928))
+	require.Len(t, db.VPNLists("vpn:mullvad"), 1)
+}
+
+func TestCategoryInferredNeedsNames(t *testing.T) {
+	b := newCategoryBuilder(context.Background())
+	_, err := b.importInferred(filepath.Join(t.TempDir(), "missing.txt"))
+	require.ErrorContains(t, err, "AS names list")
+}

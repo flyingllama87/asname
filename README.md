@@ -653,6 +653,51 @@ on a quarter of the eyeball ISPs in their data, because subscribers run relays.
 something. `biznet` means the network sells business connectivity, which
 describes an ISP rather than the business at the far end.
 
+*Inferred tags* are asname's own, and are shown apart from the rest: as
+`inferred: finance` after the category, an `Inferred:` line in `--pretty`,
+`"inferred"` and `"inferred_from"` in the JSON `category`, a
+`category_inferred` CSV column, and outlined tags in the web UI. About three ASNs
+in four are not described by PeeringDB or bgp.tools at all, yet most say what
+they are in their registered name: "Kennesaw State University", "Patelco
+Credit Union", "Netico Telecomunicação", "Svea Hosting". The rules in
+[`internal/sources/inferrules.yaml`](internal/sources/inferrules.yaml) turn
+such words into `education`, `government`, `finance`, `healthcare`, `isp`,
+`mobile` and `hosting`, in several languages, and a short list adds well-known
+networks whose names do not say (T-Mobile, Reliance Jio, OVH, Leaseweb...).
+They run every time the category database is built, so an update recreates
+the same tags from the current AS names list.
+
+```bash
+$ asname AS15916
+ASN: AS15916 | Name: ABN AMRO Bank N.V., NL | Country: NL, Netherlands | Category: inferred: finance
+```
+
+They are written for accuracy over coverage. They read the organisation part
+of the name, never the handle, because enterprises call their own data-centre
+networks `-COLO` or `-HOSTING` without being hosting companies. An AS gets at
+most one kind of organisation, in priority order, so "Universidade Federal" is
+education and "SchoolsFirst Federal Credit Union" finance. Words that misled
+when measured are left out: "federal", "state of", bare "5G". Each listed
+network carries the name it is expected to have, and is skipped if the AS
+number changes hands. Measured against every AS that PeeringDB or bgp.tools also
+describe (November 2026), the tags agree with them for education 99%,
+government 95%, ISP 94%, mobile 93% and finance 88%. Most of the remaining
+"disagreements" are the reference being loose, for example data centres that
+call themselves `transit` and telcos that call themselves `content`. The rules
+tag about 20,000 ASNs, some 13,000 of which neither source describes. To
+measure them against your own data:
+
+```bash
+ASNAME_INFER_EVAL=~/.asname go test ./internal/sources -run InferRulesAgainstReference -v
+# add ASNAME_INFER_EVAL_VERBOSE=1 to list every disagreement
+```
+
+They are still guesses from a name. A bank's AS can carry its IT
+subsidiary, and a telecom equipment maker can read like a telecom. So they never
+replace a source's tag (where PeeringDB or bgp.tools already says the same,
+the inferred copy is dropped), and the web UI's explanations say "inferred from
+its name" when they rely on one.
+
 **What is still missing is proxy detection, and VPNs beyond those lists.** A
 provider gluetun does not cover, a provider's exit addresses where they differ
 from its servers, and residential proxy networks, which route traffic through

@@ -89,6 +89,9 @@ func SourceCatalog(key string) []CatalogSource {
 			CatalogSource{Name: "PeeringDB", URL: peeringDBNets, Provides: "The network type operators give themselves: ISP, content, enterprise, education..."},
 			CatalogSource{Name: "bgp.tools", URL: "https://bgp.tools/tags/", Condition: "with a contact email (ASNAME_CONTACT_EMAIL)",
 				Provides: "bgp.tools' AS tags: hosting, home broadband, mobile, VPN, government, university..."},
+			CatalogSource{Name: InferSourceName, URL: "https://github.com/flyingllama87/asname/blob/main/internal/sources/inferrules.yaml",
+				Condition: "with the AS names list",
+				Provides:  "asname's own rules: education, government, finance, healthcare, ISP, mobile and hosting from words in the AS's registered name, and a short list of well-known networks. Shown as inferred, alongside the other sources' tags."},
 		)
 		return out
 	case KeyReputation:

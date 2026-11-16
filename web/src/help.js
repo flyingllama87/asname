@@ -23,7 +23,9 @@ export const FIELD_HELP = {
   category: `What kind of network or address this is. Tags with a colon (cloud:aws, vpn:nordvpn, leased:ipxo) and
     tor-exit are about this address itself, from lists the providers publish. Tags without one (hosting, isp, vpn,
     cdn...) describe the network operator as a whole, so "vpn" on 8.8.8.8 means Google runs VPNs somewhere, not that
-    this address is one.`,
+    this address is one. Outlined tags are inferred by asname itself, from words in the network's registered name
+    ("... University", "... Telecom", "... Bank") or its own list of well-known networks: usually right, but weaker
+    evidence than the others.`,
   reputation: `Whether public blocklists name this address, and what they say about its whole network (ASN). Being
     listed is evidence, not proof; how strong depends on the list.`,
   rdns: `The hostname the address's owner set for it (its PTR record). It can hint at a role (mail server, VPN,
@@ -110,6 +112,8 @@ const OPERATOR_TAGS = {
   enterprise: 'the operator is a business running its own network',
   education: 'the operator is a university or research network',
   government: 'the operator is a government body',
+  finance: 'the operator is a bank, insurer, credit union or exchange',
+  healthcare: 'the operator is a hospital, clinic or health system',
   'non-profit': 'the operator is a non-profit',
   'network-services': 'the operator provides network services such as DNS or monitoring',
   'route-server': 'the operator runs an internet exchange route server or collector',
@@ -194,6 +198,7 @@ export function findings(r, loaded = {}) {
   const lists = rep.lists || [];
   const asnRep = rep.asn;
   const tags = r.category?.tags || [];
+  const inferred = r.category?.inferred || [];
   const isASN = !r.ip;
   const asn = r.asn?.asn_string || 'this network';
 
@@ -241,12 +246,20 @@ export function findings(r, loaded = {}) {
     add('info', 'Not announced on the internet: private, reserved or unused space. Traffic that claims to come from it is internal or spoofed.');
   }
 
-  // What kind of network, unless the address itself is classified
+  // What kind of network, unless the address itself is classified. asname's
+  // own inferred tags count too, said as such.
   if (!tags.some((t) => t.includes(':') || t === 'tor-exit')) {
-    if (tags.includes('isp') || tags.includes('mobile')) {
-      add('info', `${tags.includes('mobile') ? 'A mobile' : 'A broadband'} network, so probably a real person's connection. Such addresses are shared or reassigned over time, so tie activity to a time as well as the address.`);
-    } else if (tags.includes('hosting')) {
-      add('info', 'A hosting network: probably a server rather than a person. The netblock owner, if shown, is often the customer running it.');
+    const has = (t) => tags.includes(t) || inferred.includes(t);
+    const guess = (...ts) => (ts.some((t) => tags.includes(t)) ? '' : ' (inferred from its name)');
+    if (has('isp') || has('mobile')) {
+      add('info', `${has('mobile') ? 'A mobile' : 'A broadband'} network${guess('isp', 'mobile')}, so probably a real person's connection. Such addresses are shared or reassigned over time, so tie activity to a time as well as the address.`);
+    } else if (has('hosting')) {
+      add('info', `A hosting network${guess('hosting')}: probably a server rather than a person. The netblock owner, if shown, is often the customer running it.`);
+    }
+    const institution = ['finance', 'government', 'healthcare', 'education'].find(has);
+    if (institution && !isASN) {
+      const what = { finance: 'a bank or other financial institution', government: 'a government body', healthcare: 'a hospital or health system', education: 'a university, college or school' }[institution];
+      add('info', `The network belongs to ${what}${guess(institution)}: its addresses are normally that organisation's own ${institution === 'education' ? 'staff, systems or students' : 'staff and systems'}. Attack traffic from one usually means a compromised machine there; the organisation will want to know.`);
     }
   }
 

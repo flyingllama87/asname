@@ -73,6 +73,11 @@ type JSONNetblock struct {
 type JSONCategory struct {
 	Tags []string `json:"tags"`
 	Raw  string   `json:"raw"`
+	// Inferred holds tags asname's own rules add from the AS's registered
+	// name ("name") or its list of well-known networks ("list"), shown
+	// apart from the sources' tags.
+	Inferred     []string `json:"inferred,omitempty"`
+	InferredFrom string   `json:"inferred_from,omitempty"`
 }
 
 // JSONReputation is what public blocklists say about a result. Lists names
@@ -152,9 +157,12 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 				out.Country = &JSONCountry{Code: res.Country, Name: res.Country}
 			}
 		}
-		if res.Category != "" {
-			tags := strings.Split(res.Category, ", ")
-			out.Category = &JSONCategory{Tags: tags, Raw: res.Category}
+		if res.Category != "" || len(res.InferredCategory) > 0 {
+			tags := []string{}
+			if res.Category != "" {
+				tags = strings.Split(res.Category, ", ")
+			}
+			out.Category = &JSONCategory{Tags: tags, Raw: res.Category, Inferred: res.InferredCategory, InferredFrom: res.InferredFrom}
 		}
 		out.Reputation = newJSONReputation(res)
 		if len(res.Prefixes) > 0 {
@@ -243,18 +251,23 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		}
 	}
 
-	if res.Category != "" && res.Category != "Unknown" {
-		rawTags := strings.Split(res.Category, ", ")
-		tags := make([]string, 0, len(rawTags))
-		for _, t := range rawTags {
-			t = strings.TrimSpace(t)
-			if t != "" {
-				tags = append(tags, t)
+	if (res.Category != "" && res.Category != "Unknown") || len(res.InferredCategory) > 0 {
+		tags := []string{}
+		raw := ""
+		if res.Category != "Unknown" {
+			raw = res.Category
+			for _, t := range strings.Split(res.Category, ", ") {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					tags = append(tags, t)
+				}
 			}
 		}
 		out.Category = &JSONCategory{
-			Tags: tags,
-			Raw:  res.Category,
+			Tags:         tags,
+			Raw:          raw,
+			Inferred:     res.InferredCategory,
+			InferredFrom: res.InferredFrom,
 		}
 	}
 

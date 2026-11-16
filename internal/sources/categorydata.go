@@ -106,6 +106,14 @@ func UpdateCategoryDB(ctx context.Context, cfg Config, contact *ContactAsker) (e
 		return fmt.Errorf("no categories imported")
 	}
 
+	if n, err := b.importInferred(cfg.NamesPath); err != nil {
+		logf(ctx, "asname: warning: %s: %v\n", InferSourceName, err)
+		noteFailed(ctx, InferSourceName)
+	} else {
+		logf(ctx, "asname: %s: %d ASNs\n", InferSourceName, n)
+		noteSource(ctx, InferSourceName, n, "")
+	}
+
 	data, err := b.Marshal()
 	if err != nil {
 		return err
@@ -126,6 +134,9 @@ type categoryBuilder struct {
 	asns     map[uint32]map[string]bool
 	// vpnLists records where each vpn:<provider> tag's addresses came from.
 	vpnLists map[string]VPNList
+	// inferred holds the tags asname's own rules give each AS
+	// (inferrules.yaml), kept apart from the sources' tags.
+	inferred map[uint32]InferredTags
 	// lookupHost resolves the hostnames some VPN providers list instead of
 	// addresses.
 	lookupHost func(ctx context.Context, host string) ([]string, error)
@@ -137,6 +148,7 @@ func newCategoryBuilder(ctx context.Context) *categoryBuilder {
 		prefixes:   make(map[string]map[string]bool),
 		asns:       make(map[uint32]map[string]bool),
 		vpnLists:   make(map[string]VPNList),
+		inferred:   make(map[uint32]InferredTags),
 		lookupHost: net.DefaultResolver.LookupHost,
 	}
 }
@@ -491,7 +503,55 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 	}
 	out = append(out, asnEntries...)
 	out = append(out, vpnLists...)
+	out = append(out, b.marshalInferred()...)
 	return out, nil
+}
+
+// InferSourceName names asname's own rules among the category sources.
+const InferSourceName = "asname name rules"
+
+// importInferred applies asname's rules to every AS in the names list at
+// namesPath and returns how many ASNs got a tag.
+func (b *categoryBuilder) importInferred(namesPath string) (int, error) {
+	rules, err := DefaultInferRules()
+	if err != nil {
+		return 0, err
+	}
+	names, err := LoadNames(namesPath)
+	if err != nil {
+		return 0, fmt.Errorf("needs the AS names list: %v", err)
+	}
+	for asn, name := range names {
+		if inf := rules.Infer(asn, name); len(inf.Tags) > 0 {
+			b.inferred[asn] = inf
+		}
+	}
+	return len(b.inferred), nil
+}
+
+// marshalInferred encodes the inferred tags, which trail the VPN lists so a
+// reader that predates them stops before reaching them: a count, then per
+// ASN its number, 'n' (from the name) or 'l' (from asname's list), and its
+// tags joined by ", " and NUL-terminated.
+func (b *categoryBuilder) marshalInferred() []byte {
+	asns := make([]uint32, 0, len(b.inferred))
+	for asn := range b.inferred {
+		asns = append(asns, asn)
+	}
+	slices.Sort(asns)
+	out := binary.LittleEndian.AppendUint32(nil, uint32(len(asns)))
+	for _, asn := range asns {
+		inf := b.inferred[asn]
+		from := byte('n')
+		if inf.From == InferredFromList {
+			from = 'l'
+		}
+		out = binary.LittleEndian.AppendUint32(out, asn)
+		out = append(out, from)
+		out = append(out, strings.Join(inf.Tags, ", ")...)
+		out = append(out, 0)
+	}
+	return out
 }
 
 func JoinTags(tags map[string]bool) string {

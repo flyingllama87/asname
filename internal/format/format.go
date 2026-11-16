@@ -47,8 +47,8 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 			{label: "Name", value: nameWithSource(res), width: UniformNameWidth},
 			{label: "Country", value: res.Country, width: UniformCountryWidth},
 		}
-		if res.Category != "" {
-			fields = append(fields, outputField{label: "Category", value: res.Category, width: UniformCategoryWidth})
+		if res.Category != "" || len(res.InferredCategory) > 0 {
+			fields = append(fields, outputField{label: "Category", value: categoryWithInferred(res), width: UniformCategoryWidth})
 		}
 		if len(res.Prefixes) > 0 {
 			fields = append(fields, outputField{
@@ -94,8 +94,8 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 	if res.NetblockCountry != "" && res.NetblockCountry != res.Country {
 		fields = append(fields, outputField{label: "Block country", value: res.NetblockCountry, width: UniformCountryWidth})
 	}
-	if res.Category != "" {
-		fields = append(fields, outputField{label: "Category", value: res.Category, width: UniformCategoryWidth})
+	if res.Category != "" || len(res.InferredCategory) > 0 {
+		fields = append(fields, outputField{label: "Category", value: categoryWithInferred(res), width: UniformCategoryWidth})
 	}
 	if res.RDNS != "" {
 		fields = append(fields, outputField{label: "Reverse DNS", value: res.RDNS})
@@ -229,4 +229,17 @@ func nameWithSource(res engine.LookupResult) string {
 		return res.Name + " [" + res.NameSource + "]"
 	}
 	return res.Name
+}
+
+// categoryWithInferred is the category with asname's inferred tags after
+// it: "isp; inferred: finance", or "inferred: finance" alone.
+func categoryWithInferred(res engine.LookupResult) string {
+	if len(res.InferredCategory) == 0 {
+		return res.Category
+	}
+	inferred := "inferred: " + strings.Join(res.InferredCategory, ", ")
+	if res.Category == "" || res.Category == "Unknown" {
+		return inferred
+	}
+	return res.Category + "; " + inferred
 }

@@ -198,10 +198,15 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		formattedCountry := FormatCountryPretty(res.Country)
 		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(formattedCountry), st.notice("AS registration")))
 
-		if res.Category != "" {
+		if res.Category != "" || len(res.InferredCategory) > 0 {
 			b.WriteString("\n")
 			b.WriteString(fmt.Sprintf("  %s\n", st.section("Network Classification:")))
-			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Category:         "), st.category(res.Category)))
+			category := res.Category
+			if category == "" {
+				category = "Unknown"
+			}
+			b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Category:         "), st.category(category)))
+			writeInferred(&b, st, res)
 		}
 
 		if res.ASNReputation != nil {
@@ -230,6 +235,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		rows := [][2]string{{"Organization", nameSrc(res)}, {"Country", nameSrc(res)}}
 		if res.Category != "" {
 			rows = append(rows, [2]string{"Category", srcCategory})
+		}
+		if len(res.InferredCategory) > 0 {
+			rows = append(rows, [2]string{"Inferred", inferredSrc(res)})
 		}
 		if res.ASNReputation != nil {
 			rows = append(rows, [2]string{"Reputation", srcRep})
@@ -314,10 +322,15 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		}
 	}
 
-	if res.Category != "" {
+	if res.Category != "" || len(res.InferredCategory) > 0 {
 		b.WriteString("\n")
 		b.WriteString(fmt.Sprintf("  %s\n", st.section("Network Classification:")))
-		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Category:         "), st.category(res.Category)))
+		category := res.Category
+		if category == "" {
+			category = "Unknown"
+		}
+		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Category:         "), st.category(category)))
+		writeInferred(&b, st, res)
 	}
 
 	if res.Reputation != nil {
@@ -349,6 +362,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	}
 	if res.Category != "" {
 		rows = append(rows, [2]string{"Category", srcCategory})
+	}
+	if len(res.InferredCategory) > 0 {
+		rows = append(rows, [2]string{"Inferred", inferredSrc(res)})
 	}
 	for _, tag := range slices.Sorted(maps.Keys(res.VPNLists)) {
 		list := res.VPNLists[tag]
@@ -529,4 +545,26 @@ func nameSrc(res engine.LookupResult) string {
 		return srcRDAP
 	}
 	return srcASNames
+}
+
+// writeInferred prints the tags asname's own rules add, saying what they
+// were inferred from.
+func writeInferred(b *strings.Builder, st prettyStyler, res engine.LookupResult) {
+	if len(res.InferredCategory) == 0 {
+		return
+	}
+	from := "from the AS name"
+	if res.InferredFrom == sources.InferredFromList {
+		from = "asname's list of known networks"
+	}
+	b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Inferred:         "),
+		st.category(strings.Join(res.InferredCategory, ", ")), st.notice(from)))
+}
+
+// inferredSrc is the Data Sources line for inferred tags.
+func inferredSrc(res engine.LookupResult) string {
+	if res.InferredFrom == sources.InferredFromList {
+		return "asname's list of well-known networks (inferrules.yaml), offline"
+	}
+	return "asname's rules on words in the AS name (inferrules.yaml), offline"
 }

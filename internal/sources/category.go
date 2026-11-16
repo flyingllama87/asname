@@ -27,6 +27,7 @@ type CategoryDB struct {
 	asns     map[uint32]uint32
 	sets     []string
 	vpnLists map[string]VPNList
+	inferred map[uint32]InferredTags
 }
 
 // VPNList says where the addresses behind a vpn:<provider> tag came from, and
@@ -109,7 +110,37 @@ func OpenCategoryDB(path string) (*CategoryDB, error) {
 		db.vpnLists[string(tag)] = list
 		rest = after[8:]
 	}
+
+	// Databases built before asname's own rules end here.
+	if len(rest) < 4 {
+		return db, nil
+	}
+	inferredCount := binary.LittleEndian.Uint32(rest[:4])
+	rest = rest[4:]
+	db.inferred = make(map[uint32]InferredTags, inferredCount)
+	for range inferredCount {
+		if len(rest) < 6 {
+			return nil, fmt.Errorf("truncated database: inferred tags are short")
+		}
+		asn, from := binary.LittleEndian.Uint32(rest[:4]), rest[4]
+		tags, after, ok := bytes.Cut(rest[5:], []byte{0})
+		if !ok {
+			return nil, fmt.Errorf("truncated database: inferred tags are short")
+		}
+		inf := InferredTags{Tags: strings.Split(string(tags), ", "), From: InferredFromName}
+		if from == 'l' {
+			inf.From = InferredFromList
+		}
+		db.inferred[asn] = inf
+		rest = after
+	}
 	return db, nil
+}
+
+// Inferred returns the tags asname's own rules gave asn when the database
+// was built (see inferrules.yaml), or none.
+func (d *CategoryDB) Inferred(asn uint32) InferredTags {
+	return d.inferred[asn]
 }
 
 // VPNLists returns where the addresses behind each vpn:<provider> tag in tags

@@ -612,3 +612,9 @@ details.tips {
     text-decoration: underline;
   }
 }
+
+// asname's own inferred category tags, after the sources' tags.
+.inferred-tags {
+  margin-top: $spacing-02;
+  align-items: center;
+}

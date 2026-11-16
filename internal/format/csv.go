@@ -17,7 +17,8 @@ import (
 var LookupCSVHeader = []string{
 	"target", "host", "ip", "version", "asn", "as_name", "country_code", "country_name",
 	"city", "netblock", "netblock_source", "netblock_country", "netblock_created", "category", "reputation", "asn_reputation", "reverse_dns",
-	"prefixes", "error",
+	// category_inferred was added in 0.17, before error so error stays last.
+	"prefixes", "category_inferred", "error",
 }
 
 // SearchCSVHeader names the columns of FormatCSVASNSearchOutput and
@@ -87,6 +88,7 @@ func FormatCSVLookupOutput(res engine.LookupResult) string {
 	}
 	if j.Category != nil {
 		row["category"] = strings.Join(j.Category.Tags, " ")
+		row["category_inferred"] = strings.Join(j.Category.Inferred, " ")
 	}
 	if j.Reputation != nil {
 		row["reputation"] = strings.Join(j.Reputation.Lists, " ")

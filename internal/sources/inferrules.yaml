@@ -1,0 +1,169 @@
+# asname's own rules for what kind of network an AS is, applied when the
+# category database is built. They add tags the other sources (PeeringDB,
+# bgp.tools, cloud and VPN lists) may lack; lookups show them as inferred,
+# alongside those sources' tags, never in place of them.
+#
+# Accuracy over coverage: a word is listed only when, measured against every
+# AS that PeeringDB or bgp.tools also describe, it picks out the kind of
+# network it claims nearly every time: run
+#   ASNAME_INFER_EVAL=~/.asname go test ./internal/sources -run InferRulesAgainstReference -v
+# after any change (the README's "Network categories" has the results).
+#
+# Matching is on the organisation part of the AS name ("Comcast Cable
+# Communications, LLC"), not the handle ("COMCAST-7922"): enterprises name
+# their own data-centre networks "-COLO" or "-HOSTING" without being hosts.
+# Words are whole words, case-insensitive; a trailing * matches any ending
+# (universi* covers university, universidad, universität); a space matches
+# any run of spaces.
+
+words:
+  telecom: [telecom*, telekom*, telecomunica*, telecommunication*, telekomunik*, telecomunicaç*, broadband,
+    internet service provider, isp, provedor, provedor de internet, fibra, fibre, fiber, wisp, cablevision,
+    cable tv, cable communications]
+  hosting: [hosting, webhosting, web hosting, data center, data centers, data centre, data centres, datacenter,
+    datacenters, datacentre, datacentres, colocation, vps, dedicated server, dedicated servers, hospedagem]
+  education: [universi*, üniversitesi, egyetem, uniwersytet, univerzita, yliopisto, college, polytechnic*,
+    politecnico, hochschule, school district, public schools, institute of technology, research and education network,
+    academy of sciences, instituto federal, k12, k-12]
+  government_strong: [ministry, ministerio, ministère, ministere, bundesministerium, gobierno, governo, prefeitura,
+    municipality, municipalidad, city of, county of, town of, parliament, senado, police, gemeente, ayuntamiento,
+    regulatory authority, regulatory commission]
+  government: [government, department of, secretaria, district court, courts]
+  finance: [bank, banco, banque, bancorp, credit union, sparkasse, volksbank, stock exchange, insurance, assurance,
+    versicherung, seguros, savings]
+  central_bank: [central bank, reserve bank, banco central, banque centrale, national bank of, bank of england,
+    bundesbank]
+  healthcare: [hospital*, medical center, medical centre, health system, healthcare, health care, clinic, klinikum,
+    hospitais, hospitalar]
+  mobile: [mobile, cellular, mobil, móvil, movil]
+  mobile_context: [telecom*, telekom*, telecommunication*, communication, communications, network, networks, operator,
+    cellular, gsm]
+  mobile_not: [molecular, tracking, health*, access, app, apps, game, games, payment, payments, banking, device,
+    devices]
+  subsidiary: [subsidiary, subsidiary of, a subsidiary]
+  exchange: [internet exchange, exchange point, ix, ixp, association, asociación, asociacion, associação, associacao, peering]
+
+# What kind of organisation the AS belongs to: the first rule that matches
+# decides, and an AS has at most one. "Federal" is deliberately absent: it
+# names universities (Universidade Federal) and credit unions as often as
+# governments.
+kinds:
+  - {tag: finance, match: [finance], not: [telecom, hosting, subsidiary]}
+  - {tag: government, match: [government_strong]}
+  - {tag: education, match: [education]}
+  - {tag: healthcare, match: [healthcare], not: [telecom, hosting]}
+  - {tag: government, match: [government]}
+
+# What the network does, added independently. no_kind: only when no kind
+# above matched (a university's "data center" is not a hosting company).
+services:
+  - {tag: hosting, match: [hosting], not_kinds: [education, government]}
+  - {tag: isp, match: [telecom], not: [exchange], no_kind: true}
+  - {tag: mobile, match: [mobile, mobile_context], not: [mobile_not], no_kind: true}
+  - {tag: government, match: [central_bank]}
+
+# Networks whose names do not say what they are. Each is used only while its
+# registered name still matches expect (a regular expression), so an AS
+# number that changes hands drops out rather than carrying a wrong tag.
+asns:
+  # Mobile operators
+  - {asn: 21928, tags: [mobile, isp], expect: T-Mobile}
+  - {asn: 22394, tags: [mobile, isp], expect: CELLCO}
+  - {asn: 20057, tags: [mobile, isp], expect: ATT-MOBILITY}
+  - {asn: 55836, tags: [mobile, isp], expect: Reliance Jio}
+  - {asn: 45609, tags: [mobile, isp], expect: Bharti Airtel}
+  - {asn: 38266, tags: [mobile, isp], expect: Vodafone Idea}
+  - {asn: 9808, tags: [mobile, isp], expect: China Mobile}
+  - {asn: 56040, tags: [mobile, isp], expect: China Mobile}
+  - {asn: 24445, tags: [mobile, isp], expect: Henan Mobile}
+  - {asn: 12576, tags: [mobile, isp], expect: EE Limited}
+  - {asn: 206067, tags: [mobile, isp], expect: Hutchison 3G}
+  - {asn: 25135, tags: [mobile, isp], expect: Vodafone}
+  - {asn: 12430, tags: [mobile, isp], expect: VODAFONE}
+  - {asn: 26599, tags: [mobile, isp], expect: TELEFONICA BRASIL}
+  # Fixed-line ISPs
+  - {asn: 3209, tags: [isp], expect: Vodafone}
+  - {asn: 1136, tags: [isp], expect: KPN}
+  - {asn: 8048, tags: [isp], expect: CANTV}
+  - {asn: 27699, tags: [isp], expect: TELEFONICA BRASIL}
+  - {asn: 28573, tags: [isp], expect: Claro}
+  - {asn: 22927, tags: [isp], expect: Telefonica de Argentina}
+  - {asn: 4134, tags: [isp], expect: CHINANET}
+  - {asn: 4837, tags: [isp], expect: CHINA UNICOM}
+  - {asn: 7922, tags: [isp], expect: Comcast}
+  - {asn: 7018, tags: [isp], expect: AT&T}
+  - {asn: 701, tags: [isp], expect: Verizon}
+  - {asn: 3320, tags: [isp], expect: Deutsche Telekom}
+  - {asn: 3215, tags: [isp], expect: Orange}
+  - {asn: 2856, tags: [isp], expect: British Telecommunications}
+  - {asn: 5089, tags: [isp], expect: Virgin Media}
+  - {asn: 20115, tags: [isp], expect: Charter}
+  - {asn: 11427, tags: [isp], expect: Charter}
+  - {asn: 22773, tags: [isp], expect: Cox Communications}
+  - {asn: 6128, tags: [isp], expect: Cablevision}
+  - {asn: 812, tags: [isp], expect: Rogers}
+  - {asn: 577, tags: [isp], expect: Bell Canada}
+  - {asn: 4766, tags: [isp], expect: Korea Telecom}
+  - {asn: 4713, tags: [isp], expect: NTT}
+  - {asn: 2516, tags: [isp], expect: KDDI}
+  - {asn: 17676, tags: [isp], expect: SoftBank}
+  - {asn: 9829, tags: [isp], expect: National Internet Backbone}
+  - {asn: 1221, tags: [isp], expect: Telstra}
+  - {asn: 7545, tags: [isp], expect: TPG}
+  # Hosting and cloud providers
+  - {asn: 14061, tags: [hosting], expect: DigitalOcean}
+  - {asn: 24940, tags: [hosting], expect: Hetzner}
+  - {asn: 16276, tags: [hosting], expect: OVH}
+  - {asn: 63949, tags: [hosting], expect: Akamai Connected Cloud|Linode}
+  - {asn: 20473, tags: [hosting], expect: Constant Company|VULTR|Choopa}
+  - {asn: 51167, tags: [hosting], expect: Contabo}
+  - {asn: 12876, tags: [hosting], expect: Scaleway}
+  - {asn: 197540, tags: [hosting], expect: netcup}
+  - {asn: 9009, tags: [hosting], expect: M247}
+  - {asn: 60068, tags: [hosting], expect: Datacamp}
+  - {asn: 212238, tags: [hosting], expect: Datacamp}
+  - {asn: 62240, tags: [hosting], expect: Clouvider}
+  - {asn: 29802, tags: [hosting], expect: HIVELOCITY}
+  - {asn: 36352, tags: [hosting], expect: COLOCROSSING|HostPapa}
+  - {asn: 53667, tags: [hosting], expect: FranTech|PONYNET}
+  - {asn: 7979, tags: [hosting], expect: Servers\.com}
+  - {asn: 26496, tags: [hosting], expect: GoDaddy}
+  - {asn: 46606, tags: [hosting], expect: Unified Layer}
+  - {asn: 22612, tags: [hosting], expect: Namecheap}
+  - {asn: 47583, tags: [hosting], expect: Hostinger}
+  - {asn: 45102, tags: [hosting], expect: Alibaba}
+  - {asn: 37963, tags: [hosting], expect: Alibaba}
+  - {asn: 132203, tags: [hosting], expect: TENCENT}
+  - {asn: 8075, tags: [hosting], expect: Microsoft}
+  - {asn: 396982, tags: [hosting], expect: GOOGLE-CLOUD-PLATFORM}
+  - {asn: 31898, tags: [hosting], expect: ORACLE}
+  - {asn: 14618, tags: [hosting], expect: Amazon}
+  - {asn: 16509, tags: [hosting], expect: Amazon}
+  - {asn: 19318, tags: [hosting], expect: Interserver}
+  - {asn: 21859, tags: [hosting], expect: Zenlayer}
+  - {asn: 40065, tags: [hosting], expect: CNSERVERS}
+  - {asn: 54290, tags: [hosting], expect: Hostwinds}
+  - {asn: 55286, tags: [hosting], expect: SERVER-MANIA|B2 Net}
+  - {asn: 32613, tags: [hosting], expect: Leaseweb|iWeb}
+  - {asn: 15003, tags: [hosting], expect: Leaseweb}
+  - {asn: 30083, tags: [hosting], expect: velia}
+  - {asn: 46475, tags: [hosting], expect: Limestone}
+  - {asn: 20454, tags: [hosting], expect: SECURED SERVERS}
+  - {asn: 42831, tags: [hosting], expect: UK Dedicated Servers}
+  - {asn: 49981, tags: [hosting], expect: WorldStream}
+  - {asn: 50673, tags: [hosting], expect: Serverius}
+  - {asn: 60781, tags: [hosting], expect: LeaseWeb}
+  - {asn: 16265, tags: [hosting], expect: LeaseWeb}
+  - {asn: 28753, tags: [hosting], expect: Leaseweb}
+  - {asn: 133752, tags: [hosting], expect: LEASEWEB}
+  - {asn: 59253, tags: [hosting], expect: LEASEWEB}
+  - {asn: 395954, tags: [hosting], expect: Leaseweb}
+  - {asn: 203020, tags: [hosting], expect: HostRoyale}
+  - {asn: 39351, tags: [hosting], expect: 31173 Services}
+  # Content delivery networks
+  - {asn: 13335, tags: [cdn], expect: Cloudflare}
+  - {asn: 54113, tags: [cdn], expect: Fastly}
+  - {asn: 20940, tags: [cdn], expect: Akamai}
+  - {asn: 16625, tags: [cdn], expect: Akamai}
+  - {asn: 15133, tags: [cdn], expect: Edgecast}
+  - {asn: 22822, tags: [cdn], expect: Limelight}

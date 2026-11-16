@@ -39,6 +39,11 @@ type Result struct {
 	NetblockCountry string `json:"netblock_country,omitempty"`
 	NetblockCreated string `json:"netblock_created,omitempty"`
 	Category        string `json:"category,omitempty"`
+	// CategoryInferred holds tags asname's own rules add from the AS's
+	// registered name ("name") or its list of well-known networks ("list"),
+	// as CategoryInferredFrom says; they are weaker evidence than Category.
+	CategoryInferred     []string `json:"category_inferred,omitempty"`
+	CategoryInferredFrom string   `json:"category_inferred_from,omitempty"`
 	// Reputation names the public blocklists listing the address, such as
 	// "ipsum:7" (IPsum, on 7 of its source lists), "firehol-level2" or
 	// "spamhaus-drop:SBL123456". ASNReputation is what the lists say about
@@ -143,28 +148,30 @@ func known(s string) string {
 
 func resultFromEngine(r engine.LookupResult) Result {
 	return Result{
-		Target:          r.Target,
-		Host:            r.Host,
-		IP:              r.IP,
-		ASN:             known(r.ASN),
-		Name:            known(r.Name),
-		Country:         known(r.Country),
-		City:            known(r.City),
-		Netblock:        known(r.Netblock),
-		NetblockLive:    r.NetblockLive,
-		NetblockSource:  r.NetblockSource,
-		NameSource:      r.NameSource,
-		NetblockCountry: r.NetblockCountry,
-		NetblockCreated: r.NetblockCreated,
-		Category:        known(r.Category),
-		Reputation:      r.Reputation,
-		ASNReputation:   asnReputationFromEngine(r.ASNReputation),
-		RDNS:            known(r.RDNS),
-		IsASN:           r.IsASN,
-		Prefixes:        r.Prefixes,
-		IPv4Prefixes:    r.IPv4Prefixes,
-		IPv6Prefixes:    r.IPv6Prefixes,
-		PrefixSource:    r.PrefixSource,
+		Target:               r.Target,
+		Host:                 r.Host,
+		IP:                   r.IP,
+		ASN:                  known(r.ASN),
+		Name:                 known(r.Name),
+		Country:              known(r.Country),
+		City:                 known(r.City),
+		Netblock:             known(r.Netblock),
+		NetblockLive:         r.NetblockLive,
+		NetblockSource:       r.NetblockSource,
+		NameSource:           r.NameSource,
+		NetblockCountry:      r.NetblockCountry,
+		NetblockCreated:      r.NetblockCreated,
+		Category:             known(r.Category),
+		CategoryInferred:     r.InferredCategory,
+		CategoryInferredFrom: r.InferredFrom,
+		Reputation:           r.Reputation,
+		ASNReputation:        asnReputationFromEngine(r.ASNReputation),
+		RDNS:                 known(r.RDNS),
+		IsASN:                r.IsASN,
+		Prefixes:             r.Prefixes,
+		IPv4Prefixes:         r.IPv4Prefixes,
+		IPv6Prefixes:         r.IPv6Prefixes,
+		PrefixSource:         r.PrefixSource,
 	}
 }
 

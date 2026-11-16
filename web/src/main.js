@@ -90,6 +90,8 @@ const SRC = {
   rdap: 'Live RDAP (IANA bootstrap to the RIR)',
   online: 'Live RDAP, or WHOIS if RDAP fails',
   category: 'Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline',
+  inferredName: "asname's rules on words in the AS name (inferrules.yaml), offline",
+  inferredList: "asname's list of well-known networks (inferrules.yaml), offline",
   rdns: 'Live DNS PTR query',
   rep: 'Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline',
   ripeStat: 'Live RIPEstat announced-prefixes API',
@@ -750,15 +752,29 @@ function resultCard(r, i) {
 
   // Category
   const catTags = r.category?.tags || [];
+  const inferredTags = r.category?.inferred || [];
+  const inferredFrom = r.category?.inferred_from === 'list' ? "asname's list of known networks" : 'the AS name';
   let categoryBody = nothing;
+  const inferredView = inferredTags.length
+    ? html`<div class="tags inferred-tags">
+        ${inferredTags.map((t) => html`<cds-tag size="sm" type="outline">${t}</cds-tag>`)}
+        <span class="meta">inferred from ${inferredFrom}</span>
+      </div>`
+    : nothing;
   if (catTags.length) {
-    categoryBody = html`<div class="tags">${catTags.map((t) => html`<cds-tag size="sm" type=${t.includes(':') || t === 'tor-exit' || t === 'anonymised-holder' ? 'purple' : 'teal'}>${t}</cds-tag>`)}</div>`;
+    categoryBody = html`<div class="tags">${catTags.map((t) => html`<cds-tag size="sm" type=${t.includes(':') || t === 'tor-exit' || t === 'anonymised-holder' ? 'purple' : 'teal'}>${t}</cds-tag>`)}</div>${inferredView}`;
     sources.push(['Category', SRC.category]);
+  } else if (inferredTags.length) {
+    categoryBody = inferredView;
   } else if (loaded.category) {
     categoryBody = unknown();
     sources.push(['Category', SRC.category]);
   }
-  const categoryHelp = tagList(FIELD_HELP.category, catTags.map((t) => [t, categoryTagHelp(t)]));
+  if (inferredTags.length) sources.push(['Inferred', r.category?.inferred_from === 'list' ? SRC.inferredList : SRC.inferredName]);
+  const categoryHelp = tagList(
+    FIELD_HELP.category,
+    [...catTags, ...inferredTags.filter((t) => !catTags.includes(t))].map((t) => [inferredTags.includes(t) && !catTags.includes(t) ? `${t} (inferred)` : t, categoryTagHelp(t)]),
+  );
 
   // Reputation
   const repHelp = rep
