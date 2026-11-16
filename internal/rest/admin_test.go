@@ -1,0 +1,202 @@
+package rest
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/flyingllama87/asname/internal/engine"
+)
+
+func postUpdate(t *testing.T, h http.Handler, body string, header map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8086/v1/update", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range header {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+func waitForUpdate(t *testing.T, s *Server) jobState {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if st := s.job.snapshot(); !st.Running {
+			return st
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("update did not finish")
+	return jobState{}
+}
+
+func TestUpdateDisabledByDefault(t *testing.T) {
+	s := NewServer(engine.NewTestEngine(t), "", false, false, "test")
+	w := postUpdate(t, s.Routes(), `{}`, nil)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "--allow-updates")
+}
+
+func TestUpdateRunsAndReloads(t *testing.T) {
+	first := engine.NewTestEngine(t)
+	second := engine.NewTestEngine(t)
+	var got UpdateRequest
+	s := NewServerWithOptions(first, Options{
+		Update: func(ctx context.Context, req UpdateRequest, log io.Writer) error {
+			got = req
+			fmt.Fprintf(log, "asname: refreshing reputation database...\npartial line")
+			return nil
+		},
+		Reload: func() (*engine.Engine, error) { return second, nil },
+	})
+	h := s.Routes()
+
+	w := postUpdate(t, h, `{"databases":["reputation"]}`, map[string]string{"Origin": "http://127.0.0.1:8086"})
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	st := waitForUpdate(t, s)
+
+	assert.Equal(t, []string{"reputation"}, got.Databases)
+	assert.True(t, st.Reloaded)
+	assert.Empty(t, st.Error)
+	assert.Equal(t, "api", st.Trigger)
+	assert.Equal(t, []string{"asname: refreshing reputation database...", "partial line"}, st.Log)
+	assert.Same(t, second, s.engine(), "lookups use the reopened databases")
+
+	// GET /v1/status reports the finished update.
+	req := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var status statusResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &status))
+	assert.True(t, status.UpdatesEnabled)
+	assert.True(t, status.Loaded["asn"])
+	assert.False(t, status.Update.Running)
+}
+
+func TestUpdateFailureIsReported(t *testing.T) {
+	s := NewServerWithOptions(engine.NewTestEngine(t), Options{
+		Update: func(ctx context.Context, req UpdateRequest, log io.Writer) error {
+			return errors.New("download failed")
+		},
+	})
+	require.Equal(t, http.StatusAccepted, postUpdate(t, s.Routes(), ``, nil).Code)
+	st := waitForUpdate(t, s)
+	assert.Equal(t, "download failed", st.Error)
+	assert.False(t, st.Reloaded)
+}
+
+func TestUpdateRejectsUnknownDatabase(t *testing.T) {
+	s := NewServerWithOptions(engine.NewTestEngine(t), Options{
+		Update: func(context.Context, UpdateRequest, io.Writer) error { return nil },
+	})
+	w := postUpdate(t, s.Routes(), `{"databases":["bogus"]}`, nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateConflictWhileRunning(t *testing.T) {
+	release := make(chan struct{})
+	s := NewServerWithOptions(engine.NewTestEngine(t), Options{
+		Update: func(ctx context.Context, req UpdateRequest, log io.Writer) error {
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			return nil
+		},
+	})
+	h := s.Routes()
+	require.Equal(t, http.StatusAccepted, postUpdate(t, h, `{}`, nil).Code)
+	assert.Equal(t, http.StatusConflict, postUpdate(t, h, `{}`, nil).Code)
+
+	// DELETE cancels it.
+	req := httptest.NewRequest(http.MethodDelete, "http://127.0.0.1:8086/v1/update", nil)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusAccepted, w.Code)
+	st := waitForUpdate(t, s)
+	assert.Contains(t, st.Error, "context canceled")
+	close(release)
+}
+
+func TestUpdateRefusesCrossSiteRequests(t *testing.T) {
+	s := NewServerWithOptions(engine.NewTestEngine(t), Options{
+		CORS:   true,
+		Update: func(context.Context, UpdateRequest, io.Writer) error { return nil },
+	})
+	h := s.Routes()
+
+	cases := map[string]func(*http.Request){
+		"form post":        func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") },
+		"other origin":     func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") },
+		"cross-site fetch": func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") },
+		"rebound domain": func(r *http.Request) {
+			r.Host = "evil.example:8086"
+			r.Header.Set("Origin", "http://evil.example:8086")
+		},
+		"rebound no origin": func(r *http.Request) { r.Host = "attacker.test" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8086/v1/update", strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			mutate(req)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+		})
+	}
+	assert.False(t, s.job.snapshot().Running, "nothing was started")
+}
+
+func TestLocalHostName(t *testing.T) {
+	name, err := os.Hostname()
+	require.NoError(t, err)
+	for _, h := range []string{"127.0.0.1:8086", "[::1]:8086", "localhost:8086", "LOCALHOST", "192.168.1.5", name, name + ":8086"} {
+		assert.True(t, localHostName(h), h)
+	}
+	short, _, _ := strings.Cut(name, ".")
+	assert.True(t, localHostName(short+".lan:8086"), "the short name on the LAN")
+	for _, h := range []string{"", "evil.example", "evil.example:8086", "localhost.evil.example", short + ".evil.example", short + ".evil.example:8086"} {
+		assert.False(t, localHostName(h), h)
+	}
+}
+
+func TestWebUIServedWithoutListing(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.html"), []byte("<title>asname</title>"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "assets"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte("1"), 0o644))
+
+	h := NewServerWithOptions(engine.NewTestEngine(t), Options{WebDir: dir}).Routes()
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w
+	}
+
+	w := get("/")
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "asname")
+	assert.Contains(t, w.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'")
+	assert.Equal(t, http.StatusOK, get("/assets/app.js").Code)
+	assert.Equal(t, http.StatusNotFound, get("/assets/").Code, "no directory listing")
+	assert.Equal(t, http.StatusOK, get("/health").Code, "the API still answers")
+}

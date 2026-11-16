@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,25 +22,42 @@ import (
 )
 
 type Server struct {
+	engMu      sync.RWMutex
 	eng        *engine.Engine
 	listenAddr string
 	cors       bool
 	reverseDNS bool
 	version    string
+	opts       Options
+	job        updateJob
 	httpServer *http.Server
 }
 
 func NewServer(eng *engine.Engine, listenAddr string, cors, reverseDNS bool, version string) *Server {
-	if listenAddr == "" {
-		listenAddr = "127.0.0.1:8086"
+	return NewServerWithOptions(eng, Options{ListenAddr: listenAddr, CORS: cors, ReverseDNS: reverseDNS, Version: version})
+}
+
+// NewServerWithOptions is NewServer with the web UI, status and update
+// endpoints configured by opts.
+func NewServerWithOptions(eng *engine.Engine, opts Options) *Server {
+	if opts.ListenAddr == "" {
+		opts.ListenAddr = "127.0.0.1:8086"
 	}
 	return &Server{
 		eng:        eng,
-		listenAddr: listenAddr,
-		cors:       cors,
-		reverseDNS: reverseDNS,
-		version:    version,
+		listenAddr: opts.ListenAddr,
+		cors:       opts.CORS,
+		reverseDNS: opts.ReverseDNS,
+		version:    opts.Version,
+		opts:       opts,
 	}
+}
+
+// engine returns the engine answering lookups. An update replaces it.
+func (s *Server) engine() *engine.Engine {
+	s.engMu.RLock()
+	defer s.engMu.RUnlock()
+	return s.eng
 }
 
 func (s *Server) Routes() http.Handler {
@@ -51,6 +69,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/v1/lookup/", s.handleLookupPath)
 	mux.HandleFunc("/v1/search", s.handleSearch)
 	mux.HandleFunc("/v1/bulk", s.handleBulk)
+	mux.HandleFunc("/v1/status", s.handleStatus)
+	mux.HandleFunc("/v1/update", s.handleUpdate)
+	if s.opts.WebDir != "" {
+		mux.Handle("/", webHandler(s.opts.WebDir))
+	}
 
 	handler := http.Handler(mux)
 	if s.cors {
@@ -110,13 +133,24 @@ func (s *Server) Start(ctx context.Context) error {
 		fmt.Fprintf(os.Stdout, "Databases: ASN (yes), Names (yes), Country (%v), City (%v), Netblock (%v), Category (%v), Reputation (%v)\n",
 			s.eng.HasCountryDB(), s.eng.HasCityDB(), s.eng.HasNetblockDB(), s.eng.HasCategoryDB(), s.eng.HasReputationDB())
 		fmt.Fprintf(os.Stdout, "Ready to handle requests. Press Ctrl+C to shut down.\n")
+		if s.opts.WebDir != "" {
+			fmt.Fprintf(os.Stdout, "Web UI: http://%s/\n", s.listenAddr)
+		}
+		if s.opts.Update != nil {
+			fmt.Fprintf(os.Stdout, "Database updates through the API: enabled\n")
+		}
 		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
 	}()
 
+	if s.opts.Update != nil && s.opts.RefreshEvery > 0 {
+		go s.autoRefresh(shutdownCtx)
+	}
+
 	select {
 	case <-shutdownCtx.Done():
+		s.job.cancelRunning()
 		fmt.Fprintf(os.Stdout, "\nShutting down REST server gracefully...\n")
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -137,17 +171,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	eng := s.engine()
 	resp := healthResponse{
 		Status:  "healthy",
 		Version: s.version,
 		Databases: map[string]bool{
 			"asn":        true,
 			"names":      true,
-			"country":    s.eng.HasCountryDB(),
-			"city":       s.eng.HasCityDB(),
-			"netblock":   s.eng.HasNetblockDB(),
-			"category":   s.eng.HasCategoryDB(),
-			"reputation": s.eng.HasReputationDB(),
+			"country":    eng.HasCountryDB(),
+			"city":       eng.HasCityDB(),
+			"netblock":   eng.HasNetblockDB(),
+			"category":   eng.HasCategoryDB(),
+			"reputation": eng.HasReputationDB(),
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -241,7 +276,7 @@ func (s *Server) lookupSingle(w http.ResponseWriter, ctx context.Context, rawTar
 		}
 	}
 
-	results, err := s.eng.LookupTarget(t)
+	results, err := s.engine().LookupTarget(t)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -318,13 +353,14 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 
 	var allResults []engine.LookupResult
 	var errorDetails []jsonErrorDetail
+	eng := s.engine()
 
 	for _, t := range targets {
 		if t.Err != nil {
 			errorDetails = append(errorDetails, jsonErrorDetail{Target: t.Raw, Error: t.Err.Error()})
 			continue
 		}
-		found, err := s.eng.LookupTarget(t)
+		found, err := eng.LookupTarget(t)
 		if err != nil {
 			errorDetails = append(errorDetails, jsonErrorDetail{Target: t.Raw, Error: err.Error()})
 			continue
@@ -430,9 +466,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eng := s.engine()
 	asnResults := make([]format.JSONASNSearchResult, 0)
 	if scope != "netblocks" {
-		for _, res := range s.eng.SearchASNs(query, limit, v4Only, v6Only) {
+		for _, res := range eng.SearchASNs(query, limit, v4Only, v6Only) {
 			asnResults = append(asnResults, format.NewJSONASNSearchResult(res, ""))
 		}
 	}
@@ -440,8 +477,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	// A combined search answers from the AS names alone when the server has
 	// no netblock database; asking for netblocks only still reports it.
 	jsonResults := make([]format.JSONNetblockSearchResult, 0)
-	if scope == "netblocks" || (scope != "asns" && s.eng.HasNetblockDB()) {
-		results, err := s.eng.SearchNetblocks(query, sources.NetblockSearchOptions{
+	if scope == "netblocks" || (scope != "asns" && eng.HasNetblockDB()) {
+		results, err := eng.SearchNetblocks(query, sources.NetblockSearchOptions{
 			Limit:  limit,
 			V4Only: v4Only,
 			V6Only: v6Only,

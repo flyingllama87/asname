@@ -23,6 +23,9 @@ type DBStatus struct {
 	// see LoadUpdateRecord. Both are empty after a complete update.
 	Missing   []string
 	LastError string
+	// UpdateKey is the update step that rebuilds this database, one of
+	// UpdateKeys; the ASN prefixes are rebuilt with the ASN database.
+	UpdateKey string
 }
 
 // DatabaseStatus reports on each data file cfg names, core databases first.
@@ -42,6 +45,10 @@ func DatabaseStatus(cfg Config) []DBStatus {
 	keys := []string{KeyASN, KeyNames, KeyCountry, "", KeyCity, KeyNetblock, KeyCategory, KeyReputation}
 	rec := LoadUpdateRecord(cfg.UpdateRecordPath)
 	for i, key := range keys {
+		out[i].UpdateKey = key
+		if i == 3 {
+			out[i].UpdateKey = KeyASN
+		}
 		if o, ok := rec[key]; ok && key != "" {
 			out[i].Missing, out[i].LastError = o.Failed, o.Error
 		}

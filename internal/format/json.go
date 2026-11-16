@@ -423,6 +423,7 @@ type JSONVersion struct {
 // Built, when present, is when its source data was built.
 type JSONDBInfo struct {
 	Name       string     `json:"name"`
+	Key        string     `json:"key"`
 	Path       string     `json:"path"`
 	Optional   bool       `json:"optional"`
 	Present    bool       `json:"present"`
@@ -439,9 +440,18 @@ type JSONDBInfo struct {
 
 // FormatJSONVersion renders the version and database status as one JSON line.
 func FormatJSONVersion(version, dir string, maxAge time.Duration, ipv6 bool, dbs []sources.DBStatus, now time.Time) (string, error) {
+	b, err := json.Marshal(NewJSONVersion(version, dir, maxAge, ipv6, dbs, now))
+	if err != nil {
+		return "", err
+	}
+	return string(b) + "\n", nil
+}
+
+// NewJSONVersion converts the version and database status for JSON output.
+func NewJSONVersion(version, dir string, maxAge time.Duration, ipv6 bool, dbs []sources.DBStatus, now time.Time) JSONVersion {
 	out := JSONVersion{Version: version, Dir: dir, MaxAgeHours: maxAge.Hours(), IPv6Routes: ipv6, Databases: make([]JSONDBInfo, len(dbs))}
 	for i, db := range dbs {
-		info := JSONDBInfo{Name: db.Name, Path: db.Path, Optional: db.Optional, Present: db.Present, Missing: db.Missing, LastError: db.LastError}
+		info := JSONDBInfo{Name: db.Name, Key: db.UpdateKey, Path: db.Path, Optional: db.Optional, Present: db.Present, Missing: db.Missing, LastError: db.LastError}
 		if db.Present {
 			updated, age := db.Updated, now.Sub(db.Updated)
 			info.Size, info.Updated, info.AgeSeconds = db.Size, &updated, int64(age/time.Second)
@@ -453,9 +463,5 @@ func FormatJSONVersion(version, dir string, maxAge time.Duration, ipv6 bool, dbs
 		}
 		out.Databases[i] = info
 	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		return "", err
-	}
-	return string(b) + "\n", nil
+	return out
 }

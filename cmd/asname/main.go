@@ -49,6 +49,8 @@ EXECUTION MODES:
    --rest                         run in foreground as an HTTP REST API server
    --listen value, -l value       network address and port to bind for the REST API server (default: "127.0.0.1:8086") [$ASNAME_LISTEN]
    --cors                         enable permissive CORS headers on the REST API server
+   --web-dir directory            serve the web UI from this directory (built with ` + "`make web`" + `) at / on the REST API server [$ASNAME_WEB_DIR]
+   --allow-updates                let the REST API server update its databases (POST /v1/update, used by the web UI), and refresh stale ones while it runs [$ASNAME_ALLOW_UPDATES]
 
 OPTIONAL LOOKUPS & METADATA:
    --reverse-dns, -r              also query reverse DNS and include PTR names in the output
@@ -167,6 +169,18 @@ func newApp() *cli.Command {
 				Name:  "cors",
 				Usage: "enable permissive CORS headers on the REST API server",
 				Local: true,
+			},
+			&cli.StringFlag{
+				Name:    "web-dir",
+				Sources: cli.EnvVars("ASNAME_WEB_DIR"),
+				Usage:   "serve the web UI from this `directory` (built with `make web`) at / on the REST API server",
+				Local:   true,
+			},
+			&cli.BoolFlag{
+				Name:    "allow-updates",
+				Sources: cli.EnvVars("ASNAME_ALLOW_UPDATES"),
+				Usage:   "let the REST API server update its databases (POST /v1/update, used by the web UI), and refresh stale ones while it runs",
+				Local:   true,
 			},
 			&cli.BoolFlag{
 				Name:    "reverse-dns",
@@ -493,13 +507,14 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	defer eng.Close()
 	eng.SetOnlinePrefixes(onlinePrefixes)
 
 	if isREST {
-		server := rest.NewServer(eng, cmd.String("listen"), cmd.Bool("cors"), cmd.Bool("reverse-dns"), version)
+		server := rest.NewServerWithOptions(eng, restOptions(cmd, whois, onlinePrefixes))
+		defer server.Close()
 		return server.Start(context.Background())
 	}
+	defer eng.Close()
 
 	if isStream {
 		fmtMode := format.FormatDefault
@@ -1236,7 +1251,124 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 	case cmd.Bool("no-ipv6"):
 		cfg.IPv6 = false
 	}
-	rctx := sources.WithLog(ctx, cmd.Root().ErrWriter)
+	sel := updateSelection{
+		Only:         map[string]bool{},
+		Also:         map[string]bool{},
+		Incremental:  cmd.Bool("incremental"),
+		RIBURL:       cmd.String("rib-url"),
+		ContactEmail: cmd.String("contact-email"),
+	}
+	for flag, key := range map[string]string{
+		"db-only": sources.KeyASN, "names-only": sources.KeyNames, "country-only": sources.KeyCountry,
+		"city-only": sources.KeyCity, "netblock-only": sources.KeyNetblock,
+		"category-only": sources.KeyCategory, "reputation-only": sources.KeyReputation,
+	} {
+		if cmd.Bool(flag) {
+			sel.Only[key] = true
+		}
+	}
+	for _, key := range []string{sources.KeyCity, sources.KeyNetblock, sources.KeyCategory, sources.KeyReputation} {
+		if cmd.Bool(key) {
+			sel.Also[key] = true
+		}
+	}
+	return runDatabaseUpdate(ctx, cfg, sel, cmd.Root().ErrWriter)
+}
+
+// restRefreshEvery is how often a REST server started with --allow-updates
+// checks for databases older than --max-age.
+const restRefreshEvery = 6 * time.Hour
+
+// restOptions configures the REST server: the web UI, the status endpoint
+// and, with --allow-updates, database updates that reopen the databases.
+func restOptions(cmd *cli.Command, whois, onlinePrefixes sources.WhoisMode) rest.Options {
+	opts := rest.Options{
+		ListenAddr: cmd.String("listen"),
+		CORS:       cmd.Bool("cors"),
+		ReverseDNS: cmd.Bool("reverse-dns"),
+		Version:    version,
+		WebDir:     cmd.String("web-dir"),
+	}
+	maxAge := cmd.Duration("max-age")
+	if cmd.Bool("no-update") {
+		maxAge = 0
+	}
+	opts.Status = func() any {
+		cfg := newConfig(cmd)
+		return format.NewJSONVersion(version, cmd.String("dir"), maxAge, cfg.IPv6, sources.DatabaseStatus(cfg), time.Now())
+	}
+	if !cmd.Bool("allow-updates") {
+		return opts
+	}
+
+	// wants reports which optional databases to use: those present, unless
+	// suppressed for this run, plus those asked for on the command line.
+	wants := func(cfg sources.Config) (city, netblock, category, reputation bool) {
+		city = !cmd.Bool("no-city") && (cmd.Bool("city") || sources.CityDBPresent(cfg.CityPath))
+		netblock = !cmd.Bool("no-netblock") && (cmd.Bool("netblock") || sources.NetblockDBPresent(cfg.NetblockPath))
+		category = !cmd.Bool("no-category") && (cmd.Bool("category") || sources.CategoryDBPresent(cfg.CategoryPath))
+		reputation = !cmd.Bool("no-reputation") && (cmd.Bool("reputation") || sources.ReputationDBPresent(cfg.ReputationPath))
+		return
+	}
+	opts.Update = func(ctx context.Context, req rest.UpdateRequest, log io.Writer) error {
+		cfg := newConfig(cmd)
+		if req.StaleOnly {
+			if maxAge <= 0 {
+				return nil
+			}
+			contact := sources.NewContactAsker(cfg.ContactPath, cmd.String("contact-email"))
+			contact.Terminal, contact.Out = false, log
+			city, netblock, category, reputation := wants(cfg)
+			return sources.AutoUpdate(sources.WithLog(ctx, log), cfg, maxAge, city, netblock, category, reputation, contact)
+		}
+		sel := updateSelection{
+			Only:         map[string]bool{},
+			Incremental:  req.Incremental,
+			ContactEmail: cmd.String("contact-email"),
+			NoPrompt:     true,
+		}
+		for _, key := range req.Databases {
+			sel.Only[key] = true
+		}
+		return runDatabaseUpdate(ctx, cfg, sel, log)
+	}
+	opts.Reload = func() (*engine.Engine, error) {
+		cfg := newConfig(cmd)
+		city, netblock, category, reputation := wants(cfg)
+		showNetblock := netblock || whois == sources.WhoisAlways
+		eng, err := engine.NewEngine(cfg, city, netblock, showNetblock, category, reputation, whois, cmd.Root().ErrWriter)
+		if err != nil {
+			return nil, err
+		}
+		eng.SetOnlinePrefixes(onlinePrefixes)
+		return eng, nil
+	}
+	if maxAge > 0 {
+		opts.RefreshEvery = restRefreshEvery
+	}
+	return opts
+}
+
+// updateSelection says which databases runDatabaseUpdate rebuilds.
+type updateSelection struct {
+	// Only lists the databases to rebuild, by sources.UpdateKeys key. Empty
+	// means the core databases plus every optional database already present.
+	Only map[string]bool
+	// Also adds optional databases to an Only-less update, building them if
+	// absent.
+	Also         map[string]bool
+	Incremental  bool
+	RIBURL       string
+	ContactEmail string
+	// NoPrompt never asks on the terminal for the bgp.tools contact
+	// address; without a saved one the category update skips their tags.
+	NoPrompt bool
+}
+
+// runDatabaseUpdate rebuilds the databases sel selects, writing progress to
+// errOut. It backs `asname update` and the REST server's /v1/update.
+func runDatabaseUpdate(ctx context.Context, cfg sources.Config, sel updateSelection, errOut io.Writer) error {
+	rctx := sources.WithLog(ctx, errOut)
 	for _, dir := range []string{cfg.DBPath, cfg.NamesPath, cfg.CountryPath, cfg.CityPath, cfg.NetblockPath, cfg.CategoryPath, cfg.ReputationPath, cfg.PrefixPath} {
 		if dir != "" {
 			if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
@@ -1245,26 +1377,17 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	dbOnly := cmd.Bool("db-only")
-	namesOnly := cmd.Bool("names-only")
-	countryOnly := cmd.Bool("country-only")
-	cityOnly := cmd.Bool("city-only")
-	netblockOnly := cmd.Bool("netblock-only")
-	categoryOnly := cmd.Bool("category-only")
-	reputationOnly := cmd.Bool("reputation-only")
-	all := !dbOnly && !namesOnly && !countryOnly && !cityOnly && !netblockOnly && !categoryOnly && !reputationOnly
-
+	all := len(sel.Only) == 0
 	run := map[string]bool{
-		sources.KeyASN:        all || dbOnly,
-		sources.KeyNames:      all || namesOnly,
-		sources.KeyCountry:    all || countryOnly,
-		sources.KeyCity:       cityOnly || cmd.Bool("city") || (all && sources.CityDBPresent(cfg.CityPath)),
-		sources.KeyNetblock:   netblockOnly || cmd.Bool("netblock") || (all && sources.NetblockDBPresent(cfg.NetblockPath)),
-		sources.KeyCategory:   categoryOnly || cmd.Bool("category") || (all && sources.CategoryDBPresent(cfg.CategoryPath)),
-		sources.KeyReputation: reputationOnly || cmd.Bool("reputation") || (all && sources.ReputationDBPresent(cfg.ReputationPath)),
+		sources.KeyASN:        all || sel.Only[sources.KeyASN],
+		sources.KeyNames:      all || sel.Only[sources.KeyNames],
+		sources.KeyCountry:    all || sel.Only[sources.KeyCountry],
+		sources.KeyCity:       sel.Only[sources.KeyCity] || sel.Also[sources.KeyCity] || (all && sources.CityDBPresent(cfg.CityPath)),
+		sources.KeyNetblock:   sel.Only[sources.KeyNetblock] || sel.Also[sources.KeyNetblock] || (all && sources.NetblockDBPresent(cfg.NetblockPath)),
+		sources.KeyCategory:   sel.Only[sources.KeyCategory] || sel.Also[sources.KeyCategory] || (all && sources.CategoryDBPresent(cfg.CategoryPath)),
+		sources.KeyReputation: sel.Only[sources.KeyReputation] || sel.Also[sources.KeyReputation] || (all && sources.ReputationDBPresent(cfg.ReputationPath)),
 	}
-	errOut := cmd.Root().ErrWriter
-	if cmd.Bool("incremental") {
+	if sel.Incremental {
 		// Keep only what the last update left incomplete, plus any core
 		// database that is missing altogether.
 		rec := sources.LoadUpdateRecord(cfg.UpdateRecordPath)
@@ -1299,7 +1422,7 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 	// rebuilt, since they come from different hosts.
 	var failed []error
 	if run[sources.KeyASN] {
-		if err := sources.UpdateDatabase(rctx, cfg, cmd.String("rib-url")); err != nil {
+		if err := sources.UpdateDatabase(rctx, cfg, sel.RIBURL); err != nil {
 			failed = append(failed, fmt.Errorf("updating ASN database: %v", err))
 		}
 	}
@@ -1324,7 +1447,10 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 	if run[sources.KeyCategory] {
-		contact := sources.NewContactAsker(cfg.ContactPath, cmd.String("contact-email"))
+		contact := sources.NewContactAsker(cfg.ContactPath, sel.ContactEmail)
+		if sel.NoPrompt {
+			contact.Terminal, contact.Out = false, errOut
+		}
 		if err := sources.UpdateCategoryDB(rctx, cfg, contact); err != nil {
 			failed = append(failed, fmt.Errorf("updating category database: %v", err))
 		}
