@@ -74,6 +74,11 @@ asname search "Cloudflare"
 asname search --asns-only "Valve"
 asname search --netblocks-only "Valve"
 
+# Fuzzy: also match ignoring spaces/punctuation, and word by word in any order
+# (suffixes like Inc/Ltd dropped, Univ/Intl/Dept expanded); exact matches first
+asname search --fuzzy "colo crossing"
+asname search --fuzzy "univ of mississippi"
+
 # Search using --org / -O flag with custom result limit
 asname -O "Google" --limit 10
 
@@ -198,8 +203,16 @@ curl -s "http://127.0.0.1:8086/v1/lookup/8.8.8.8"
 curl -s "http://127.0.0.1:8086/v1/lookup/AS13335"
 curl -s "http://127.0.0.1:8086/v1/lookup/dns.google?reverse_dns=true"
 
-# Search AS names ("asns") and netblocks ("results"); add scope=asns or scope=netblocks for one
+# Search AS names ("asns") and netblocks ("results"); add scope=asns or scope=netblocks for one,
+# fuzzy=true to also match ignoring spaces/punctuation and word by word
 curl -s "http://127.0.0.1:8086/v1/search?q=Cloudflare&limit=10"
+curl -s "http://127.0.0.1:8086/v1/search?q=colo%20crossing&fuzzy=true"
+
+# Each lookup result also as `asname -p` prints it (the web UI's Copy summary)
+curl -s "http://127.0.0.1:8086/v1/lookup?q=8.8.8.8&text=true" | jq -r '.results[].text'
+
+# The server logs each request with its query (bulk: its targets) and every update's
+# progress as [update] lines; under systemd: journalctl -u asname -f
 
 # Safe Base64URL target lookup (useful for security scripts)
 # "https://evil.example.com" -> aHR0cHM6Ly9ldmlsLmV4YW1wbGUuY29t

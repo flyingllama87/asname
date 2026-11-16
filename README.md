@@ -471,6 +471,33 @@ asname search --json "Valve" | jq -r 'select(.type == "netblock") | .cidrs[] + "
 asname search --json --asns-only "Valve" | jq -r '.ipv4_prefixes[]?'
 ```
 
+#### Fuzzy search
+
+A plain search matches letter for letter, so `colo crossing` misses
+`AS-COLOCROSSING` and `univ of mississippi` misses "Mississippi State
+University". `--fuzzy` also finds names that match:
+
+- **compact**: ignoring spaces and punctuation on both sides: `colo crossing`
+  finds COLOCROSSING, `amazon 02` finds AMAZON-02, `digital ocean` finds
+  DigitalOcean;
+- **words**: every word of the query, in any order, starting a word of the
+  name, with company suffixes (Inc, LLC, Ltd, GmbH, SRL...) left out and common
+  abbreviations (Univ, Dept, Intl, Telecom, Govt...) standing for the words they
+  shorten: `univ of mississippi` finds five Mississippi universities, `Telstra
+  Corporation Ltd` finds Telstra Limited. Matching only at the start of a word
+  keeps `deutsche` from finding "mitteldeutsche", and numbers match whole, so
+  `level 3` does not find "Level 23".
+
+Exact matches come first, then compact, then words, and the limit applies after
+that ranking; `--json` and `--csv` say how each result matched. A fuzzy search
+over the netblock database takes a second or two rather than half a second.
+Like every search it reads only the local databases and never goes online.
+
+```bash
+asname search --fuzzy "colo crossing"
+asname search --fuzzy --json "univ of mississippi" | jq -r '[.match, .asn // .netname, .name // .org] | @tsv'
+```
+
 ### Listing a country's IP blocks
 
 `asname country` prints every block the country database assigns to a
@@ -799,8 +826,12 @@ curl -s "http://127.0.0.1:8086/v1/lookup/AS13335"
 
 # Search netblocks by organization name or netname
 # AS name matches come in "asns", netblocks in "results"; scope=asns or
-# scope=netblocks searches only one
+# scope=netblocks searches only one; fuzzy=true as --fuzzy does
 curl -s "http://127.0.0.1:8086/v1/search?q=Cloudflare&limit=10"
+curl -s "http://127.0.0.1:8086/v1/search?q=colo%20crossing&fuzzy=true"
+
+# Each result also as `asname -p` prints it, in "text"
+curl -s "http://127.0.0.1:8086/v1/lookup?q=8.8.8.8&text=true" | jq -r '.results[].text'
 
 # Base64URL-encoded target lookup
 curl -s "http://127.0.0.1:8086/v1/lookup/b64/aHR0cHM6Ly9leGFtcGxlLmNvbQ"
@@ -897,6 +928,25 @@ machine. The API has no login, so keep `--allow-updates` servers on
 `127.0.0.1`, or behind something that authenticates, rather than open to a
 network.
 
+#### What the server logs
+
+The server writes one line per request to standard output (the journal, under
+systemd), with the query string, so the log shows what was looked up and
+searched for; a bulk lookup adds its targets. The web UI's polling of
+`/v1/status` and `/v1/update`, `/health` and the UI's own files are left out
+when they succeed. Every line of a database update's progress is logged too, as
+`[update]`, between an "update started" and an "update finished" line, so the
+journal keeps the history of every update; the Databases tab shows only the last
+one.
+
+```text
+[REST] GET /v1/lookup?q=92.113.115.76&text=true 200 410µs (127.0.0.1:57750)
+[REST] POST /v1/bulk?text=true 200 2.1ms (127.0.0.1:57760) targets=8.8.8.8,1.1.1.1
+[REST] api update started: reputation
+[update] asname: downloading https://www.spamhaus.org/drop/drop_v4.json
+[REST] api update finished (err=<nil>, reloaded=true)
+```
+
 ### Web UI
 
 `asname` ships an optional web UI, built with IBM's
@@ -915,11 +965,18 @@ It has three tabs:
   with the fields `asname -p` shows: ASN, country, city, netblock, category,
   reputation, reverse DNS and announced prefixes, with where each came from. A
   field the databases have no answer for says so rather than being left out.
-  Click an ASN to look it up. An **Online lookups** switch asks whois and
-  RIPEstat for what the offline databases lack (try `200.160.2.3`).
+  Each card opens with **What this means**: where the address most likely is,
+  reconciling its registration, allocation and geolocation, and plain-language
+  findings, worst first (blocklists, Spamhaus DROP in its network, Tor or VPN,
+  leased or anonymised space, a recently registered block, the kind of
+  network). Every field has an (i) explaining it and each tag shown, written for
+  someone new to triage. **Copy summary** copies the `asname -p` card with those
+  findings, for a ticket. Click an ASN to look it up. An **Online lookups**
+  switch asks whois and RIPEstat for what the offline databases lack (try
+  `200.160.2.3`).
 - **Search**: AS names and registry netblocks by organisation or network name,
-  with tips on finding an organisation registered under several forms of its
-  name. Click a column heading to sort.
+  with a **Fuzzy match** switch (see [Fuzzy search](#fuzzy-search)) and tips.
+  Click a column heading to sort.
 - **Databases**: what is on disk and loaded, how old each database is, and
   buttons to update the ones you choose, refresh everything, refresh only what
   is stale, or retry what the last update left out, with the update's log as it
