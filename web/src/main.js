@@ -785,7 +785,10 @@ function searchView() {
       <ul>
         <li><strong>The acronym or handle:</strong> <code>MSSTATE</code>, <code>UMMC</code>, <code>AWS</code>. AS names start with a short handle.</li>
         <li><strong>The full name:</strong> <code>Mississippi State University</code>.</li>
-        <li><strong>The name without spaces:</strong> <code>FeoPrest</code> finds the netname <code>FeoPrestSRL</code>, which <code>Feo Prest</code> misses.</li>
+        <li>
+          <strong>The name without spaces, and with them:</strong> <code>colocrossing</code> finds ColoCrossing's ASNs and netblocks,
+          <code>colo crossing</code> finds nothing; <code>hostbaltic</code> and <code>host baltic</code> each find some the other misses.
+        </li>
         <li><strong>With hyphens or underscores:</strong> handles and netnames often join words that way, as in <code>CLOUDFLARE-MTC</code> or <code>AMAZON-02</code>.</li>
         <li>
           <strong>One distinctive word:</strong> <code>cloudflare</code> rather than <code>Cloudflare, Inc.</code>. Leave out
