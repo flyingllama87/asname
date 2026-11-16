@@ -1661,7 +1661,7 @@ func versionAction(ctx context.Context, cmd *cli.Command) error {
 		if filepath.Dir(db.Path) == filepath.Clean(dir) {
 			name = filepath.Base(db.Path)
 		}
-		fmt.Fprintf(out, "  %-13s %-14s ", db.Name, name)
+		fmt.Fprintf(out, "  %-14s %-17s ", db.Name, name)
 		if !db.Present {
 			if db.Optional {
 				fmt.Fprintln(out, "not present (optional)")
@@ -1681,10 +1681,10 @@ func versionAction(ctx context.Context, cmd *cli.Command) error {
 		fmt.Fprintln(out)
 		switch {
 		case db.LastError != "":
-			fmt.Fprintf(out, "  %-13s last update failed, previous file kept: %s\n", "", db.LastError)
+			fmt.Fprintf(out, "  %-14s last update failed, previous file kept: %s\n", "", db.LastError)
 			incomplete = true
 		case len(db.Missing) > 0:
-			fmt.Fprintf(out, "  %-13s incomplete: missing %s\n", "", strings.Join(db.Missing, ", "))
+			fmt.Fprintf(out, "  %-14s incomplete: missing %s\n", "", strings.Join(db.Missing, ", "))
 			incomplete = true
 		}
 	}

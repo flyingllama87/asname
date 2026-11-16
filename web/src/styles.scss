@@ -31,6 +31,123 @@ body {
   height: 100%;
 }
 
+// The API button: a text action in the header, beside the version.
+.header-api {
+  @include type.type-style('body-compact-01');
+  align-self: stretch;
+  padding: 0 $spacing-05;
+  border: 0;
+  background: transparent;
+  color: $text-primary;
+  font-family: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background: $background-hover;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $focus;
+    outline-offset: -2px;
+  }
+}
+
+.api-ref {
+  section {
+    margin-top: $spacing-06;
+  }
+
+  h3 {
+    @include type.type-style('heading-02');
+    margin-bottom: $spacing-03;
+  }
+
+  .api-note {
+    @include type.type-style('body-compact-01');
+    color: $text-secondary;
+    margin-bottom: $spacing-04;
+  }
+
+  code {
+    font-family: 'IBM Plex Mono', monospace;
+  }
+}
+
+.api-endpoint {
+  padding: $spacing-04 0;
+  border-top: 1px solid $border-subtle-01;
+}
+
+.api-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-03;
+  align-items: baseline;
+
+  code {
+    font-weight: 600;
+  }
+}
+
+.api-what {
+  flex-basis: 100%;
+  color: $text-secondary;
+}
+
+.api-method {
+  @include type.type-style('label-01');
+  font-weight: 600;
+  min-width: 3.5rem;
+  color: $support-info;
+
+  &.api-post,
+  &.api-put {
+    color: $support-success;
+  }
+
+  &.api-delete {
+    color: $support-error;
+  }
+}
+
+.api-example {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-02;
+  margin-top: $spacing-03;
+
+  pre {
+    flex: 1;
+    margin: 0;
+    padding: $spacing-03 $spacing-04;
+    background: $layer-01;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+.api-params {
+  display: grid;
+  gap: $spacing-02;
+  margin-top: $spacing-04;
+
+  div {
+    display: flex;
+    gap: $spacing-04;
+  }
+
+  dt {
+    flex: 0 0 14rem;
+  }
+
+  dd {
+    margin: 0;
+    color: $text-secondary;
+  }
+}
+
 .header-version {
   @include type.type-style('label-01');
   display: flex;

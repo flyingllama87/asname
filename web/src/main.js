@@ -149,6 +149,7 @@ const state = {
   },
   db: { selected: new Set(), busy: false, error: '', notice: '', saving: '', settingsError: '', openSources: new Set() },
   settings: { open: false, base: getApiBase(), testing: false, result: null },
+  api: { open: false, copied: '' },
 };
 
 let lookupAbort = null;
@@ -187,14 +188,14 @@ function toggleTheme() {
 }
 
 // ---------- routing ----------
-// #/lookup?q=…  #/search?q=…  #/databases
+// #/lookup?q=…  #/search?q=…  #/databases  #/api (the API panel over Lookup)
 
 function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '');
   const [path, query = ''] = raw.split('?');
   const tab = ['lookup', 'search', 'databases'].includes(path) ? path : 'lookup';
   const p = new URLSearchParams(query);
-  return { tab, q: p.get('q') || '', fuzzy: p.get('fuzzy') === '1' };
+  return { tab, q: p.get('q') || '', fuzzy: p.get('fuzzy') === '1', panel: path === 'api' ? 'api' : '' };
 }
 
 function go(hash) {
@@ -203,8 +204,9 @@ function go(hash) {
 }
 
 function route() {
-  const { tab, q, fuzzy } = parseHash();
+  const { tab, q, fuzzy, panel } = parseHash();
   state.tab = tab;
+  if (panel === 'api') state.api.open = true;
   if (tab === 'lookup' && q) {
     state.lookup.input = q;
     runLookup(q);
@@ -490,6 +492,7 @@ function headerView() {
       <cds-header-name href="#/lookup">asname</cds-header-name>
       <div class="header-global">
         ${state.status?.version ? html`<span class="header-version">${state.status.version}</span>` : nothing}
+        <button class="header-api" type="button" title="The HTTP API behind this page" @click=${openAPI}>API</button>
         <cds-header-global-action
           aria-label=${dark ? 'Switch to light theme' : 'Switch to dark theme'}
           tooltip-text=${dark ? 'Light theme' : 'Dark theme'}
@@ -1614,6 +1617,143 @@ function saveSettings() {
   refreshStatus();
 }
 
+// ---------- HTTP API reference ----------
+
+function openAPI() {
+  state.api.open = true;
+  state.api.copied = '';
+  update();
+}
+
+// apiBase is the address the examples use: the configured API, else this
+// page's own server.
+function apiBase() {
+  return (getApiBase() || location.origin).replace(/\/$/, '');
+}
+
+const LOOKUP_PARAMS = [
+  ['reverse_dns=true', 'Also look up each address\'s reverse DNS name.'],
+  ['text=true', 'Add "text": the result as asname -p prints it, for pasting into a ticket.'],
+  ['whois=true', "Ask the registry over RDAP (or whois) when the offline netblock database cannot name the block."],
+  ['online_prefixes=true', "Ask RIPEstat for an ASN's prefixes when the offline prefix database lacks them."],
+  ['online=true', 'Both of the above.'],
+];
+
+// apiEndpoints describes the API. curl is the example request; open, for a
+// GET, is the URL to try it in the browser.
+function apiEndpoints(base) {
+  const json = `-H 'Content-Type: application/json'`;
+  const groups = [
+    {
+      title: 'Lookups',
+      note: 'An IP address, hostname, URL or ASN. Each answers {"query", "count", "results": [...]}, every result as asname -j prints it: asn, country, city, city_maxmind, geofeed, netblock, category, reputation, prefixes.',
+      params: LOOKUP_PARAMS,
+      endpoints: [
+        { method: 'GET', path: '/v1/lookup?q={target}', what: 'Look up one target.', curl: `curl -s '${base}/v1/lookup?q=8.8.8.8'`, open: `${base}/v1/lookup?q=8.8.8.8` },
+        { method: 'GET', path: '/v1/lookup/{target}', what: 'The same, with the target in the path.', curl: `curl -s ${base}/v1/lookup/AS13335`, open: `${base}/v1/lookup/AS13335` },
+        { method: 'GET', path: '/v1/lookup/b64/{base64url}', what: 'A target that is awkward in a URL, base64url-encoded.', curl: `curl -s ${base}/v1/lookup/b64/${btoa('https://example.com/a?b=c').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}` },
+        { method: 'POST', path: '/v1/bulk', what: 'Many targets as JSON. The query parameters above go in the body.', curl: `curl -s -X POST ${base}/v1/bulk ${json} \\\n  -d '{"targets": ["8.8.8.8", "AS15169", "dns.google"], "reverse_dns": true}'` },
+        { method: 'POST', path: '/v1/bulk', what: 'Any text: a list, a log, an alert. IPs, URLs, domains and ASNs are picked out of it, defanged ones included; one result per target found.', curl: `curl -s -X POST ${base}/v1/bulk --data-binary @alert.txt` },
+      ],
+    },
+    {
+      title: 'Search',
+      note: 'AS names and registry netblocks by organisation name or netname. AS matches come in "asns", netblocks in "results".',
+      params: [
+        ['scope=asns|netblocks', 'Search only one (default: both).'],
+        ['fuzzy=true', 'Also match misspellings and run-together words.'],
+        ['limit=N', 'At most N of each (default 50).'],
+        ['v4_only=true, v6_only=true', 'Only IPv4 or only IPv6 prefixes and ranges.'],
+      ],
+      endpoints: [
+        { method: 'GET', path: '/v1/search?q={name}', what: 'Search by name.', curl: `curl -s '${base}/v1/search?q=cloudflare&limit=10'`, open: `${base}/v1/search?q=cloudflare&limit=10` },
+      ],
+    },
+    {
+      title: 'Server',
+      endpoints: [
+        { method: 'GET', path: '/v1/status', what: 'The databases on disk and loaded, their age and sources, and the last update.', curl: `curl -s ${base}/v1/status`, open: `${base}/v1/status` },
+        { method: 'GET', path: '/health', what: 'Liveness, for monitoring.', curl: `curl -s ${base}/health`, open: `${base}/health` },
+      ],
+    },
+  ];
+  if (state.status?.updates_enabled) {
+    groups.push({
+      title: 'Updates and settings',
+      note: 'This server was started with --allow-updates. Only one update runs at a time.',
+      endpoints: [
+        { method: 'POST', path: '/v1/update', what: 'Rebuild databases by name (asn, names, country, city, netblock, geofeed, category, reputation); {} rebuilds every one on disk; "stale_only" or "incremental" as asname update does.', curl: `curl -s -X POST ${base}/v1/update ${json} -d '{"databases": ["reputation"]}'` },
+        { method: 'GET', path: '/v1/update', what: 'The running or last update and its log.', curl: `curl -s ${base}/v1/update`, open: `${base}/v1/update` },
+        { method: 'DELETE', path: '/v1/update', what: 'Cancel the running update.', curl: `curl -s -X DELETE ${base}/v1/update ${json}` },
+        { method: 'PUT', path: '/v1/settings', what: 'The refresh age in hours (0 is never), and whether ASN updates import IPv6 routes.', curl: `curl -s -X PUT ${base}/v1/settings ${json} -d '{"max_age_hours": 168}'` },
+      ],
+    });
+  }
+  return groups;
+}
+
+async function copyCurl(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    state.api.copied = text;
+  } catch {
+    state.api.copied = '';
+  }
+  update();
+  setTimeout(() => {
+    if (state.api.copied === text) {
+      state.api.copied = '';
+      update();
+    }
+  }, 2000);
+}
+
+function apiView() {
+  const a = state.api;
+  if (!a.open) return nothing;
+  const base = apiBase();
+  return html`
+    <cds-modal open size="lg" @cds-modal-closed=${() => ((a.open = false), update())}>
+      <cds-modal-header>
+        <cds-modal-close-button></cds-modal-close-button>
+        <cds-modal-heading>HTTP API</cds-modal-heading>
+      </cds-modal-header>
+      <cds-modal-body class="api-ref">
+        <p>Everything this page does goes through this API, at <code>${base}</code>. Answers are JSON.</p>
+        ${apiEndpoints(base).map(
+          (g) => html`<section>
+            <h3>${g.title}</h3>
+            ${g.note ? html`<p class="api-note">${g.note}</p>` : nothing}
+            ${g.endpoints.map(
+              (e) => html`<div class="api-endpoint">
+                <div class="api-line">
+                  <span class="api-method api-${e.method.toLowerCase()}">${e.method}</span>
+                  <code>${e.path}</code>
+                  <span class="api-what">${e.what}</span>
+                </div>
+                <div class="api-example">
+                  <pre>${e.curl}</pre>
+                  <cds-button kind="ghost" size="sm" @click=${() => copyCurl(e.curl)}>${a.copied === e.curl ? 'Copied' : 'Copy'}</cds-button>
+                  ${e.open ? html`<cds-button kind="ghost" size="sm" href=${e.open} target="_blank">Open</cds-button>` : nothing}
+                </div>
+              </div>`,
+            )}
+            ${g.params
+              ? html`<dl class="api-params">
+                  ${g.params.map(([p, d]) => html`<div><dt><code>${p}</code></dt><dd>${d}</dd></div>`)}
+                </dl>`
+              : nothing}
+          </section>`,
+        )}
+        <p class="api-note">
+          Another site's page can call it only if the server runs with --cors; updates are only taken from this server's own page.
+          The full guide is in the README under "REST API server".
+        </p>
+      </cds-modal-body>
+    </cds-modal>
+  `;
+}
+
 function settingsView() {
   const s = state.settings;
   return html`
@@ -1682,6 +1822,7 @@ function view() {
       ${body}
     </main>
     ${settingsView()}
+    ${apiView()}
   `;
 }
 
