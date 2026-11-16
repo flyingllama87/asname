@@ -181,6 +181,35 @@ h3 {
   margin: 0;
 }
 
+// Reputation: one row for the address, one for its network, labels in a
+// column so both rows' tags start together.
+.rep {
+  display: grid;
+  gap: $spacing-02;
+}
+
+.rep-row {
+  display: flex;
+  gap: $spacing-03;
+  align-items: baseline;
+
+  .tags {
+    align-items: center;
+  }
+}
+
+.rep-label {
+  @include type.type-style('label-01');
+  flex: 0 0 3.75rem;
+  color: $text-secondary;
+}
+
+.rep-counts {
+  @include type.type-style('label-01');
+  color: $text-secondary;
+  align-self: center;
+}
+
 .mono,
 code {
   font-family: 'IBM Plex Mono', monospace;
@@ -667,14 +696,33 @@ details.tips {
   }
 }
 
-// The plain answers, set apart from the list of findings under them.
+// The plain answers, set apart from the list of findings under them. Their
+// labels sit in the same column as the findings' levels, so every line of
+// the section starts at one edge.
 .findings .answers {
-  margin-bottom: $spacing-05;
+  display: grid;
+  gap: $spacing-02;
+  margin-bottom: $spacing-04;
   padding-bottom: $spacing-04;
   border-bottom: 1px solid $border-subtle-01;
+}
 
-  .where + .where {
-    margin-top: $spacing-03;
+.answer {
+  display: flex;
+  gap: $spacing-03;
+  align-items: baseline;
+
+  dt {
+    @include type.type-style('label-01');
+    flex: 0 0 4.25rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: $text-secondary;
+  }
+
+  dd {
+    margin: 0;
   }
 }
 

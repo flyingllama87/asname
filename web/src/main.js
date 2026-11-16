@@ -54,6 +54,7 @@ import Help16 from '@carbon/icons/es/help/16.js';
 
 import { html, nothing, render } from 'lit';
 import { api, ApiError, getApiBase, setApiBase } from './api.js';
+import { extractTargets } from './targets.js';
 import {
   asnReputationHelp,
   categoryTagHelp,
@@ -129,6 +130,9 @@ const state = {
     asked: { rdns: false, online: false },
     showAll: {},
     copied: '',
+    // extracted says how many targets were found in pasted text that was
+    // not a plain list, for the note under the box.
+    extracted: 0,
   },
   search: {
     q: '',
@@ -218,10 +222,7 @@ function errorText(err) {
 }
 
 function targetsOf(text) {
-  return text
-    .split(/[\n,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return extractTargets(text).targets;
 }
 
 // onlineAvailable reports which online lookups this server allows.
@@ -591,21 +592,32 @@ function lookupView() {
   const avail = onlineAvailable();
   const submit = () => {
     const text = document.getElementById('lookup-input')?.value ?? l.input;
-    l.input = text;
-    const targets = targetsOf(text);
+    const { targets, extracted } = extractTargets(text);
+    // Pasted text that was not a plain list is replaced by what was found
+    // in it, so the box shows exactly what is looked up.
+    l.extracted = extracted ? targets.length || -1 : 0;
+    l.input = extracted ? targets.join('\n') : text;
     if (targets.length) go(`#/lookup?q=${encodeURIComponent(targets.join('\n'))}`);
+    else update();
   };
   return html`
-    <p class="lede">Look up IP addresses, hostnames, URLs or ASNs, one per line. Answers come from the local databases.</p>
+    <p class="lede">Look up IP addresses, hostnames, URLs or ASNs. Answers come from the local databases.</p>
     <div class="form">
       <cds-textarea
         id="lookup-input"
         label="Targets"
         rows="4"
         placeholder="8.8.8.8&#10;dns.google&#10;AS13335"
-        helper-text="One per line, or separated by commas. Ctrl+Enter to look up."
+        helper-text=${l.extracted < 0
+          ? 'No IP addresses, URLs, domains or ASNs found in that text.'
+          : l.extracted
+          ? `Found ${l.extracted} target${l.extracted === 1 ? '' : 's'} in the pasted text. Ctrl+Enter to look up.`
+          : 'Paste a list, a log or a page: IPs, URLs, domains and ASNs are picked out. Ctrl+Enter to look up.'}
         .value=${l.input}
-        @input=${(e) => (l.input = e.target.value)}
+        @input=${(e) => {
+          l.input = e.target.value;
+          l.extracted = 0;
+        }}
         @keydown=${(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
@@ -664,10 +676,10 @@ function findingsView(r, loaded) {
   return html`<section class="findings findings-${worst}" aria-label="What this means">
     <h4>What this means</h4>
     ${who || where
-      ? html`<div class="answers">
-          ${who ? html`<p class="where"><strong>Who is it?</strong> ${who}</p>` : nothing}
-          ${where ? html`<p class="where"><strong>Where is it?</strong> ${where}</p>` : nothing}
-        </div>`
+      ? html`<dl class="answers">
+          ${who ? html`<div class="answer"><dt>Who</dt><dd>${who}</dd></div>` : nothing}
+          ${where ? html`<div class="answer"><dt>Where</dt><dd>${where}</dd></div>` : nothing}
+        </dl>`
       : nothing}
     ${points.length
       ? html`<ul>
@@ -926,20 +938,60 @@ function asnSummary(asn) {
   return asn?.spamhaus_asn_drop ? s.replace(/^Spamhaus ASN-DROP(; )?/, '') : s;
 }
 
+// listLabel names a blocklist entry ("ipsum:3", "spamhaus-drop:SBL123")
+// the way the tags show it.
+function listLabel(name) {
+  const [list, detail] = name.split(':');
+  switch (list) {
+    case 'firehol-level2':
+      return 'FireHOL L2 · 48 h';
+    case 'firehol-level3':
+      return 'FireHOL L3 · 30 d';
+    case 'ipsum':
+      return `IPsum · ${detail} lists`;
+    case 'spamhaus-drop':
+      return detail ? `Spamhaus DROP · ${detail}` : 'Spamhaus DROP';
+    default:
+      return name;
+  }
+}
+
+// reputationView shows what the blocklists say in two rows, the address
+// and its network, each as tags in one style, with the network's counts.
 function reputationView(rep, isASN) {
   const asn = rep.asn;
-  const summary = asnSummary(asn);
-  return html`
-    ${isASN
-      ? nothing
-      : rep.lists?.length
-        ? html`<div class="tags">${rep.lists.map((name) => html`<cds-tag size="sm" type="red">${name}</cds-tag>`)}</div>`
-        : rep.listed
-          ? html`<cds-tag size="sm" type="red">Listed</cds-tag>`
-          : html`<span>Address not listed</span>`}
-    ${asn?.spamhaus_asn_drop ? html`<div class="tags"><cds-tag size="sm" type="red">ASN on Spamhaus ASN-DROP</cds-tag></div>` : nothing}
-    ${summary ? html`<span class="meta">ASN: ${summary}</span>` : nothing}
-  `;
+  const addressRow = isASN
+    ? nothing
+    : html`<div class="rep-row">
+        <span class="rep-label">Address</span>
+        ${rep.lists?.length
+          ? html`<span class="tags">${rep.lists.map((name) => html`<cds-tag size="sm" type="red" title=${name}>${listLabel(name)}</cds-tag>`)}</span>`
+          : html`<span class="rep-none">Not listed</span>`}
+      </div>`;
+  let networkRow = nothing;
+  if (asn) {
+    const tags = [];
+    if (asn.spamhaus_asn_drop) tags.push('Spamhaus ASN-DROP');
+    if (asn.drop_prefixes) tags.push(`Spamhaus DROP · ${asn.drop_prefixes} prefix${asn.drop_prefixes === 1 ? '' : 'es'}`);
+    const counts = asn.listed_ips
+      ? `${asn.listed_ips.toLocaleString()} listed IP${asn.listed_ips === 1 ? '' : 's'}` +
+        (asn.listed_share_pct != null ? ` (${fmtShare(asn.listed_share_pct)} of announced IPv4)` : '') +
+        (asn.max_lists ? `, up to ${asn.max_lists} lists` : '')
+      : '';
+    networkRow = html`<div class="rep-row">
+      <span class="rep-label">Network</span>
+      ${tags.length || counts
+        ? html`<span class="tags">${tags.map((t) => html`<cds-tag size="sm" type="red">${t}</cds-tag>`)}${counts ? html`<span class="rep-counts">${counts}</span>` : nothing}</span>`
+        : html`<span class="rep-none">Not listed</span>`}
+    </div>`;
+  }
+  return html`<div class="rep">${addressRow}${networkRow}</div>`;
+}
+
+function fmtShare(p) {
+  if (p >= 10) return `${Math.round(p)}%`;
+  if (p >= 0.1) return `${p.toFixed(1)}%`;
+  return p > 0 ? '<0.1%' : '0%';
 }
 
 // Search

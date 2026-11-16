@@ -378,7 +378,7 @@ export function whoIs(r) {
   const owner = blockOwner(r);
   if (owner?.distinct) {
     const what = owner.kinds.map((k) => KIND_PHRASES[k]).filter(Boolean)[0];
-    return `${owner.name}${what ? ` (${what})` : ''}, on ${network || 'the network'}${asn ? ` (${asn})` : ''}. The block is registered to them; the network only carries their traffic.`;
+    return `${owner.name}${what ? ` (${what})` : ''}, on ${network || 'the network'}${asn ? ` (${asn})` : ''}.`;
   }
   if (!network) return null;
   const range = (r.category?.inferred || []).find((t) => t.from === 'netname')?.tag;
@@ -388,7 +388,7 @@ export function whoIs(r) {
     'range:cgnat': 'a carrier-grade NAT pool',
     'range:hosting': 'a hosting range',
   }[range];
-  return `${network}${asn ? ` (${asn})` : ''}${pool ? `: ${pool} of theirs` : ''}${owner ? '' : '. No netblock record names a more specific owner.'}`.replace(/\.?$/, '.');
+  return `${network}${asn ? ` (${asn})` : ''}${pool ? `, ${pool}` : ''}.`;
 }
 
 // whereIs reconciles the three places a result names (the block's own
@@ -403,15 +403,13 @@ export function whereIs(r) {
   const geo = city ? city.split(',').pop().trim() : '';
   const tags = r.category?.tags || [];
   const movable = tags.includes('tor-exit') || tags.some((t) => t.startsWith('vpn:') || t.startsWith('cloud:'));
-  const history = nb && rir && nb.code !== r.country?.code ? ` ${rir} is only where the larger block it was carved from was first allocated, which is common when space is sold or leased.` : '';
+  const history = nb && rir && nb.code !== r.country?.code ? ` Parent allocation: ${rir}.` : '';
+  const caveat = movable ? ' VPN, Tor or cloud: the user can be anywhere.' : '';
   if (!reg && !geo) return null;
-  if (!geo) return `Registered in ${reg}; there is no geolocation to compare.${history}`;
-  if (!reg) return `Geolocated to ${city}; there is no registration to compare.`;
-  if (geo === reg) {
-    const caveat = movable ? ' As a VPN, Tor or cloud address, though, the person behind it can be anywhere.' : '';
-    return `Probably ${reg}: the block is registered there and geolocates to ${city}.${history}${caveat}`;
-  }
-  return `Unclear: registered in ${reg}, but geolocated to ${city}.${history} For home broadband, trust the geolocation; for servers, VPNs and cloud, neither says where the person behind it is.`;
+  if (!geo) return `${reg} (registration; no geolocation).${history}${caveat}`;
+  if (!reg) return `${city} (geolocation; no registration).${caveat}`;
+  if (geo === reg) return `${reg}: registered there, geolocated to ${city}.${history}${caveat}`;
+  return `Unclear: registered in ${reg}, geolocated to ${city}.${history}${caveat || ' Broadband: trust the geolocation. Hosting: neither is reliable.'}`;
 }
 
 // summaryText is a result as plain text for a ticket: the command line's
