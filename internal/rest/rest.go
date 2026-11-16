@@ -352,7 +352,7 @@ func (s *Server) lookupSingle(w http.ResponseWriter, r *http.Request, rawTarget 
 	for _, res := range results {
 		j := format.ToJSONResult(res)
 		if withText {
-			j.Text = format.FormatPrettyLookupOutput(res, 0, 1, false)
+			j.Text = format.FormatPrettyLookupOutput(res, 0, 1, false, true)
 		}
 		jsonResults = append(jsonResults, j)
 	}
@@ -455,7 +455,7 @@ func (s *Server) handleBulk(w http.ResponseWriter, r *http.Request) {
 	for _, res := range allResults {
 		j := format.ToJSONResult(res)
 		if withText {
-			j.Text = format.FormatPrettyLookupOutput(res, 0, 1, false)
+			j.Text = format.FormatPrettyLookupOutput(res, 0, 1, false, true)
 		}
 		jsonResults = append(jsonResults, j)
 	}

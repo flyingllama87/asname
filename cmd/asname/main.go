@@ -186,6 +186,12 @@ func newApp() *cli.Command {
 				Local:   true,
 			},
 			&cli.BoolFlag{
+				Name:    "verbose",
+				Aliases: []string{"v"},
+				Usage:   "end each pretty lookup with where every field came from",
+				Local:   true,
+			},
+			&cli.BoolFlag{
 				Name:    "reverse-dns",
 				Aliases: []string{"r"},
 				Usage:   "also query reverse DNS and include PTR names in the output",
@@ -580,6 +586,7 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 		opts := stream.StreamOptions{
 			Format:     fmtMode,
 			ReverseDNS: cmd.Bool("reverse-dns"),
+			Sources:    cmd.Bool("verbose"),
 			UseColor:   useColor,
 			V4Only:     v4Only,
 			V6Only:     v6Only,
@@ -652,7 +659,7 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 		} else if isCSV {
 			fmt.Fprint(out, format.FormatCSVLookupOutput(res))
 		} else if isPretty {
-			fmt.Fprint(out, format.FormatPrettyLookupOutput(res, i, len(results), useColor))
+			fmt.Fprint(out, format.FormatPrettyLookupOutput(res, i, len(results), useColor, cmd.Bool("verbose")))
 		} else {
 			fmt.Fprint(out, format.FormatLookupOutput(res, uniform, showHost))
 			if res.IsASN && len(results) == 1 && !uniform && len(res.Prefixes) > 0 {

@@ -139,7 +139,6 @@ const (
 	srcRIB      = "BGP RIB dump (RouteViews or RIPE RIS), offline"
 	srcASNames  = "RIPE NCC AS names list (asn.txt), offline"
 	srcRIR      = "RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline"
-	srcCity     = "DB-IP City Lite geolocation, offline"
 	srcNetblock = "RIR WHOIS dumps, offline"
 	// srcNetblockCountry is the country a range names for itself, shown when
 	// it differs from the RIR delegation of its parent allocation.
@@ -158,12 +157,49 @@ func writeReputation(b *strings.Builder, st prettyStyler, res engine.LookupResul
 	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("  %s\n", st.section("Reputation:")))
 	if !res.IsASN {
-		v, _ := ReputationText(res)
+		v := "not listed"
+		if len(res.Reputation) > 0 {
+			names := make([]string, len(res.Reputation))
+			for i, n := range res.Reputation {
+				names[i] = listName(n)
+			}
+			v = strings.Join(names, "; ")
+		}
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("Address:          "), st.reputation(v, len(res.Reputation) > 0)))
 	}
 	if r := res.ASNReputation; r != nil {
 		b.WriteString(fmt.Sprintf("    %s %s\n", st.label("ASN:              "), st.reputation(r.String(), r.Listed())))
 	}
+}
+
+// listName reads a blocklist entry ("ipsum:3", "spamhaus-drop:SBL123") out.
+func listName(entry string) string {
+	list, detail, _ := strings.Cut(entry, ":")
+	switch list {
+	case "ipsum":
+		if detail == "1" {
+			return "IPsum: on 1 feed"
+		}
+		return "IPsum: on " + detail + " feeds"
+	case "firehol-level2":
+		return "FireHOL level 2: attacks in the last 48 h"
+	case "firehol-level3":
+		return "FireHOL level 3: attacks in the last 30 days"
+	case "spamhaus-drop":
+		if detail != "" {
+			return "Spamhaus DROP (" + detail + ")"
+		}
+		return "Spamhaus DROP"
+	}
+	return entry
+}
+
+// cityVendor names who made a city database, DB-IP when unknown.
+func cityVendor(source string) string {
+	if source == "" {
+		return "DB-IP"
+	}
+	return source
 }
 
 // writeSources writes the Data Sources section, one row per field shown.
@@ -176,7 +212,8 @@ func writeSources(b *strings.Builder, st prettyStyler, rows [][2]string) {
 }
 
 // FormatPrettyLookupOutput formats a LookupResult into a multi-line card layout.
-func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored bool) string {
+// With withSources set it ends with the Data Sources section.
+func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored, withSources bool) string {
 	st := newPrettyStyler(colored)
 	var b strings.Builder
 
@@ -249,7 +286,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 			}
 			rows = append(rows, [2]string{"Prefixes", src})
 		}
-		writeSources(&b, st, rows)
+		if withSources {
+			writeSources(&b, st, rows)
+		}
 
 		b.WriteString(borderLine + "\n\n")
 		return b.String()
@@ -314,8 +353,14 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 		formattedCountry := FormatCountryPretty(res.Country)
 		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Country:          "), st.location(formattedCountry), st.notice("RIR registration")))
 	}
+	if g := res.Geofeed; g != nil {
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("Geofeed:          "), st.location(g.String()), st.notice("the network's own geofeed")))
+	}
+	if res.CityMaxMind != "" {
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("City:             "), st.location(res.CityMaxMind), st.notice(cityVendor(res.CityMaxMindSource)+" geolocation")))
+	}
 	if res.City != "" {
-		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("City:             "), st.location(res.City), st.notice("DB-IP geolocation")))
+		b.WriteString(fmt.Sprintf("    %s %s [%s]\n", st.label("City:             "), st.location(res.City), st.notice(cityVendor(res.CitySource)+" geolocation")))
 	}
 
 	if res.Netblock != "" {
@@ -357,8 +402,14 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	} else {
 		rows = append(rows, [2]string{"Country", srcRIR})
 	}
+	if g := res.Geofeed; g != nil {
+		rows = append(rows, [2]string{"Geofeed", "RFC 8805 geofeed " + g.Feed + ", offline"})
+	}
+	if res.CityMaxMind != "" {
+		rows = append(rows, [2]string{"City", cityVendor(res.CityMaxMindSource) + " geolocation, offline"})
+	}
 	if res.City != "" {
-		rows = append(rows, [2]string{"City", srcCity})
+		rows = append(rows, [2]string{"City", cityVendor(res.CitySource) + " geolocation, offline"})
 	}
 	if res.Netblock != "" {
 		src := srcNetblock
@@ -390,7 +441,9 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	if res.RDNS != "" {
 		rows = append(rows, [2]string{"Reverse DNS", srcRDNS})
 	}
-	writeSources(&b, st, rows)
+	if withSources {
+		writeSources(&b, st, rows)
+	}
 
 	b.WriteString(borderLine + "\n\n")
 	return b.String()
@@ -613,10 +666,11 @@ func inferredSrc(res engine.LookupResult) string {
 // nat64Text says which NAT64 address a lookup was asked about.
 func nat64Text(res engine.LookupResult) string {
 	n := res.NAT64
+	s := fmt.Sprintf("%s is %s behind the carrier NAT64 prefix %s", n.Address, res.IP, n.Prefix)
 	if n.DNS64 {
-		return fmt.Sprintf("the resolver also answered %s, which it made up (DNS64): this address inside the network's NAT64 prefix %s, the carrier's translator. %s has no IPv6 address of its own", n.Address, n.Prefix, res.Host)
+		s += " (made up by the resolver: DNS64)"
 	}
-	return fmt.Sprintf("%s is this address inside the NAT64 prefix %s, a carrier's IPv4 translator; this is the address it reaches", n.Address, n.Prefix)
+	return s
 }
 
 // servedByText says which CDN serves a looked-up hostname and what that

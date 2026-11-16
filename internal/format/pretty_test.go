@@ -27,7 +27,7 @@ func samplePrettyResult() engine.LookupResult {
 
 func TestFormatPrettyLookupOutputPlain(t *testing.T) {
 	res := samplePrettyResult()
-	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	out := FormatPrettyLookupOutput(res, 0, 1, false, true)
 
 	require.NotContains(t, out, "\033[")
 	require.Contains(t, out, "Target: 8.8.8.8")
@@ -49,7 +49,7 @@ func TestFormatPrettyLookupOutputPlain(t *testing.T) {
 }
 
 func TestFormatPrettyLookupOutputSources(t *testing.T) {
-	out := FormatPrettyLookupOutput(samplePrettyResult(), 0, 1, false)
+	out := FormatPrettyLookupOutput(samplePrettyResult(), 0, 1, false, true)
 
 	require.Contains(t, out, "Country:           United States (US) [RIR registration]")
 	require.Contains(t, out, "City:              Mountain View, California [DB-IP geolocation]")
@@ -57,7 +57,7 @@ func TestFormatPrettyLookupOutputSources(t *testing.T) {
 	require.Contains(t, out, "ASN:               "+srcRIB)
 	require.Contains(t, out, "Organization:      "+srcASNames)
 	require.Contains(t, out, "Country:           "+srcRIR)
-	require.Contains(t, out, "City:              "+srcCity)
+	require.Contains(t, out, "City:              DB-IP geolocation, offline")
 	require.Contains(t, out, "Netblock:          "+srcNetblock)
 	require.Contains(t, out, "Category:          "+srcCategory)
 	require.Contains(t, out, "Reverse DNS:       "+srcRDNS)
@@ -70,19 +70,19 @@ func TestFormatPrettyLookupOutputVPNList(t *testing.T) {
 		"vpn:private-internet-access": {Source: "PIA server list", Date: time.Date(2026, 10, 27, 4, 0, 0, 0, time.UTC)},
 		"vpn:mullvad":                 {Source: "gluetun server list for mullvad"},
 	}
-	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	out := FormatPrettyLookupOutput(res, 0, 1, false, true)
 
 	require.Contains(t, out, "VPN servers:       gluetun server list for mullvad, offline\n    VPN servers:       PIA server list, as of 2026-10-27, offline")
-	require.NotContains(t, FormatPrettyLookupOutput(samplePrettyResult(), 0, 1, false), "VPN servers:")
+	require.NotContains(t, FormatPrettyLookupOutput(samplePrettyResult(), 0, 1, false, true), "VPN servers:")
 }
 
 func TestFormatPrettyLookupOutputSourcesOmitAbsentFields(t *testing.T) {
 	res := samplePrettyResult()
 	res.City, res.Netblock, res.Category, res.RDNS = "", "", "", ""
-	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	out := FormatPrettyLookupOutput(res, 0, 1, false, true)
 
 	require.Contains(t, out, "Country:           "+srcRIR)
-	require.NotContains(t, out, srcCity)
+	require.NotContains(t, out, "DB-IP geolocation, offline")
 	require.NotContains(t, out, srcNetblock)
 	require.NotContains(t, out, srcCategory)
 	require.NotContains(t, out, srcRDNS)
@@ -98,7 +98,7 @@ func TestFormatPrettyASNOutputSources(t *testing.T) {
 		IPv4Prefixes: []string{"8.8.8.0/24"},
 		PrefixSource: "ripe-stat",
 	}
-	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	out := FormatPrettyLookupOutput(res, 0, 1, false, true)
 
 	require.Contains(t, out, "Country:           United States (US) [AS registration]")
 	require.Contains(t, out, "Country:           "+srcASNames)
@@ -107,7 +107,7 @@ func TestFormatPrettyASNOutputSources(t *testing.T) {
 
 func TestFormatPrettyLookupOutputColor(t *testing.T) {
 	res := samplePrettyResult()
-	out := FormatPrettyLookupOutput(res, 0, 1, true)
+	out := FormatPrettyLookupOutput(res, 0, 1, true, true)
 
 	require.Contains(t, out, ansiBoldCyan)
 	require.Contains(t, out, ansiReset)
@@ -124,7 +124,7 @@ func TestFormatPrettyLookupOutputIPv6(t *testing.T) {
 		Country: "US, United States",
 	}
 
-	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	out := FormatPrettyLookupOutput(res, 0, 1, false, true)
 	require.Contains(t, out, "IP Address:        2001:4860:4860::8888 (IPv6)")
 }
 
@@ -132,7 +132,7 @@ func TestFormatPrettyLookupOutputLiveWhois(t *testing.T) {
 	res := samplePrettyResult()
 	res.NetblockLive = true
 
-	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	out := FormatPrettyLookupOutput(res, 0, 1, false, true)
 	require.Contains(t, out, "Source:            Live WHOIS")
 	require.Contains(t, out, "Netblock:          "+srcWhois)
 }
@@ -142,7 +142,7 @@ func TestFormatLiveRDAP(t *testing.T) {
 	res.NetblockLive = true
 	res.NetblockSource = sources.OnlineSourceRDAP
 
-	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	out := FormatPrettyLookupOutput(res, 0, 1, false, true)
 	require.Contains(t, out, "Source:            Live RDAP")
 	require.Contains(t, out, "Netblock:          "+srcRDAP)
 
@@ -156,7 +156,7 @@ func TestFormatLiveRDAP(t *testing.T) {
 
 func TestFormatPrettyLookupOutputMultiTargetIndex(t *testing.T) {
 	res := samplePrettyResult()
-	out := FormatPrettyLookupOutput(res, 1, 3, false)
+	out := FormatPrettyLookupOutput(res, 1, 3, false, true)
 
 	require.Contains(t, out, "Target: [2/3] 8.8.8.8")
 }
@@ -179,7 +179,7 @@ func TestFormatInferredCategory(t *testing.T) {
 	res.Category = "isp"
 	res.Inferred = []engine.InferredTag{{Tag: "range:broadband", From: sources.InferredFromNetname}, {Tag: "finance", From: sources.InferredFromName}}
 
-	out := FormatPrettyLookupOutput(res, 0, 1, false)
+	out := FormatPrettyLookupOutput(res, 0, 1, false, true)
 	require.Contains(t, out, "Category:          isp")
 	require.Contains(t, out, "Inferred:          range:broadband [from the range's netname]")
 	require.Contains(t, out, "                   finance [from the AS name]")
@@ -196,6 +196,32 @@ func TestFormatInferredCategory(t *testing.T) {
 	require.Equal(t, "inferred: hosting", categoryWithInferred(res))
 	j = ToJSONResult(res)
 	require.Equal(t, []string{}, j.Category.Tags)
-	out = FormatPrettyLookupOutput(res, 0, 1, false)
+	out = FormatPrettyLookupOutput(res, 0, 1, false, true)
 	require.Contains(t, out, "[asname's list of known networks]")
+}
+
+func TestFormatPrettyLookupOutputLocationsAndLists(t *testing.T) {
+	res := samplePrettyResult()
+	res.CitySource = "DB-IP"
+	res.CityMaxMind = "Mountain View, California, United States"
+	res.CityMaxMindSource = "MaxMind GeoLite2"
+	res.Geofeed = &sources.GeofeedLocation{Country: "US", Region: "US-CA", City: "Mountain View", Feed: "https://example.com/geofeed.csv"}
+	res.Reputation = []string{"ipsum:2", "firehol-level3", "spamhaus-drop:SBL123"}
+	out := FormatPrettyLookupOutput(res, 0, 1, false, false)
+	require.Contains(t, out, "Geofeed:           Mountain View, US-CA")
+	require.Contains(t, out, "City:              Mountain View, California, United States [MaxMind GeoLite2 geolocation]")
+	require.Contains(t, out, "City:              Mountain View, California [DB-IP geolocation]")
+	require.Contains(t, out, "IPsum: on 2 feeds; FireHOL level 3: attacks in the last 30 days; Spamhaus DROP (SBL123)")
+	// Sources only with -v.
+	require.NotContains(t, out, "Data Sources:")
+	require.Contains(t, FormatPrettyLookupOutput(res, 0, 1, false, true), "Data Sources:")
+}
+
+func TestFormatPrettyLookupOutputNAT64(t *testing.T) {
+	res := samplePrettyResult()
+	res.IP = net.ParseIP("23.46.47.108")
+	res.Host = "nsa.gov"
+	res.NAT64 = &engine.NAT64{Address: "2405:6e00:64::172e:2f6c", Prefix: "2405:6e00:64::/96", DNS64: true}
+	out := FormatPrettyLookupOutput(res, 0, 1, false, false)
+	require.Contains(t, out, "NAT64:             2405:6e00:64::172e:2f6c is 23.46.47.108 behind the carrier NAT64 prefix 2405:6e00:64::/96 (made up by the resolver: DNS64)")
 }

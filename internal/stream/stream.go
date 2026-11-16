@@ -19,7 +19,9 @@ type StreamOptions struct {
 	Format     format.OutputFormat
 	ReverseDNS bool
 	UseColor   bool
-	Workers    int
+	// Sources ends each pretty card with where its fields came from.
+	Sources bool
+	Workers int
 	// V4Only and V6Only keep only the addresses and prefixes of one family.
 	V4Only, V6Only bool
 }
@@ -145,7 +147,7 @@ func processStreamTarget(ctx context.Context, t engine.Target, eng *engine.Engin
 		case format.FormatCSV:
 			formatted = format.FormatCSVLookupOutput(res)
 		case format.FormatPretty:
-			formatted = format.FormatPrettyLookupOutput(res, i, len(results), opts.UseColor)
+			formatted = format.FormatPrettyLookupOutput(res, i, len(results), opts.UseColor, opts.Sources)
 		case format.FormatUniform:
 			formatted = format.FormatLookupOutput(res, true, res.Host != "")
 		default:

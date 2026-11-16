@@ -760,7 +760,7 @@ A provider whose own list cannot be read, or whose hostnames mostly fail to
 resolve, falls back to gluetun's copy, so a network that filters VPN domains
 still gets a complete, if older, set. Each server address is tagged with its
 provider, as `vpn:nordvpn`, `vpn:private-internet-access` and so on, and
-The card shows under Data Sources which list it came from and its date.
+With `-v` the card shows under Data Sources which list it came from and its date.
 
 Two limits apply. The lists hold the addresses a client *connects to*, plus
 exit addresses where NordVPN and AirVPN list them; most providers send traffic
@@ -993,38 +993,58 @@ FireHOL level 1 is not used: it includes the full bogon list, so private and una
 Lookup and search results are displayed as a structured, multi-line card layout with plenty of whitespace and terminal color highlights. This is the default; `--pretty` (or `-p`) asks for it explicitly, and `--oneline` (or `-o`) prints one line per result instead. For `country` and `city`, whose default is a plain CIDR list, `--pretty` gives a card with block counts:
 
 ```bash
-$ asname 8.8.8.8
-Target: 8.8.8.8
+$ asname 94.249.188.188
+Target: 94.249.188.188
 ────────────────────────────────────────────────────────────
   Address Details:
-    IP Address:        8.8.8.8 (IPv4)
+    IP Address:        94.249.188.188 (IPv4)
 
   Autonomous System:
-    ASN:               AS15169
-    Organization:      GOOGLE - Google LLC, US
+    ASN:               AS215365
+    Organization:      Threatoff Tom Gewiese, DE
 
   Location:
-    Country:           United States (US) [RIR registration]
-    City:              Mountain View, California, United States [DB-IP geolocation]
+    Country:           Finland (FI) [netblock registration]
+    Allocated in:      Germany (DE) [RIR allocation]
+    Geofeed:           Helsinki, Finland [the network's own geofeed]
+    City:              Germany [MaxMind GeoLite2 geolocation]
+    City:              Kirchberg, Bavaria, Germany [DB-IP geolocation]
 
   Registry Netblock:
-    Netname / Org:     GOGL (Google LLC)
-    Source:            Live RDAP
+    Netname / Org:     Threatoff
+    Registered:        2026-09-03 (2 months ago)
+    Source:            Offline Index
 
   Network Classification:
-    Category:          cdn, content, hosting, vpn
+    Category:          hosting
 
+  Reputation:
+    Address:           not listed
+    ASN:               58 listed IPs (0.87% of 6656 announced IPv4), max 2 lists
+────────────────────────────────────────────────────────────
+```
+
+Location shows every answer asname has, each labelled: the registration country, the network's own geofeed when you have opted in to geofeeds, and the city from each city database present (MaxMind and DB-IP). They answer different questions and can disagree; above, the operator's feed says Finland while both estimates say Germany.
+
+The address's blocklists read out in words: `IPsum: on 2 feeds`, `FireHOL level 2: attacks in the last 48 h`, `Spamhaus DROP (SBL123)`.
+
+An IPv6 address inside a NAT64 prefix is looked up as the IPv4 address it carries, with a `NAT64:` line saying so. On an IPv6-only network (a phone hotspot, most mobile carriers) the resolver makes up such addresses for sites with no IPv6, and a registry lookup of one names the carrier, not the site.
+
+`--verbose` (or `-v`) ends each card with Data Sources, the database or live query behind each field shown:
+
+```bash
+$ asname -v 8.8.8.8
+  ...
   Data Sources:
     ASN:               BGP RIB dump (RouteViews or RIPE RIS), offline
     Organization:      RIPE NCC AS names list (asn.txt), offline
     Country:           RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline
-    City:              DB-IP City Lite geolocation, offline
-    Netblock:          Live RDAP (IANA bootstrap to the RIR)
+    City:              MaxMind GeoLite2 geolocation, offline
+    City:              DB-IP geolocation, offline
+    Netblock:          RIR WHOIS dumps, offline
     Category:          Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline
-────────────────────────────────────────────────────────────
+    Reputation:        Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline
 ```
-
-Country and City come from different databases and can disagree. Country is the registration country from the RIR delegation stats; City is DB-IP's estimate of where the addresses are used. A block registered in one country and announced in another shows both, labelled. The Data Sources section lists the database or live query behind each field shown.
 
 Colors are enabled automatically on interactive terminals and suppressed when piped, unless forced with `--color`. Use `--no-color` (or set the `NO_COLOR` environment variable) to disable colors explicitly.
 
