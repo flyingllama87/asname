@@ -7,7 +7,9 @@ export const FILTER_KEYS = ['len', 'family', 'country', 'as_country', 'asn', 'ta
 
 export const DEFAULT_FILTERS = {
   len: '',
-  family: 'any',
+  // IPv4 unless asked: IPv6 routes are often not imported, and its prefixes
+  // swamp the counts.
+  family: 'v4',
   country: '',
   as_country: '',
   asn: '',

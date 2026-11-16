@@ -74,7 +74,8 @@ type ExplorePrefix struct {
 
 // ExploreFacet counts the matching prefixes per value.
 type ExploreFacet struct {
-	Value string
+	Value string // what to filter on: "AU", "hosting", "AS13335"
+	Label string // how to show it: "Australia", "hosting", "AMAZON-02 - Amazon.com, Inc."
 	Count int
 }
 
@@ -536,13 +537,22 @@ func (e *Engine) Explore(opts ExploreOptions) (ExploreResult, error) {
 		}
 		res.Prefixes = append(res.Prefixes, p)
 	}
-	res.Countries = topFacets(countries, 20, countryLabelString)
-	res.Tags = topFacets(tags, 30, nil)
+	res.Countries = topFacets(countries, 30, func(cc string) string {
+		if n, ok := sources.CountryNames[cc]; ok {
+			return n
+		}
+		return cc
+	})
+	res.Tags = topFacets(tags, 40, nil)
 	asnFacets := map[string]int{}
 	for a, n := range asns {
 		asnFacets["AS"+strconv.FormatUint(uint64(a), 10)] = n
 	}
-	res.ASNs = topFacets(asnFacets, 20, nil)
+	res.ASNs = topFacets(asnFacets, 30, func(v string) string {
+		n, _ := strconv.ParseUint(strings.TrimPrefix(v, "AS"), 10, 32)
+		org, _ := splitNameCountry(e.names[uint32(n)])
+		return org
+	})
 	res.Took = time.Since(began)
 	return res, nil
 }
@@ -569,10 +579,11 @@ func topFacets(m map[string]int, n int, label func(string) string) []ExploreFace
 		if v == "" {
 			continue
 		}
+		f := ExploreFacet{Value: v, Label: v, Count: c}
 		if label != nil {
-			v = label(v)
+			f.Label = label(v)
 		}
-		out = append(out, ExploreFacet{Value: v, Count: c})
+		out = append(out, f)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {

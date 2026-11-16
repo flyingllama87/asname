@@ -35,6 +35,7 @@ type JSONExploreReputation struct {
 // JSONExploreFacet counts the matching prefixes with one value.
 type JSONExploreFacet struct {
 	Value string `json:"value"`
+	Label string `json:"label"`
 	Count int    `json:"count"`
 }
 
@@ -93,7 +94,7 @@ func NewJSONExplore(res engine.ExploreResult, offset int) JSONExplore {
 	facets := func(f []engine.ExploreFacet) []JSONExploreFacet {
 		o := make([]JSONExploreFacet, 0, len(f))
 		for _, x := range f {
-			o = append(o, JSONExploreFacet{x.Value, x.Count})
+			o = append(o, JSONExploreFacet{x.Value, x.Label, x.Count})
 		}
 		return o
 	}

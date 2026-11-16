@@ -109,7 +109,7 @@ export const cloudName = (id) => CLOUD_NAMES[id] || titleCase(id);
 const BROKER_NAMES = { ipxo: 'IPXO', prefixbroker: 'PrefixBroker' };
 const brokerName = (id) => BROKER_NAMES[id] || titleCase(id);
 
-const OPERATOR_TAGS = {
+export const OPERATOR_TAGS = {
   hosting: 'the operator sells servers or virtual machines (a hosting provider)',
   isp: 'the operator is a broadband ISP serving homes and businesses',
   mobile: 'the operator runs a mobile network',
@@ -126,12 +126,12 @@ const OPERATOR_TAGS = {
   'network-services': 'the operator provides network services such as DNS or monitoring',
   'route-server': 'the operator runs an internet exchange route server or collector',
   satellite: 'the operator is a satellite internet provider',
-  personal: 'the AS belongs to an individual',
+  personal: 'the AS is registered to a person rather than a company: usually a hobbyist or network engineer running a small network of their own, often a home lab or a few rented servers',
   anycast: 'the address is anycast: the same address is served from many places at once',
 };
 
 // RANGE_TAGS explains the range: tags asname infers from registry netnames.
-const RANGE_TAGS = {
+export const RANGE_TAGS = {
   broadband: `the registry names it a fixed-line access pool (DSL, PPPoE, fibre, cable or dynamic addresses), so the
     address is a customer's home or small-office connection, not a server.`,
   mobile: `the registry names it a mobile data pool (LTE, 3G, GPRS, GGSN, APN), so the address is a phone or mobile

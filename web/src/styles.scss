@@ -370,6 +370,13 @@ code {
 .table-wrap {
   overflow-x: auto;
   margin-bottom: $spacing-07;
+
+  // On a phone a table scrolls sideways rather than squeezing each
+  // column to a letter.
+  > cds-table {
+    display: block;
+    min-width: 52rem;
+  }
 }
 
 .nowrap {
@@ -456,12 +463,24 @@ code {
   max-width: 22rem;
 }
 
-.settings-row {
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 22rem));
+  gap: $spacing-06 $spacing-07;
   margin-top: $spacing-05;
-  align-items: flex-start;
+}
 
-  cds-select {
-    min-width: 16rem;
+.setting {
+  display: grid;
+  gap: $spacing-03;
+  align-content: start;
+
+  .setting-label {
+    @include type.type-style('label-01');
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-02;
+    color: $text-secondary;
   }
 }
 
@@ -881,90 +900,213 @@ details.tips {
   margin-bottom: $spacing-06;
 }
 
-// Explore: filters, the facets of what matched, and a pager.
-.explore-form {
-  max-width: 80rem;
+// Search and Explore: a grid of filters, then a breakdown of the matches
+// and the table.
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: $spacing-05 $spacing-05;
+  align-items: end;
+  max-width: 96rem;
 
-  .len,
-  .asn {
-    flex: 0 0 10rem;
+  @media (max-width: 82rem) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .family,
-  .sort {
-    flex: 0 0 13rem;
+  @media (max-width: 56rem) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .country {
-    flex: 0 0 15rem;
+  .span-2 {
+    grid-column: span 2;
   }
 
-  .tags {
-    flex: 0 0 22rem;
+  .span-3 {
+    grid-column: span 3;
   }
 
-  .rep {
-    flex: 0 0 17rem;
+  @media (max-width: 56rem) {
+    .span-3 {
+      grid-column: span 2;
+    }
   }
 
-  .small {
-    flex: 0 0 9rem;
-  }
+  @media (max-width: 30rem) {
+    grid-template-columns: minmax(0, 1fr);
 
-  .limit {
-    flex: 0 0 9rem;
+    .span-2,
+    .span-3 {
+      grid-column: span 1;
+    }
+  }
+}
+
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-05;
+  margin-top: $spacing-06;
+
+  .inline-limit {
+    width: 9rem;
   }
 }
 
 .explore-summary {
   @include type.type-style('body-01');
-  margin: $spacing-06 0 $spacing-03;
-}
-
-.facets {
-  display: grid;
-  gap: $spacing-03;
-  margin-bottom: $spacing-03;
-}
-
-.facet-row {
   display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
-  align-items: center;
-  gap: $spacing-02;
+  gap: $spacing-03;
+  margin: $spacing-07 0 $spacing-05;
+
+  .es-big {
+    @include type.type-style('heading-04');
+  }
+
+  .es-sep {
+    color: $text-placeholder;
+  }
 }
 
-.facet-label {
-  @include type.type-style('label-01');
-  color: $text-secondary;
-  flex: 0 0 5.5rem;
+.breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: $spacing-05;
+  margin-bottom: $spacing-07;
 }
 
-.facet {
-  @include type.type-style('label-01');
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-02;
-  padding: 2px $spacing-03;
-  border: 1px solid $border-subtle;
-  border-radius: 1rem;
+.bd-card {
   background: $layer;
+  padding: $spacing-05;
+  min-width: 0;
+
+  h3 {
+    @include type.type-style('heading-compact-01');
+    margin-bottom: $spacing-04;
+  }
+
+  ol {
+    list-style: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  li {
+    min-width: 0;
+  }
+}
+
+.bd-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: $spacing-03;
+  width: 100%;
+  padding: $spacing-02 $spacing-03;
+  border: 0;
+  background: transparent;
   color: $text-primary;
   font-family: inherit;
+  @include type.type-style('body-compact-01');
+  text-align: left;
   cursor: pointer;
+  overflow: hidden;
+
+  > span:not(.bd-bar) {
+    position: relative;
+  }
+
+  .bd-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: $layer-accent;
+    transition: width 0.2s;
+  }
+
+  .bd-code {
+    @include type.type-style('code-01');
+    flex: 0 0 auto;
+    color: $text-secondary;
+  }
+
+  .bd-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bd-count {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bd-pct {
+    flex: 0 0 3.5rem;
+    text-align: right;
+    color: $text-secondary;
+    font-variant-numeric: tabular-nums;
+    @include type.type-style('label-01');
+  }
 
   &:hover {
     background: $layer-hover;
   }
 
-  &.facet-on {
-    border-color: $interactive;
-    background: $highlight;
+  &.bd-on {
+    box-shadow: inset 3px 0 0 $interactive;
+
+    .bd-label,
+    .bd-code {
+      font-weight: 600;
+      color: $text-primary;
+    }
   }
 
-  .facet-count {
-    color: $text-secondary;
+  &:focus-visible {
+    outline: 2px solid $focus;
+    outline-offset: -2px;
   }
+}
+
+.bd-more {
+  @include type.type-style('label-01');
+  margin-top: $spacing-03;
+  padding: $spacing-02 $spacing-03;
+  border: 0;
+  background: transparent;
+  color: $link-primary;
+  font-family: inherit;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-03 $spacing-05;
+  margin-bottom: $spacing-03;
+
+  h2 {
+    margin: 0;
+  }
+
+  .copy-bar {
+    margin: 0;
+  }
+}
+
+.kind-cell {
+  color: $text-secondary;
 }
 
 .pager {
@@ -1057,4 +1199,146 @@ button.help-trigger {
   background: transparent;
   padding: 0;
   cursor: pointer;
+}
+
+.select-col {
+  width: 3rem;
+}
+
+// A prefix's reputation in a table: flags, then the counts under them.
+.rep-cell {
+  display: grid;
+  gap: $spacing-01;
+  padding: $spacing-02 0;
+
+  .rep-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $spacing-02;
+
+    cds-tag {
+      margin: 0;
+    }
+  }
+
+  .rep-facts {
+    @include type.type-style('label-01');
+    color: $text-secondary;
+    white-space: nowrap;
+  }
+}
+
+details.search-tips {
+  margin-top: $spacing-05;
+}
+
+.results-head .explore-summary {
+  margin: $spacing-06 0 $spacing-03;
+}
+
+// Glossary.
+a.header-api {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.glossary-head {
+  position: sticky;
+  top: 3rem;
+  z-index: 2;
+  background: $background;
+  padding: $spacing-03 0 $spacing-04;
+  margin-bottom: $spacing-05;
+  border-bottom: 1px solid $border-subtle;
+
+  .glossary-filter {
+    max-width: 32rem;
+  }
+}
+
+.glossary-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-02 $spacing-05;
+  margin-top: $spacing-04;
+}
+
+.glossary-section {
+  max-width: 64rem;
+  margin-bottom: $spacing-09;
+  scroll-margin-top: 10rem;
+
+  h2 {
+    margin-bottom: $spacing-03;
+  }
+
+  > .hint {
+    margin-bottom: $spacing-05;
+  }
+}
+
+.glossary-list {
+  display: grid;
+}
+
+.glossary-entry {
+  display: grid;
+  grid-template-columns: 15rem 1fr;
+  gap: $spacing-05;
+  padding: $spacing-04 0;
+  border-top: 1px solid $border-subtle;
+
+  dt {
+    display: grid;
+    align-content: start;
+    gap: $spacing-01;
+  }
+
+  .g-term {
+    @include type.type-style('heading-compact-01');
+  }
+
+  .g-aka {
+    @include type.type-style('label-01');
+    color: $text-secondary;
+  }
+
+  dd {
+    @include type.type-style('body-01');
+  }
+
+  .g-links {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: $spacing-02 $spacing-04;
+    margin-left: $spacing-03;
+
+    a {
+      @include type.type-style('label-01');
+      color: $link-primary;
+    }
+  }
+
+  @media (max-width: 42rem) {
+    grid-template-columns: 1fr;
+    gap: $spacing-02;
+  }
+}
+
+.help-glossary {
+  padding: $spacing-04;
+  background: $layer;
+  margin-bottom: $spacing-05;
+}
+
+// A phone has room for the actions, not the version or wide padding.
+@media (max-width: 30rem) {
+  .header-version {
+    display: none;
+  }
+
+  .header-api {
+    padding: 0 $spacing-03;
+  }
 }

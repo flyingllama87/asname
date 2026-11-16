@@ -127,7 +127,10 @@ func exploreAction(ctx context.Context, cmd *cli.Command) error {
 			}
 			parts := make([]string, len(f.list))
 			for i, x := range f.list {
-				parts[i] = fmt.Sprintf("%s %d", x.Value, x.Count)
+				parts[i] = fmt.Sprintf("%s %d", x.Label, x.Count)
+				if x.Label != x.Value {
+					parts[i] = fmt.Sprintf("%s (%s) %d", x.Label, x.Value, x.Count)
+				}
 			}
 			fmt.Fprintf(out, "%s: %s\n", f.name, strings.Join(parts, "; "))
 		}

@@ -42,7 +42,7 @@ import '@carbon/web-components/es/components/data-table/table-row.js';
 import '@carbon/web-components/es/components/data-table/table-cell.js';
 import '@carbon/web-components/es/components/radio-button/radio-button-group.js';
 import '@carbon/web-components/es/components/radio-button/radio-button.js';
-import '@carbon/web-components/es/components/toggle-tip/toggletip.js';
+import CDSToggletip from '@carbon/web-components/es/components/toggle-tip/toggletip.js';
 import '@carbon/web-components/es/components/accordion/accordion.js';
 import '@carbon/web-components/es/components/accordion/accordion-item.js';
 import '@carbon/web-components/es/components/combo-box/combo-box.js';
@@ -57,10 +57,28 @@ import Settings20 from '@carbon/icons/es/settings/20.js';
 import Help16 from '@carbon/icons/es/help/16.js';
 
 import { html, nothing, render } from 'lit';
+
+// Carbon's toggletip, with autoalign, scrolls its button to the middle of
+// the screen whenever it re-renders, open or not, so a page full of (i)s
+// jumps to the last one drawn. Place it only while open, without scrolling.
+{
+  const place = CDSToggletip.prototype.updated;
+  CDSToggletip.prototype.updated = function (...args) {
+    if (!this.open) return;
+    const button = this._toggletipButton;
+    if (button) button.scrollIntoView = () => {};
+    try {
+      place.apply(this, args);
+    } finally {
+      if (button) delete button.scrollIntoView;
+    }
+  };
+}
 import { api, ApiError, getApiBase, setApiBase } from './api.js';
 import { extractTargets } from './targets.js';
 import { COUNTRIES, countryName } from './countries.js';
 import { asnList, csvText, prefixList, tableText } from './searchcopy.js';
+import { GLOSSARY, tagGlossary } from './glossary.js';
 import {
   DEFAULT_FILTERS,
   REPUTATIONS,
@@ -171,6 +189,7 @@ const state = {
   settings: { open: false, base: getApiBase(), testing: false, result: null },
   api: { open: false, copied: '' },
   help: { open: false },
+  glossary: { filter: '' },
   explore: { f: { ...DEFAULT_FILTERS, tag: [] }, loading: false, error: '', data: null, allTags: [], copied: '', ran: '' },
 };
 
@@ -215,7 +234,7 @@ function toggleTheme() {
 function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '');
   const [path, query = ''] = raw.split('?');
-  const tab = ['lookup', 'search', 'explore', 'databases'].includes(path) ? path : 'lookup';
+  const tab = ['lookup', 'search', 'explore', 'databases', 'glossary'].includes(path) ? path : 'lookup';
   const p = new URLSearchParams(query);
   return {
     tab,
@@ -529,6 +548,7 @@ function headerView() {
       <div class="header-global">
         ${state.status?.version ? html`<span class="header-version">${state.status.version}</span>` : nothing}
         <button class="header-api" type="button" title="How to read the results" @click=${openHelp}>Help</button>
+        <a class="header-api" href="#/glossary" title="What the terms mean">Glossary</a>
         <button class="header-api" type="button" title="The HTTP API behind this page" @click=${openAPI}>API</button>
         <cds-header-global-action
           aria-label=${dark ? 'Switch to light theme' : 'Switch to dark theme'}
@@ -549,9 +569,21 @@ function headerView() {
   `;
 }
 
+let tabByPointer = false;
+
 function tabsView() {
   return html`
-    <cds-tabs class="tabs" value=${state.tab} @cds-tabs-selected=${(e) => go(`#/${e.detail.item.value}`)}>
+    <cds-tabs
+      class="tabs"
+      value=${state.tab}
+      @pointerdown=${() => (tabByPointer = true)}
+      @keydown=${() => (tabByPointer = false)}
+      @cds-tabs-selected=${(e) => {
+        go(`#/${e.detail.item.value}`);
+        // A click leaves Carbon's focus box on the tab; keyboard users
+        // keep it.
+        if (tabByPointer) requestAnimationFrame(() => e.detail.item.blur());
+      }}>
       <cds-tab value="lookup">Lookup</cds-tab>
       <cds-tab value="search">Search</cds-tab>
       <cds-tab value="explore">Explore</cds-tab>
@@ -1092,42 +1124,35 @@ function searchView() {
       Search AS names and, with the netblock database, the organisations and network names registered in whois. Search
       only reads the local databases; it never goes online.
     </p>
-    <div class="form search-form">
-      <div class="form-row">
-        <cds-text-input
-          id="search-q"
-          class="grow"
-          label="Search for"
-          placeholder="cloudflare"
-          .value=${s.q}
-          @input=${(e) => (s.q = e.target.value)}
-          @keydown=${(e) => e.key === 'Enter' && submit()}></cds-text-input>
-        <cds-number-input id="search-limit" class="limit" label="Limit" min="1" max="10000" step="10" .value=${String(s.limit)}></cds-number-input>
-      </div>
-      <div class="form-row">
-        <cds-radio-button-group
-          legend-text="Search in"
-          name="scope"
-          value=${s.scope}
-          @cds-radio-button-group-changed=${(e) => (s.scope = e.target.value)}>
-          <cds-radio-button label-text="Both" value="all" ?checked=${s.scope === 'all'}></cds-radio-button>
-          <cds-radio-button label-text="AS names" value="asns" ?checked=${s.scope === 'asns'}></cds-radio-button>
-          <cds-radio-button label-text="Netblocks" value="netblocks" ?checked=${s.scope === 'netblocks'}></cds-radio-button>
-        </cds-radio-button-group>
-        <cds-select class="family" label-text="Address family" value=${s.family} @cds-select-selected=${(e) => (s.family = e.target.value)}>
-          <cds-select-item value="any">IPv4 and IPv6</cds-select-item>
-          <cds-select-item value="v4">IPv4 only</cds-select-item>
-          <cds-select-item value="v6">IPv6 only</cds-select-item>
-        </cds-select>
-        ${countryCombo('search-country', 'Country', s.country, (v) => (s.country = v))}
-      </div>
-      <div class="form-row controls-row">
-        ${switchWithTip('Fuzzy match', s.fuzzy, (e) => (s.fuzzy = e.target.checked), CONTROL_HELP.fuzzy)}
-        <cds-button @click=${submit} ?disabled=${s.loading}>Search</cds-button>
-        ${s.loading ? html`<cds-inline-loading status="active">Searching…</cds-inline-loading>` : nothing}
-      </div>
+    <div class="filter-grid">
+      <cds-text-input
+        id="search-q"
+        class="span-3"
+        label="Search for"
+        placeholder="A name or handle, e.g. cloudflare; or an AS number"
+        .value=${s.q}
+        @input=${(e) => (s.q = e.target.value)}
+        @keydown=${(e) => e.key === 'Enter' && submit()}></cds-text-input>
+      <cds-select label-text="Search in" value=${s.scope} @cds-select-selected=${(e) => (s.scope = e.target.value)}>
+        <cds-select-item value="all">Both</cds-select-item>
+        <cds-select-item value="asns">AS names</cds-select-item>
+        <cds-select-item value="netblocks">Netblocks</cds-select-item>
+      </cds-select>
+      ${countryCombo('search-country', 'Country', s.country, (v) => (s.country = v))}
+      <cds-select label-text="Address family" value=${s.family} @cds-select-selected=${(e) => (s.family = e.target.value)}>
+        <cds-select-item value="any">IPv4 and IPv6</cds-select-item>
+        <cds-select-item value="v4">IPv4</cds-select-item>
+        <cds-select-item value="v6">IPv6</cds-select-item>
+      </cds-select>
     </div>
-    <details class="tips">
+    <div class="filter-actions">
+      <cds-button @click=${submit} ?disabled=${s.loading}>Search</cds-button>
+      ${switchWithTip('Fuzzy match', s.fuzzy, (e) => (s.fuzzy = e.target.checked), CONTROL_HELP.fuzzy)}
+      <cds-number-input id="search-limit" class="inline-limit" label="Limit" hide-label min="1" max="10000" step="10" .value=${String(s.limit)} title="At most this many of each"></cds-number-input>
+      <span class="hint">at most, of each</span>
+      ${s.loading ? html`<cds-inline-loading status="active">Searching…</cds-inline-loading>` : nothing}
+    </div>
+    <details class="tips search-tips">
       <summary>Search tips</summary>
       <p>
         A plain search matches any part of a name, ignoring case, but otherwise letter for letter. Fuzzy match also
@@ -1161,6 +1186,9 @@ const matchCell = (m) => {
   const [type, label] = MATCH_TAG[m] || ['gray', m || ''];
   return html`<cds-table-cell><cds-tag size="sm" type=${type}>${label}</cds-tag></cds-table-cell>`;
 };
+
+// countryShort is "Australia" for "AU, Australia".
+const countryShort = (c) => (c ? c.split(', ').slice(1).join(', ') || c : '');
 
 // sortedSearch is the search's rows in the order the tables show them.
 function sortedSearch(d) {
@@ -1250,9 +1278,17 @@ function searchResults(d) {
   const { asns, blocks } = sortedSearch(d);
   const where = state.search.ranCountry ? ` in ${countryName(state.search.ranCountry)}` : '';
   return html`
-    ${asns.length || blocks.length ? copyBar(d) : nothing}
+    <div class="results-head">
+      <p class="explore-summary">
+        ${scope !== 'netblocks' ? html`<span class="es-big">${(d.asn_count ?? asns.length).toLocaleString()}</span> AS name${(d.asn_count ?? asns.length) === 1 ? '' : 's'}` : nothing}
+        ${scope === 'all' ? html`<span class="es-sep">·</span>` : nothing}
+        ${scope !== 'asns' || blocks.length ? html`<span class="es-big">${(d.count ?? blocks.length).toLocaleString()}</span> netblock${(d.count ?? blocks.length) === 1 ? '' : 's'}` : nothing}
+        ${where ? html`<span class="es-sep">·</span><span>${where.trim()}</span>` : nothing}
+      </p>
+      ${asns.length || blocks.length ? copyBar(d) : nothing}
+    </div>
     ${scope !== 'netblocks'
-      ? html`<h2>AS names <span class="hint">(${d.asn_count ?? asns.length}${where})</span></h2>
+      ? html`<h2>AS names</h2>
           ${asns.length
             ? html`<div class="table-wrap">
                 <cds-table size="sm" use-zebra-styles>
@@ -1272,13 +1308,17 @@ function searchResults(d) {
                         ${fuzzy ? matchCell(a.match) : nothing}
                         <cds-table-cell class="nowrap">${asnLink(a.asn)}</cds-table-cell>
                         <cds-table-cell class="wrap">${a.name}</cds-table-cell>
-                        <cds-table-cell>${a.country || ''}</cds-table-cell>
+                        <cds-table-cell class="nowrap" title=${a.country || ''}>${countryShort(a.country)}</cds-table-cell>
                         <cds-table-cell class="nowrap">${prefixCount(a) || html`<span class="muted">0</span>`}</cds-table-cell>
                         <cds-table-cell class="wrap">
-                          ${a.reputation?.spamhaus_asn_drop
-                            ? html`<cds-tag size="sm" type="red">Spamhaus ASN-DROP</cds-tag>`
-                            : nothing}
-                          <span class=${a.reputation?.listed || a.reputation?.spamhaus_asn_drop ? '' : 'muted'}>${asnSummary(a.reputation)}</span>
+                          ${a.reputation?.listed || a.reputation?.spamhaus_asn_drop
+                            ? html`<div class="rep-cell">
+                                ${a.reputation.spamhaus_asn_drop
+                                  ? html`<div class="rep-flags"><cds-tag size="sm" type="red">Spamhaus ASN-DROP</cds-tag></div>`
+                                  : nothing}
+                                ${asnSummary(a.reputation) ? html`<div class="rep-facts">${asnSummary(a.reputation)}</div>` : nothing}
+                              </div>`
+                            : html`<span class="muted">Not listed</span>`}
                         </cds-table-cell>
                       </cds-table-row>`,
                     )}
@@ -1288,7 +1328,7 @@ function searchResults(d) {
             : html`<p class="empty">No AS names match.</p>`}`
       : nothing}
     ${scope !== 'asns' || blocks.length
-      ? html`<h2>Netblocks <span class="hint">(${d.count ?? blocks.length}${where})</span></h2>
+      ? html`<h2>Netblocks</h2>
           ${blocks.length
             ? html`<div class="table-wrap">
                 <cds-table size="sm" use-zebra-styles>
@@ -1312,9 +1352,9 @@ function searchResults(d) {
                         <cds-table-cell class="wrap">${b.netname || ''}</cds-table-cell>
                         <cds-table-cell class="wrap">${b.org || ''}</cds-table-cell>
                         <cds-table-cell class="wrap">
-                          ${b.asn && b.asn !== 'N/A' ? html`${asnLink(b.asn)} ${b.as_name || ''}` : html`<span class="muted">Not announced</span>`}
+                          ${b.asn && b.asn !== 'N/A' ? html`${asnLink(b.asn)} ${(b.as_name || '').replace(/, [A-Z]{2}$/, '')}` : html`<span class="muted">Not announced</span>`}
                         </cds-table-cell>
-                        <cds-table-cell>${b.country || ''}</cds-table-cell>
+                        <cds-table-cell class="nowrap" title=${b.country || ''}>${countryShort(b.country)}</cds-table-cell>
                       </cds-table-row>`,
                     )}
                   </cds-table-body>
@@ -1335,6 +1375,8 @@ async function runExplore() {
   exploreAbort = new AbortController();
   const params = toParams(x.f);
   x.ran = params.toString();
+  // The page's default family is not the API's: always say which.
+  if (!params.has('family')) params.set('family', x.f.family);
   Object.assign(x, { loading: true, error: '', copied: '' });
   update();
   try {
@@ -1395,60 +1437,79 @@ function exploreView() {
   const f = x.f;
   const d = x.data;
   const enter = (e) => e.key === 'Enter' && exploreSubmit();
+  const filtered = toParams({ ...f, sort: DEFAULT_FILTERS.sort, limit: DEFAULT_FILTERS.limit, offset: 0 }).toString() !== '';
   return html`
-    <p class="lede">Every prefix in the routing table, with its origin AS, registry country, kind of network and blocklist hits. Filter, then copy.</p>
-    <div class="form explore-form">
-      <div class="form-row">
-        <cds-text-input id="explore-len" class="len" label="Prefix length" placeholder="8, or 16-24" .value=${f.len} @keydown=${enter}></cds-text-input>
-        <cds-select class="family" label-text="Address family" value=${f.family} @cds-select-selected=${(e) => (f.family = e.target.value)}>
-          <cds-select-item value="any">IPv4 and IPv6</cds-select-item>
-          <cds-select-item value="v4">IPv4 only</cds-select-item>
-          <cds-select-item value="v6">IPv6 only</cds-select-item>
-        </cds-select>
-        ${countryCombo('explore-country', 'Registry country', f.country, (v) => (f.country = v))}
-        ${countryCombo('explore-ascountry', 'Origin AS country', f.as_country, (v) => (f.as_country = v))}
-        <cds-text-input id="explore-asn" class="asn" label="Origin AS" placeholder="AS13335" .value=${f.asn} @keydown=${enter}></cds-text-input>
-      </div>
-      <div class="form-row">
-        <cds-multi-select
-          class="tags"
-          title-text="Kind of network (any of)"
-          label=${f.tag.length ? f.tag.join(', ') : 'Any'}
-          value=${f.tag.join(',')}
-          @cds-multi-select-selected=${(e) => (f.tag = String(e.target.value || '').split(',').filter(Boolean))}>
-          ${(x.allTags.length ? x.allTags : f.tag).map((t) => html`<cds-multi-select-item value=${t} ?selected=${f.tag.includes(t)}>${t}</cds-multi-select-item>`)}
-        </cds-multi-select>
-        <cds-select class="rep" label-text="Reputation" value=${f.reputation} @cds-select-selected=${(e) => (f.reputation = e.target.value)}>
-          ${REPUTATIONS.map(([v, l]) => html`<cds-select-item value=${v}>${l}</cds-select-item>`)}
-        </cds-select>
-        <cds-text-input id="explore-ipsum" class="small" label="IPsum feeds ≥" placeholder="3" .value=${f.min_ipsum} @keydown=${enter}></cds-text-input>
-        <cds-text-input id="explore-pct" class="small" label="Listed share ≥ %" placeholder="1" .value=${f.min_listed_pct} @keydown=${enter}></cds-text-input>
-      </div>
-      <div class="form-row controls-row">
-        <cds-select class="sort" label-text="Sort" value=${f.sort} @cds-select-selected=${(e) => (f.sort = e.target.value)}>
-          ${SORTS.map(([v, l]) => html`<cds-select-item value=${v}>${l}</cds-select-item>`)}
-        </cds-select>
-        <cds-number-input id="explore-limit" class="limit" label="Per page" min="1" max="100000" step="100" .value=${String(f.limit)}></cds-number-input>
-        <cds-button @click=${exploreSubmit} ?disabled=${x.loading}>Explore</cds-button>
-        <cds-button kind="ghost" @click=${() => go('#/explore')}>Reset</cds-button>
-        ${x.loading ? html`<cds-inline-loading status="active">${d ? 'Filtering…' : 'Indexing the routing table…'}</cds-inline-loading>` : nothing}
-      </div>
+    <p class="lede">Every announced prefix with its origin AS, registry country, kind of network and blocklist hits.</p>
+    <div class="filter-grid">
+      <cds-text-input id="explore-len" label="Prefix length" placeholder="Any, e.g. 16-24" .value=${f.len} @keydown=${enter}></cds-text-input>
+      <cds-select label-text="Address family" value=${f.family} @cds-select-selected=${(e) => (f.family = e.target.value)}>
+        <cds-select-item value="any">IPv4 and IPv6</cds-select-item>
+        <cds-select-item value="v4">IPv4</cds-select-item>
+        <cds-select-item value="v6">IPv6</cds-select-item>
+      </cds-select>
+      ${countryCombo('explore-country', 'Registry country', f.country, (v) => (f.country = v))}
+      ${countryCombo('explore-ascountry', 'Origin AS country', f.as_country, (v) => (f.as_country = v))}
+      <cds-text-input id="explore-asn" label="Origin AS" placeholder="Any, e.g. AS13335" .value=${f.asn} @keydown=${enter}></cds-text-input>
+      <cds-select label-text="Reputation" value=${f.reputation || 'any'} @cds-select-selected=${(e) => (f.reputation = e.target.value === 'any' ? '' : e.target.value)}>
+        ${REPUTATIONS.map(([v, l]) => html`<cds-select-item value=${v || 'any'}>${l}</cds-select-item>`)}
+      </cds-select>
+      <cds-multi-select
+        class="span-2"
+        title-text="Kind of network"
+        label=${f.tag.length ? f.tag.join(', ') : 'Any'}
+        value=${f.tag.join(',')}
+        @cds-multi-select-selected=${(e) => (f.tag = String(e.target.value || '').split(',').filter(Boolean))}>
+        ${(x.allTags.length ? x.allTags : f.tag).map((t) => html`<cds-multi-select-item value=${t} ?selected=${f.tag.includes(t)}>${t}</cds-multi-select-item>`)}
+      </cds-multi-select>
+
+      <cds-text-input id="explore-ipsum" label="IPsum feeds, at least" placeholder="Any" .value=${f.min_ipsum} @keydown=${enter}></cds-text-input>
+      <cds-text-input id="explore-pct" label="Listed share, at least %" placeholder="Any" .value=${f.min_listed_pct} @keydown=${enter}></cds-text-input>
+      <cds-select label-text="Sort" value=${f.sort} @cds-select-selected=${(e) => (f.sort = e.target.value)}>
+        ${SORTS.map(([v, l]) => html`<cds-select-item value=${v}>${l}</cds-select-item>`)}
+      </cds-select>
+      <cds-number-input id="explore-limit" label="Per page" min="1" max="100000" step="100" .value=${String(f.limit)}></cds-number-input>
+    </div>
+    <div class="filter-actions">
+      <cds-button @click=${exploreSubmit} ?disabled=${x.loading}>Explore</cds-button>
+      ${filtered ? html`<cds-button kind="ghost" @click=${() => go('#/explore')}>Clear filters</cds-button>` : nothing}
+      ${x.loading ? html`<cds-inline-loading status="active">${d ? 'Filtering…' : 'Indexing the routing table…'}</cds-inline-loading>` : nothing}
     </div>
     <div class="notifications">${x.error ? errorNote('Explore failed', x.error) : nothing}</div>
     ${d ? exploreResults(d) : nothing}
   `;
 }
 
-function facetRow(label, items, pick, active) {
+const BREAKDOWN_SHOWN = 8;
+
+// breakdownCard ranks what the matches break down into; each row filters.
+function breakdownCard(key, title, items, total, pick, active, showCode) {
+  const x = state.explore;
   if (!items?.length) return nothing;
-  return html`<div class="facet-row">
-    <span class="facet-label">${label}</span>
-    ${items.map(
-      (i) => html`<button type="button" class="facet ${active(i.value) ? 'facet-on' : ''}" title="Filter on this" @click=${() => pick(i.value)}>
-        ${i.value}<span class="facet-count">${i.count.toLocaleString()}</span>
-      </button>`,
-    )}
-  </div>`;
+  const all = x.more?.[key];
+  const shown = all ? items : items.slice(0, BREAKDOWN_SHOWN);
+  const top = items[0].count || 1;
+  return html`<section class="bd-card">
+    <h3>${title}</h3>
+    <ol>
+      ${shown.map(
+        (i) => html`<li>
+          <button type="button" class="bd-row ${active(i.value) ? 'bd-on' : ''}" title="Filter on ${i.label || i.value}" @click=${() => pick(i.value)}>
+            <span class="bd-bar" style="width:${Math.max(1, (i.count / top) * 100)}%"></span>
+            ${showCode ? html`<span class="bd-code">${i.value}</span>` : nothing}
+            <span class="bd-label">${showCode ? (i.label !== i.value ? i.label : '') : i.label || i.value}</span>
+            <span class="bd-count">${i.count.toLocaleString()}</span>
+            <span class="bd-pct">${fmtPct((i.count / total) * 100)}</span>
+          </button>
+        </li>`,
+      )}
+    </ol>
+    ${items.length > BREAKDOWN_SHOWN
+      ? html`<button type="button" class="bd-more" @click=${() => {
+          x.more = { ...(x.more || {}), [key]: !all };
+          update();
+        }}>${all ? 'Show fewer' : `Show ${items.length - BREAKDOWN_SHOWN} more`}</button>`
+      : nothing}
+  </section>`;
 }
 
 function exploreCopyKinds(d) {
@@ -1483,17 +1544,25 @@ async function exploreCopy(kind) {
 
 function repCell(r) {
   const rep = r.reputation || {};
-  const tags = [];
-  if (rep.spamhaus_drop) tags.push(['red', 'Spamhaus DROP']);
-  else if (rep.spamhaus_drop_inside) tags.push(['magenta', 'Contains DROP']);
-  if (rep.spamhaus_asn_drop) tags.push(['red', 'ASN-DROP']);
-  if (rep.firehol_level2) tags.push(['red', 'FireHOL L2']);
-  else if (rep.firehol_level3) tags.push(['magenta', 'FireHOL L3']);
-  const listed = rep.listed_ips
-    ? `${rep.listed_ips.toLocaleString()} listed${r.addresses ? ` (${fmtPct(rep.listed_share_pct)})` : ''}${rep.max_ipsum ? `, IPsum ≤${rep.max_ipsum}` : ''}`
-    : '';
-  if (!tags.length && !listed) return html`<span class="muted">not listed</span>`;
-  return html`${tags.map(([t, l]) => html`<cds-tag size="sm" type=${t} title=${rep.sbl?.join(' ') || ''}>${l}</cds-tag>`)}<span>${listed}</span>`;
+  const flags = [];
+  if (rep.spamhaus_drop) flags.push(['red', 'Spamhaus DROP']);
+  else if (rep.spamhaus_drop_inside) flags.push(['magenta', 'Contains DROP']);
+  if (rep.spamhaus_asn_drop) flags.push(['red', 'ASN-DROP']);
+  if (rep.firehol_level2) flags.push(['red', 'FireHOL L2']);
+  else if (rep.firehol_level3) flags.push(['magenta', 'FireHOL L3']);
+  const facts = [];
+  if (rep.listed_ips) {
+    facts.push(`${rep.listed_ips.toLocaleString()} listed`);
+    if (r.addresses) facts.push(fmtPct(rep.listed_share_pct));
+    if (rep.max_ipsum) facts.push(`IPsum max ${rep.max_ipsum}`);
+  }
+  if (!flags.length && !facts.length) return html`<span class="muted">Not listed</span>`;
+  return html`<div class="rep-cell">
+    ${flags.length
+      ? html`<div class="rep-flags">${flags.map(([t, l]) => html`<cds-tag size="sm" type=${t} title=${rep.sbl?.join(' ') || ''}>${l}</cds-tag>`)}</div>`
+      : nothing}
+    ${facts.length ? html`<div class="rep-facts">${facts.join(' · ')}</div>` : nothing}
+  </div>`;
 }
 
 function exploreResults(d) {
@@ -1502,27 +1571,32 @@ function exploreResults(d) {
   const rows = d.results || [];
   const from = d.count ? f.offset + 1 : 0;
   const to = f.offset + rows.length;
-  const cc = (v) => v.split(',')[0];
   return html`
     <p class="explore-summary">
-      <strong>${d.count.toLocaleString()}</strong> prefix${d.count === 1 ? '' : 'es'}${d.ipv4_addresses
-        ? html`, ${fmtCount(d.ipv4_addresses)} IPv4 addresses<span class="muted"> (a prefix inside another counts twice)</span>`
+      <span class="es-big">${d.count.toLocaleString()}</span> prefix${d.count === 1 ? '' : 'es'}
+      ${d.ipv4_addresses
+        ? html`<span class="es-sep">·</span><span title="Summed over the prefixes, so a prefix inside another is counted twice">${fmtCount(d.ipv4_addresses)} IPv4 addresses</span>`
         : nothing}
-      <span class="muted">· ${d.took_ms} ms</span>
+      <span class="es-sep">·</span><span class="muted">${d.took_ms} ms</span>
     </p>
-    <div class="facets">
-      ${facetRow('Country', d.countries, (v) => exploreGo({ country: cc(v) }), (v) => cc(v) === f.country)}
-      ${facetRow('Kind', d.tags, (v) => exploreGo({ tag: f.tag.includes(v) ? f.tag.filter((t) => t !== v) : [...f.tag, v] }), (v) => f.tag.includes(v))}
-      ${facetRow('Origin AS', d.asns, (v) => exploreGo({ asn: v }), (v) => v === f.asn.toUpperCase())}
-    </div>
+    ${d.count
+      ? html`<div class="breakdown">
+          ${breakdownCard('countries', 'Registry country', d.countries, d.count, (v) => exploreGo({ country: v }), (v) => v === f.country, true)}
+          ${breakdownCard('tags', 'Kind of network', d.tags, d.count, (v) => exploreGo({ tag: f.tag.includes(v) ? f.tag.filter((t) => t !== v) : [...f.tag, v] }), (v) => f.tag.includes(v), false)}
+          ${breakdownCard('asns', 'Origin AS', d.asns, d.count, (v) => exploreGo({ asn: v }), (v) => v === f.asn.toUpperCase(), true)}
+        </div>`
+      : nothing}
     ${rows.length
-      ? html`<div class="copy-bar" role="group" aria-label="Copy the results">
-            <span class="copy-label">Copy</span>
-            ${exploreCopyKinds(d).map(
-              (k) => html`<cds-button kind="ghost" size="sm" title=${k.title} ?disabled=${!k.n} @click=${() => exploreCopy(k)}
-                >${x.copied === k.key ? 'Copied' : k.label}</cds-button
-              >`,
-            )}
+      ? html`<div class="results-head">
+            <h2>Prefixes <span class="hint">${from.toLocaleString()}–${to.toLocaleString()} of ${d.count.toLocaleString()}</span></h2>
+            <div class="copy-bar" role="group" aria-label="Copy this page">
+              <span class="copy-label">Copy</span>
+              ${exploreCopyKinds(d).map(
+                (k) => html`<cds-button kind="ghost" size="sm" title=${k.title} ?disabled=${!k.n} @click=${() => exploreCopy(k)}
+                  >${x.copied === k.key ? 'Copied' : k.label}</cds-button
+                >`,
+              )}
+            </div>
           </div>
           <div class="table-wrap">
             <cds-table size="sm" use-zebra-styles>
@@ -1538,21 +1612,23 @@ function exploreResults(d) {
               <cds-table-body>
                 ${rows.map(
                   (r) => html`<cds-table-row>
-                    <cds-table-cell class="mono nowrap"><a href="#/lookup?q=${encodeURIComponent(r.prefix.split('/')[0])}">${r.prefix}</a></cds-table-cell>
-                    <cds-table-cell class="wrap">${asnLink(r.asn)} ${r.as_name || ''}</cds-table-cell>
-                    <cds-table-cell title=${r.as_country && r.as_country !== r.country ? `AS registered in ${r.as_country}` : ''}>${r.country || html`<span class="muted">unknown</span>`}</cds-table-cell>
-                    <cds-table-cell class="wrap">${(r.tags || []).map((t) => html`<cds-tag size="sm" type="cool-gray">${t}</cds-tag>`)}</cds-table-cell>
+                    <cds-table-cell class="mono nowrap"><a href="#/lookup?q=${encodeURIComponent(r.prefix.split('/')[0])}" title="Look up its first address">${r.prefix}</a></cds-table-cell>
+                    <cds-table-cell class="wrap">${asnLink(r.asn)} <span class="as-name">${(r.as_name || '').replace(/, [A-Z]{2}$/, '')}</span></cds-table-cell>
+                    <cds-table-cell class="nowrap" title=${r.as_country && r.as_country !== r.country ? `Origin AS registered in ${r.as_country}` : ''}>${r.country ? r.country.split(', ').slice(1).join(', ') || r.country : html`<span class="muted">—</span>`}</cds-table-cell>
+                    <cds-table-cell class="wrap kind-cell">${(r.tags || []).length ? r.tags.join(', ') : html`<span class="muted">—</span>`}</cds-table-cell>
                     <cds-table-cell class="wrap">${repCell(r)}</cds-table-cell>
                   </cds-table-row>`,
                 )}
               </cds-table-body>
             </cds-table>
           </div>
-          <div class="pager">
-            <cds-button kind="ghost" size="sm" ?disabled=${f.offset === 0} @click=${() => exploreGo({ offset: Math.max(0, f.offset - f.limit) }, true)}>Previous</cds-button>
-            <span>${from.toLocaleString()}–${to.toLocaleString()} of ${d.count.toLocaleString()}</span>
-            <cds-button kind="ghost" size="sm" ?disabled=${to >= d.count} @click=${() => exploreGo({ offset: f.offset + f.limit }, true)}>Next</cds-button>
-          </div>`
+          ${d.count > rows.length
+            ? html`<div class="pager">
+                <cds-button kind="ghost" size="sm" ?disabled=${f.offset === 0} @click=${() => exploreGo({ offset: Math.max(0, f.offset - f.limit) }, true)}>Previous</cds-button>
+                <span>${from.toLocaleString()}–${to.toLocaleString()} of ${d.count.toLocaleString()}</span>
+                <cds-button kind="ghost" size="sm" ?disabled=${to >= d.count} @click=${() => exploreGo({ offset: f.offset + f.limit }, true)}>Next</cds-button>
+              </div>`
+            : nothing}`
       : html`<p class="empty">No prefixes match.</p>`}
   `;
 }
@@ -1602,21 +1678,32 @@ function settingsPanel(st) {
       <h3>Settings</h3>
       <p class="hint">Kept in the data directory, so the <code>asname</code> command follows them too.</p>
       ${d.settingsError ? errorNote('Setting not saved', d.settingsError) : nothing}
-      <div class="form-row settings-row">
-        <cds-select
-          class="max-age"
-          label-text="Refresh databases older than"
-          helper-text=${ageHelp}
-          value=${String(hours)}
-          ?disabled=${fixed || !editable || d.saving === 'max_age'}
-          @cds-select-selected=${(e) => {
-            const h = Number(e.target.value);
-            if (h !== hours) saveSetting('max_age', { max_age_hours: h });
-          }}>
-          ${choices.map(([h, label]) => html`<cds-select-item value=${String(h)}>${label}</cds-select-item>`)}
-        </cds-select>
-        ${tip('Refresh age', CONTROL_HELP.maxAge)}
-        ${switchWithTip('Import IPv6 routes', !!store.ipv6_routes, (e) => saveSetting('ipv6', { ipv6_routes: e.target.checked }), CONTROL_HELP.ipv6, !editable || d.saving === 'ipv6')}
+      <div class="settings-grid">
+        <div class="setting">
+          <div class="setting-label">Refresh databases older than ${tip('Refresh age', CONTROL_HELP.maxAge)}</div>
+          <cds-select
+            hide-label
+            label-text="Refresh databases older than"
+            value=${String(hours)}
+            ?disabled=${fixed || !editable || d.saving === 'max_age'}
+            @cds-select-selected=${(e) => {
+              const h = Number(e.target.value);
+              if (h !== hours) saveSetting('max_age', { max_age_hours: h });
+            }}>
+            ${choices.map(([h, label]) => html`<cds-select-item value=${String(h)}>${label}</cds-select-item>`)}
+          </cds-select>
+          <p class="hint">${ageHelp}</p>
+        </div>
+        <div class="setting">
+          <div class="setting-label">Import IPv6 routes ${tip('IPv6 routes', CONTROL_HELP.ipv6)}</div>
+          <cds-toggle
+            .hideLabel=${true}
+            label-text="Import IPv6 routes"
+            ?checked=${!!store.ipv6_routes}
+            ?disabled=${!editable || d.saving === 'ipv6'}
+            @cds-toggle-changed=${(e) => saveSetting('ipv6', { ipv6_routes: e.target.checked })}></cds-toggle>
+          <p class="hint">${store.ipv6_routes ? 'The next ASN update includes IPv6.' : 'IPv4 only; IPv6 lookups find no AS.'}</p>
+        </div>
         ${d.saving ? html`<cds-inline-loading status="active">Saving…</cds-inline-loading>` : nothing}
       </div>
     </section>
@@ -1669,9 +1756,9 @@ function databasesView() {
       <cds-table size="md">
         <cds-table-head>
           <cds-table-header-row>
-            <cds-table-header-cell><span class="sr-only">Select</span></cds-table-header-cell>
+            ${st.updates_enabled ? html`<cds-table-header-cell class="select-col"><span class="sr-only">Select</span></cds-table-header-cell>` : nothing}
             <cds-table-header-cell>Database</cds-table-header-cell>
-            <cds-table-header-cell>Status ${tip('Status', COLUMN_HELP.status)}</cds-table-header-cell>
+            <cds-table-header-cell><span class="th-label">Status${tip('Status', COLUMN_HELP.status)}</span></cds-table-header-cell>
             <cds-table-header-cell>Updated</cds-table-header-cell>
             <cds-table-header-cell>Size</cds-table-header-cell>
             <cds-table-header-cell>Notes</cds-table-header-cell>
@@ -1682,7 +1769,8 @@ function databasesView() {
             const first = db.key && !seenKeys.has(db.key);
             if (db.key) seenKeys.add(db.key);
             return html`<cds-table-row>
-              <cds-table-cell>
+              ${st.updates_enabled
+                ? html`<cds-table-cell class="select-col">
                 ${first
                   ? html`<cds-checkbox
                       hide-label
@@ -1696,7 +1784,8 @@ function databasesView() {
                         toggle(db.key, e.target.checked);
                       }}></cds-checkbox>`
                   : nothing}
-              </cds-table-cell>
+              </cds-table-cell>`
+                : nothing}
               <cds-table-cell>
                 ${db.name}
                 <div class="hint mono" title=${db.path}>${db.path.split('/').pop()}</div>
@@ -1725,9 +1814,11 @@ function databasesView() {
       </cds-table>
     </div>
 
-    <section class="update-panel">
+    ${st.updates_enabled || job.started
+      ? html`<section class="update-panel">
       <h3>Update</h3>
-      <div class="actions">
+      ${st.updates_enabled
+        ? html`<div class="actions">
         <cds-button
           ?disabled=${!canUpdate || !d.selected.size}
           @click=${() => startUpdate({ databases: [...d.selected] })}>
@@ -1741,13 +1832,15 @@ function databasesView() {
       <p class="hint" style="margin-top: 0.5rem">
         Updates download from RouteViews or RIPE RIS, the RIRs and the blocklist providers. Lookups keep answering from the
         current files until the new ones are in place.
-      </p>
+      </p>`
+        : nothing}
       ${job.started ? jobView(job) : nothing}
-    </section>
+    </section>`
+      : nothing}
+
+    ${st.updates_enabled ? settingsPanel(st) : nothing}
 
     ${sourcesView(dbs)}
-
-    ${settingsPanel(st)}
   `;
 }
 
@@ -1962,6 +2055,65 @@ function saveSettings() {
   refreshStatus();
 }
 
+// ---------- glossary ----------
+
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+function glossaryView() {
+  const g = state.glossary;
+  const q = g.filter.trim().toLowerCase();
+  const sections = [...GLOSSARY, tagGlossary()]
+    .map((sec) => ({
+      ...sec,
+      terms: q ? sec.terms.filter((t) => `${t.term} ${t.aka || ''} ${t.body}`.toLowerCase().includes(q)) : sec.terms,
+    }))
+    .filter((sec) => sec.terms.length);
+  return html`
+    <p class="lede">What the terms on these pages mean, and where to read more.</p>
+    <div class="glossary-head">
+      <cds-text-input
+        class="glossary-filter"
+        label="Find a term"
+        hide-label
+        placeholder="Find a term: ASN, DROP, netname, personal…"
+        .value=${g.filter}
+        @input=${(e) => {
+          g.filter = e.target.value;
+          update();
+        }}></cds-text-input>
+      <nav class="glossary-nav" aria-label="Sections">
+        ${sections.map(
+          (sec) => html`<button type="button" class="link-button" @click=${() => document.getElementById(`g-${slug(sec.section)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>${sec.section}</button>`,
+        )}
+      </nav>
+    </div>
+    ${sections.length
+      ? sections.map(
+          (sec) => html`<section class="glossary-section" id="g-${slug(sec.section)}">
+            <h2>${sec.section}</h2>
+            ${sec.intro ? html`<p class="hint">${sec.intro}</p>` : nothing}
+            <dl class="glossary-list">
+              ${sec.terms.map(
+                (t) => html`<div class="glossary-entry" id="g-${slug(t.term)}">
+                  <dt>
+                    <span class="g-term">${t.term}</span>
+                    ${t.aka ? html`<span class="g-aka">${t.aka}</span>` : nothing}
+                  </dt>
+                  <dd>
+                    ${t.body}
+                    ${t.links?.length
+                      ? html`<span class="g-links">${t.links.map(([label, url]) => html`<a href=${url} target="_blank" rel="noopener noreferrer">${label}</a>`)}</span>`
+                      : nothing}
+                  </dd>
+                </div>`,
+              )}
+            </dl>
+          </section>`,
+        )
+      : html`<p class="empty">No term matches “${g.filter}”.</p>`}
+  `;
+}
+
 // ---------- help ----------
 
 function openHelp() {
@@ -1982,6 +2134,7 @@ function helpView() {
         <cds-modal-heading>Help</cds-modal-heading>
       </cds-modal-header>
       <cds-modal-body class="help-ref">
+        <p class="help-glossary">New to the terms? The <a href="#/glossary" @click=${() => ((state.help.open = false), update())}>Glossary</a> explains ASNs, registries, netblocks, blocklists and every tag.</p>
         <p>
           asname tells you who is behind an IP address, hostname, URL or AS number: the network that routes it, who the
           block is registered to, where it most likely is, what kind of network it is and whether public blocklists name
@@ -2284,6 +2437,7 @@ function view() {
   let body;
   if (state.tab === 'search') body = searchView();
   else if (state.tab === 'explore') body = exploreView();
+  else if (state.tab === 'glossary') body = glossaryView();
   else if (state.tab === 'databases') body = databasesView();
   else body = lookupView();
   return html`
