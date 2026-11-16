@@ -618,3 +618,51 @@ details.tips {
   margin-top: $spacing-02;
   align-items: center;
 }
+
+// Who is behind a result: the netblock's registered owner beside the
+// network that carries it, given equal weight.
+.identity {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: $spacing-05;
+  margin-bottom: $spacing-06;
+
+  &.single {
+    grid-template-columns: 1fr;
+  }
+}
+
+.who {
+  background: $layer-02;
+  padding: $spacing-05;
+  min-width: 0;
+
+  .who-label {
+    @include type.type-style('label-01');
+    color: $text-secondary;
+    display: flex;
+    align-items: center;
+    gap: $spacing-02;
+    margin-bottom: $spacing-02;
+  }
+
+  .who-name {
+    @include type.type-style('heading-03');
+    overflow-wrap: anywhere;
+  }
+
+  .meta {
+    @include type.type-style('helper-text-01');
+    color: $text-helper;
+    margin-top: $spacing-02;
+    overflow-wrap: anywhere;
+  }
+
+  .who-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $spacing-03;
+    margin-top: $spacing-04;
+  }
+}

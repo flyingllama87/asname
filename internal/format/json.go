@@ -42,6 +42,10 @@ type JSONASN struct {
 	Number    uint32 `json:"number"`
 	ASNString string `json:"asn_string"`
 	Name      string `json:"name,omitempty"`
+	// Handle and Organization split Name ("TPG-INTERNET-AP - TPG Telecom
+	// Limited, AU") into the AS's handle and its holder's name.
+	Handle       string `json:"handle,omitempty"`
+	Organization string `json:"organization,omitempty"`
 	// NameSource is "rdap" when the name came from the registry because
 	// the offline AS names list lacks the ASN.
 	NameSource string `json:"name_source,omitempty"`
@@ -165,6 +169,7 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 			NameSource: res.NameSource,
 			Announced:  true,
 		}
+		out.ASN.Handle, out.ASN.Organization = asnNameParts(res.Name)
 		if res.Country != "" && res.Country != "Unknown" {
 			parts := strings.SplitN(res.Country, ", ", 2)
 			if len(parts) == 2 {
@@ -219,6 +224,7 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 			NameSource: res.NameSource,
 			Announced:  true,
 		}
+		out.ASN.Handle, out.ASN.Organization = asnNameParts(res.Name)
 	} else if res.ASN == "N/A" {
 		out.ASN = &JSONASN{
 			Number:    0,
@@ -516,4 +522,13 @@ func NewJSONVersion(version, dir string, maxAge time.Duration, ipv6 bool, dbs []
 		out.Databases[i] = info
 	}
 	return out
+}
+
+// asnNameParts splits an AS name into handle and organisation, for display.
+func asnNameParts(name string) (handle, org string) {
+	if name == "" || name == "Unknown" {
+		return "", ""
+	}
+	handle, org, _ = sources.SplitASName(name)
+	return handle, org
 }

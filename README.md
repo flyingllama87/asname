@@ -602,8 +602,8 @@ IP: 104.156.233.174 | ASN: AS20473 | Name: AS-VULTR - The Constant Company, LLC,
 
 Like the other optional databases, the flag is needed once; after that its
 presence on disk is enough. `--no-category` suppresses it for a run. The
-database is about 3 MB, or about 13 MB with the netblock database present (for
-the netname tags below), and builds in a minute or two.
+database is about 3 MB, or about 26 MB with the netblock database present (for
+the netname and owner tags below), and builds in a minute or two.
 
 **The two halves of it are not equally trustworthy, and the difference matters.**
 
@@ -657,8 +657,10 @@ describes an ISP rather than the business at the far end.
 *Inferred tags* are asname's own, and are shown apart from the rest: as
 `inferred: finance` after the category, an `Inferred:` line in `--pretty`
 saying what each was inferred from, `"inferred": [{"tag": "finance", "from":
-"name"}]` in the JSON `category` (`from` is `name`, `list` or `netname`), a
-`category_inferred` CSV column, and outlined tags in the web UI. About three ASNs
+"name"}]` in the JSON `category`, a
+`category_inferred` CSV column, and outlined tags in the web UI. `from` is
+`name` or `list` for the AS, and `netname` or `netblock` for the address's
+own range. About three ASNs
 in four are not described by PeeringDB or bgp.tools at all, yet most say what
 they are in their registered name: "Kennesaw State University", "Patelco
 Credit Union", "Netico Telecomunicação", "Svea Hosting". The rules in
@@ -727,6 +729,36 @@ ASNAME_INFER_EVAL=~/.asname ASNAME_INFER_EVAL_VERBOSE=1 go test ./internal/sourc
 What a netname says is what the connection is, not who is on it: a DSL range
 may be one small office's line, and a pool named "dynamic" years ago may
 since have been reassigned.
+
+**So does the organisation a block is registered to.** An ISP's address space
+is often registered, block by block, to its customers: `14.200.154.201` is
+carried by TPG Telecom, but its block is registered to Lismore City Council,
+and that council is who is behind the address. The same name rules that read
+AS names are applied to every netblock's registered owner. Where the owner's
+kind is something the network's own tags do not already say, the range is
+tagged with it, marked as inferred from the block's owner (`"from":
+"netblock"` in JSON):
+
+```bash
+$ asname 14.200.154.201
+IP: 14.200.154.201 | ASN: AS7545 | Name: TPG-INTERNET-AP - TPG Telecom Limited, AU | ... | Netblock: LISMORECITYCOUNCIL (LISMORE CITY COUNCIL) | Category: isp, transit; inferred: government
+```
+
+That covers about 46,000 government blocks (Italian comuni, Dutch gemeenten,
+UK councils, police stations), 23,000 banks and insurers, 20,000 colleges and
+universities, 12,000 hospitals and clinics, 30,000 hosting customers and
+91,000 downstream ISPs (an "ISP" registered inside a network that only hosts
+servers is taken to be a leased range and skipped). Read by hand, the
+samples were overwhelmingly right; what slipped through were names that read
+like something they are not, such as a church's "Life Ministry Centre", and
+"hospitality" no longer counts as a hospital.
+
+The web UI leads with this. Each card answers **Who is it?** from the most
+specific record there is, and shows the block's registered owner beside the
+network that carries it, each with the tags that describe it, so a council's
+block inside TPG reads as the council's, not as a TPG home user. A block whose
+"owner" is really the operator's own description of a pool ("BSBOR651
+Bordeaux Bloc 2", "Dynamic pool") is shown as the network's.
 
 They are still guesses from a name. A bank's AS can carry its IT
 subsidiary, and a telecom equipment maker can read like a telecom. So they never

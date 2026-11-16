@@ -17,9 +17,10 @@ var inferRulesYAML []byte
 
 // Where an inferred tag came from.
 const (
-	InferredFromName    = "name"    // a word in the AS's registered name
-	InferredFromList    = "list"    // asname's list of networks whose names do not say
-	InferredFromNetname = "netname" // a word in the registry netname of the address's range
+	InferredFromName    = "name"     // a word in the AS's registered name
+	InferredFromList    = "list"     // asname's list of networks whose names do not say
+	InferredFromNetname = "netname"  // a word in the registry netname of the address's range
+	InferredFromOwner   = "netblock" // a word in the organisation the address's range is registered to
 )
 
 // InferredTags are the tags asname's own rules give an AS.
@@ -32,7 +33,7 @@ type InferredTags struct {
 // InferRules says what kind of network an AS is from its registered name, or
 // from a short list of well-known networks; see inferrules.yaml.
 type InferRules struct {
-	groups   map[string]*regexp.Regexp
+	groups   map[string]*wordGroup
 	kinds    []inferRule
 	services []inferRule
 	asns     map[uint32]curatedASN
@@ -85,13 +86,13 @@ func ParseInferRules(data []byte) (*InferRules, error) {
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("inference rules: %v", err)
 	}
-	r := &InferRules{groups: map[string]*regexp.Regexp{}, kinds: raw.Kinds, services: raw.Services, asns: map[uint32]curatedASN{}}
+	r := &InferRules{groups: map[string]*wordGroup{}, kinds: raw.Kinds, services: raw.Services, asns: map[uint32]curatedASN{}}
 	for name, words := range raw.Words {
-		re, err := wordsRegexp(words)
+		g, err := newWordGroup(words)
 		if err != nil {
 			return nil, fmt.Errorf("inference rules: words %q: %v", name, err)
 		}
-		r.groups[name] = re
+		r.groups[name] = g
 	}
 	for _, rule := range append(append([]inferRule{}, raw.Kinds...), raw.Services...) {
 		if rule.Tag == "" || len(rule.Match) == 0 {
@@ -138,30 +139,75 @@ func ParseInferRules(data []byte) (*InferRules, error) {
 	return r, nil
 }
 
-// wordsRegexp matches any of words as a whole word, case-insensitively. A
-// trailing * matches any further letters or digits; a space matches any run
-// of whitespace, hyphens or underscores.
-func wordsRegexp(words []string) (*regexp.Regexp, error) {
-	alts := make([]string, 0, len(words))
+// wordGroup matches any of a list of words or phrases as whole words,
+// ignoring case. A trailing * matches any further letters or digits
+// ("universi*" covers university and universidad); words in a phrase may be
+// separated by any run of characters that are not letters or digits.
+type wordGroup struct {
+	phrases []string // " word word ", matched in a name's joined words
+	stems   []string // a single word's beginning
+}
+
+func newWordGroup(words []string) (*wordGroup, error) {
+	g := &wordGroup{}
 	for _, w := range words {
 		w = strings.TrimSpace(w)
 		if w == "" {
 			continue
 		}
-		suffix := ""
-		if strings.HasSuffix(w, "*") {
-			w, suffix = strings.TrimSuffix(w, "*"), `[\p{L}\p{N}]*`
+		if stem, ok := strings.CutSuffix(w, "*"); ok {
+			parts := nameWords(stem)
+			if len(parts) != 1 {
+				return nil, fmt.Errorf("%q: only a single word can end in *", w)
+			}
+			g.stems = append(g.stems, parts[0])
+			continue
 		}
-		parts := strings.Fields(w)
-		for i, p := range parts {
-			parts[i] = regexp.QuoteMeta(p)
+		parts := nameWords(w)
+		if len(parts) == 0 {
+			continue
 		}
-		alts = append(alts, strings.Join(parts, `[\s\-_]+`)+suffix)
+		g.phrases = append(g.phrases, " "+strings.Join(parts, " ")+" ")
 	}
-	if len(alts) == 0 {
+	if len(g.phrases) == 0 && len(g.stems) == 0 {
 		return nil, fmt.Errorf("no words")
 	}
-	return regexp.Compile(`(?i)(?:^|[^\p{L}\p{N}])(?:` + strings.Join(alts, "|") + `)(?:$|[^\p{L}\p{N}])`)
+	return g, nil
+}
+
+// nameWords splits s into lower-case words at anything not a letter or digit.
+func nameWords(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(c rune) bool {
+		return !unicode.IsLetter(c) && !unicode.IsDigit(c)
+	})
+}
+
+// splitName is a name ready for matching: its words, and the words joined
+// with single spaces and padded with one, so a phrase matches as a substring.
+type splitName struct {
+	words  []string
+	joined string
+}
+
+func newSplitName(s string) splitName {
+	words := nameWords(s)
+	return splitName{words: words, joined: " " + strings.Join(words, " ") + " "}
+}
+
+func (g *wordGroup) match(n splitName) bool {
+	for _, p := range g.phrases {
+		if strings.Contains(n.joined, p) {
+			return true
+		}
+	}
+	for _, stem := range g.stems {
+		for _, w := range n.words {
+			if strings.HasPrefix(w, stem) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Infer returns the tags the rules give asn, whose registered name (as the
@@ -171,14 +217,24 @@ func (r *InferRules) Infer(asn uint32, name string) InferredTags {
 	if c, ok := r.asns[asn]; ok && c.expect.MatchString(name) {
 		return InferredTags{Tags: sortedTags(c.tags), From: InferredFromList}
 	}
-	org := asnOrganisation(name)
-	if org == "" {
+	tags := r.InferOrganisation(asnOrganisation(name))
+	if len(tags) == 0 {
 		return InferredTags{}
+	}
+	return InferredTags{Tags: tags, From: InferredFromName}
+}
+
+// InferOrganisation applies the name rules to an organisation's name, such
+// as a netblock's registered owner ("LISMORE CITY COUNCIL").
+func (r *InferRules) InferOrganisation(org string) []string {
+	n := newSplitName(org)
+	if len(n.words) == 0 {
+		return nil
 	}
 	var tags []string
 	kind := ""
 	for _, rule := range r.kinds {
-		if r.applies(rule, org) {
+		if r.applies(rule, n) {
 			kind = rule.Tag
 			tags = append(tags, kind)
 			break
@@ -191,28 +247,52 @@ func (r *InferRules) Infer(asn uint32, name string) InferredTags {
 		if kind != "" && contains(rule.NotKinds, kind) {
 			continue
 		}
-		if r.applies(rule, org) && !contains(tags, rule.Tag) {
+		if r.applies(rule, n) && !contains(tags, rule.Tag) {
 			tags = append(tags, rule.Tag)
 		}
 	}
-	if len(tags) == 0 {
-		return InferredTags{}
-	}
-	return InferredTags{Tags: sortedTags(tags), From: InferredFromName}
+	return sortedTags(tags)
 }
 
-func (r *InferRules) applies(rule inferRule, org string) bool {
+func (r *InferRules) applies(rule inferRule, n splitName) bool {
 	for _, g := range rule.Match {
-		if !r.groups[g].MatchString(org) {
+		if !r.groups[g].match(n) {
 			return false
 		}
 	}
 	for _, g := range rule.Not {
-		if r.groups[g].MatchString(org) {
+		if r.groups[g].match(n) {
 			return false
 		}
 	}
 	return true
+}
+
+// SplitASName splits an AS names entry into its handle, organisation and
+// country code: "COMCAST-7922 - Comcast Cable Communications, LLC, US"
+// gives "COMCAST-7922", "Comcast Cable Communications, LLC", "US". A part
+// the entry lacks is empty.
+func SplitASName(name string) (handle, org, cc string) {
+	name = strings.TrimSpace(name)
+	if i := strings.LastIndex(name, ", "); i >= 0 && len(name)-i == 4 && isUpperAlpha(name[i+2:]) {
+		name, cc = name[:i], name[i+2:]
+	}
+	if h, o, ok := strings.Cut(name, " - "); ok {
+		return strings.TrimSpace(h), strings.TrimSpace(o), cc
+	}
+	if h, o, ok := strings.Cut(name, " "); ok {
+		return h, strings.TrimSpace(o), cc
+	}
+	return name, "", cc
+}
+
+func isUpperAlpha(s string) bool {
+	for _, c := range s {
+		if c < 'A' || c > 'Z' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // asnOrganisation is the organisation part of an AS names entry: after

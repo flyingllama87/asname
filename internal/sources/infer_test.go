@@ -55,6 +55,12 @@ func TestInferFromNames(t *testing.T) {
 		"CCAMPIT-AS - Centre For Cellular And Molecular Platforms, IN": nil,
 		"AS61602 - HLP Mobile and Worldwide Tracking Ltda, BR":         nil,
 		"ZeniMax-Germany ZeniMax Germany GmbH, DE":                     nil,
+		// Hotels are not hospitals.
+		"PARKLAND - PARKLAND HOSPITALITY LTD, IN":           nil,
+		"BURNIECITYCOUNCIL-AS-AP - Burnie City Council, AU": {"government"},
+		"WBC-NET WANDSWORTH-BOROUGH-COUNCIL, GB":            {"government"},
+		"AS-X - Hornsby Shire Council, AU":                  {"government"},
+		"NCHE - American Council on Education, US":          nil,
 	}
 	for name, want := range cases {
 		got := r.Infer(1, name)
@@ -76,15 +82,17 @@ func TestInferCuratedListChecksTheName(t *testing.T) {
 	require.Equal(t, InferredTags{Tags: []string{"hosting"}, From: InferredFromName}, got)
 }
 
-func TestWordsRegexp(t *testing.T) {
-	re, err := wordsRegexp([]string{"universi*", "data center", "isp"})
+func TestWordGroup(t *testing.T) {
+	g, err := newWordGroup([]string{"universi*", "data center", "isp"})
 	require.NoError(t, err)
 	for _, s := range []string{"Universidad de Chile", "Universität Wien", "XYZ Data-Center", "Example ISP", "data  center"} {
-		require.True(t, re.MatchString(s), s)
+		require.True(t, g.match(newSplitName(s)), s)
 	}
 	for _, s := range []string{"Bisping", "Dispatch", "metadata centers inc"} {
-		require.False(t, re.MatchString(s), s)
+		require.False(t, g.match(newSplitName(s)), s)
 	}
+	_, err = newWordGroup([]string{"data cent*"})
+	require.Error(t, err, "only single words take *")
 }
 
 func TestParseInferRulesRejectsMistakes(t *testing.T) {
@@ -272,4 +280,18 @@ func TestHostingOnly(t *testing.T) {
 	require.False(t, HostingOnly([]string{"hosting", "isp"}), "an ISP that also hosts")
 	require.False(t, HostingOnly([]string{"enterprise"}))
 	require.False(t, HostingOnly(nil))
+}
+
+func TestSplitASName(t *testing.T) {
+	for name, want := range map[string][3]string{
+		"COMCAST-7922 - Comcast Cable Communications, LLC, US": {"COMCAST-7922", "Comcast Cable Communications, LLC", "US"},
+		"BURNIECITYCOUNCIL-AS-AP - Burnie City Council, AU":    {"BURNIECITYCOUNCIL-AS-AP", "Burnie City Council", "AU"},
+		"HETZNER-AS Hetzner Online GmbH, DE":                   {"HETZNER-AS", "Hetzner Online GmbH", "DE"},
+		"LVLT-1 - Level 3 Parent, LLC, US":                     {"LVLT-1", "Level 3 Parent, LLC", "US"},
+		"EXAMPLE":                                              {"EXAMPLE", "", ""},
+		"BOT-TH-AS - Bank of Thailand, Bangkok, Thailand, TH":  {"BOT-TH-AS", "Bank of Thailand, Bangkok, Thailand", "TH"},
+	} {
+		h, o, cc := SplitASName(name)
+		require.Equal(t, want, [3]string{h, o, cc}, name)
+	}
 }

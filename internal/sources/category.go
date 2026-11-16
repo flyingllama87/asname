@@ -167,9 +167,15 @@ func OpenCategoryDB(path string) (*CategoryDB, error) {
 	return db, nil
 }
 
-// InferredRange returns the range: tags the netname rules gave the
-// registry range holding ip, or none.
-func (d *CategoryDB) InferredRange(ip net.IP) []string {
+// RangeTag is a tag asname's rules gave the registry range holding an
+// address, and what from: InferredFromNetname or InferredFromOwner.
+type RangeTag struct {
+	Tag, From string
+}
+
+// InferredRange returns the tags the netname and netblock-owner rules gave
+// the registry range holding ip, or none.
+func (d *CategoryDB) InferredRange(ip net.IP) []RangeTag {
 	if d.ranges == nil {
 		return nil
 	}
@@ -177,7 +183,15 @@ func (d *CategoryDB) InferredRange(ip net.IP) []string {
 	if err != nil || v.Number == 0 || int(v.Number) >= len(d.rangeSets) {
 		return nil
 	}
-	return strings.Split(d.rangeSets[v.Number], ", ")
+	var out []RangeTag
+	for _, tag := range strings.Split(d.rangeSets[v.Number], ", ") {
+		if owner, ok := strings.CutPrefix(tag, OwnerTagPrefix); ok {
+			out = append(out, RangeTag{Tag: owner, From: InferredFromOwner})
+		} else if tag != "" {
+			out = append(out, RangeTag{Tag: tag, From: InferredFromNetname})
+		}
+	}
+	return out
 }
 
 // asnTags returns every AS's tags, for evaluating the rules.

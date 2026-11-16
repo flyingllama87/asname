@@ -440,7 +440,10 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		}
 	}
 	if e.categoryDB != nil {
-		e.addInferredTags(&res, e.categoryDB.InferredRange(ip), sources.InferredFromNetname)
+		// The range's own tags first: they are about this address.
+		for _, t := range e.categoryDB.InferredRange(ip) {
+			e.addInferredTags(&res, []string{t.Tag}, t.From)
+		}
 	}
 	if haveASN {
 		e.addInferred(&res, asn)

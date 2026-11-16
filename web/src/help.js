@@ -211,7 +211,9 @@ export function findings(r, loaded = {}) {
   const lists = rep.lists || [];
   const asnRep = rep.asn;
   const tags = r.category?.tags || [];
-  const inferred = (r.category?.inferred || []).map((t) => t.tag);
+  const inferredList = r.category?.inferred || [];
+  const inferred = inferredList.map((t) => t.tag);
+  const owner = blockOwner(r);
   const isASN = !r.ip;
   const asn = r.asn?.asn_string || 'this network';
 
@@ -275,9 +277,21 @@ export function findings(r, loaded = {}) {
     }
   }
 
-  // What kind of network, unless the address itself or its range is
-  // classified. asname's own inferred tags count too, said as such.
-  if (!tags.some((t) => t.includes(':') || t === 'tor-exit') && !rangeKnown) {
+  // The block belongs to an organisation other than the network: what the
+  // network is (an ISP, say) says nothing about who is using the address.
+  if (owner?.distinct && !tags.some((t) => t.includes(':') || t === 'tor-exit')) {
+    const kind = ['government', 'education', 'finance', 'healthcare'].find((k) => owner.kinds.includes(k));
+    if (kind) {
+      const what = { finance: 'a bank or other financial institution', government: 'a government body', healthcare: 'a hospital or health service', education: 'a university, college or school' }[kind];
+      add('info', `The block is registered to ${what} (inferred from its registered name): its addresses are normally that organisation's own ${kind === 'education' ? 'staff, systems or students' : 'staff and systems'}. Attack traffic from one usually means a compromised machine there; they will want to know.`);
+    } else {
+      add('info', `The block is registered to ${owner.name}, a customer of the network, so this is that organisation's connection rather than a home user's.`);
+    }
+  }
+
+  // What kind of network, unless the address itself, its range or its
+  // registered owner says more. asname's own inferred tags count too.
+  if (!tags.some((t) => t.includes(':') || t === 'tor-exit') && !rangeKnown && !owner?.distinct) {
     const has = (t) => tags.includes(t) || inferred.includes(t);
     const guess = (...ts) => (ts.some((t) => tags.includes(t)) ? '' : ' (inferred from its name)');
     if (has('isp') || has('mobile')) {
@@ -299,6 +313,80 @@ export function findings(r, loaded = {}) {
   }
   const order = { high: 0, medium: 1, info: 2, ok: 3 };
   return out.sort((a, b) => order[a.level] - order[b.level]);
+}
+
+// Words that say nothing about which organisation a name is.
+const GENERIC_WORDS = new Set(
+  `limited ltd pty inc llc gmbh corp corporation company co group holding holdings plc ag bv nv sa sas srl spa jsc ojsc pjsc
+  cjsc ooo public private the and of for de da do del la le les et telecom telecommunications telekom telecomunicacoes
+  communications communication internet network networks net services service broadband solutions systems technologies
+  technology international global online data ip as`.split(/\s+/),
+);
+
+// Words that mark a netblock "owner" as the operator's own description of
+// a pool, not a customer: "BSBOR651 Bordeaux Bloc 2", "Dynamic pool".
+const POOL_WORDS = /\b(pool|pools|bloc|block|customers?|subscribers?|dynamic|static|dsl|adsl|broadband|residential|infrastructure|backbone|ip space|assigned|reassign(ed)?|nat|cgnat|users|dhcp|ppp|pppoe|fttx|ftth|lte|mobile|gprs|3g|4g|5g)\b/i;
+
+function significantWords(name) {
+  return new Set(
+    (name || '')
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((w) => w.length >= 3 && !GENERIC_WORDS.has(w) && !/^\d+$/.test(w)),
+  );
+}
+
+// blockOwner says who the address's netblock is registered to, and whether
+// that is an organisation other than the network carrying it: a council's
+// block inside an ISP, rather than the ISP's own pool.
+export function blockOwner(r) {
+  const nb = r.netblock;
+  if (!r.ip || !nb) return null;
+  const name = (nb.organization || nb.raw || '').trim();
+  if (!name) return null;
+  const inferred = r.category?.inferred || [];
+  const kinds = inferred.filter((t) => t.from === 'netblock').map((t) => t.tag);
+  const pool = inferred.some((t) => t.from === 'netname' && t.tag !== 'range:hosting') || POOL_WORDS.test(name);
+  const asWords = significantWords(`${r.asn?.organization || ''} ${r.asn?.handle || ''} ${r.asn?.name || ''}`);
+  const shared = [...significantWords(`${name} ${nb.handle || ''}`)].some((w) => asWords.has(w));
+  // An owner the rules recognised as a kind of organisation is that
+  // organisation, whatever its name shares with the network's.
+  const distinct = kinds.length > 0 || (!pool && !shared && !!r.asn?.name);
+  return { name, handle: nb.handle && nb.handle !== name ? nb.handle : '', kinds, distinct };
+}
+
+const KIND_PHRASES = {
+  government: 'a government body',
+  education: 'a university, college or school',
+  finance: 'a bank or other financial institution',
+  healthcare: 'a hospital or health service',
+  hosting: 'a hosting provider',
+  isp: 'an internet provider',
+  mobile: 'a mobile operator',
+};
+
+// whoIs answers "who is behind this address?" from the most specific record
+// there is: the organisation the block is registered to, then the network.
+export function whoIs(r) {
+  const network = r.asn?.organization || r.asn?.name || '';
+  const asn = r.asn?.asn_string || '';
+  if (!r.ip) {
+    return network ? `${network}${asn ? ` (${asn})` : ''}.` : null;
+  }
+  const owner = blockOwner(r);
+  if (owner?.distinct) {
+    const what = owner.kinds.map((k) => KIND_PHRASES[k]).filter(Boolean)[0];
+    return `${owner.name}${what ? `, ${what}` : ''}. The block is registered to them; ${network || 'the network'}${asn ? ` (${asn})` : ''} only carries its traffic. Activity from this address is theirs, so they are who to contact (or ${network || 'the network'}'s abuse desk if they do not answer).`;
+  }
+  if (!network) return null;
+  const range = (r.category?.inferred || []).find((t) => t.from === 'netname')?.tag;
+  const pool = {
+    'range:broadband': 'a broadband access pool',
+    'range:mobile': 'a mobile data pool',
+    'range:cgnat': 'a carrier-grade NAT pool',
+    'range:hosting': 'a hosting range',
+  }[range];
+  return `${network}${asn ? ` (${asn})` : ''}${pool ? `: ${pool} of theirs` : ''}${owner ? '' : '. No netblock record names a more specific owner.'}`.replace(/\.?$/, '.');
 }
 
 // whereIs reconciles the three places a result names (the block's own
@@ -329,10 +417,12 @@ export function whereIs(r) {
 export function summaryText(r, loaded) {
   const lines = [];
   if (r.text) lines.push(r.text.trimEnd());
+  const who = whoIs(r);
   const where = whereIs(r);
   const points = findings(r, loaded);
-  if (where || points.length) {
+  if (who || where || points.length) {
     lines.push('', 'What this means:');
+    if (who) lines.push(`  Who: ${who}`);
     if (where) lines.push(`  Where: ${where}`);
     for (const f of points) lines.push(`  - ${f.text}`);
   }

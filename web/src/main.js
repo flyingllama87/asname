@@ -64,6 +64,8 @@ import {
   reputationTagHelp,
   summaryText,
   whereIs,
+  whoIs,
+  blockOwner,
   SOURCES_HELP,
 } from './help.js';
 
@@ -654,12 +656,14 @@ async function copySummary(r) {
 const LEVEL_LABEL = { high: 'High', medium: 'Caution', info: 'Note', ok: 'OK' };
 
 function findingsView(r, loaded) {
+  const who = whoIs(r);
   const where = whereIs(r);
   const points = findings(r, loaded);
-  if (!where && !points.length) return nothing;
+  if (!who && !where && !points.length) return nothing;
   const worst = points[0]?.level || 'info';
   return html`<section class="findings findings-${worst}" aria-label="What this means">
     <h4>What this means</h4>
+    ${who ? html`<p class="where"><strong>Who is it?</strong> ${who}</p>` : nothing}
     ${where ? html`<p class="where"><strong>Where is it?</strong> ${where}</p>` : nothing}
     ${points.length
       ? html`<ul>
@@ -756,7 +760,7 @@ function resultCard(r, i) {
   // asname's own tags: [{tag, from}], from "netname", "name" or "list".
   const inferredList = r.category?.inferred || [];
   const inferredTags = inferredList.map((t) => t.tag);
-  const fromText = { netname: "the range's netname", name: 'the AS name', list: "asname's list of known networks" };
+  const fromText = { netname: "the range's netname", netblock: "the block's registered owner", name: 'the AS name', list: "asname's list of known networks" };
   let categoryBody = nothing;
   const inferredView = inferredTags.length
     ? [...new Set(inferredList.map((t) => t.from))].map(
@@ -801,6 +805,66 @@ function resultCard(r, i) {
 
   if (prefixes.length) sources.push(['Prefixes', r.prefixes.source === 'ripe-stat' ? SRC.ripeStat : SRC.rib]);
 
+  // Who: the organisation the block is registered to, beside the network
+  // that carries it, each with the tags that describe it.
+  const owner = blockOwner(r);
+  const isAddressTag = (t) => t.includes(':') || t === 'tor-exit' || t === 'anonymised-holder';
+  const tagView = (t) => html`<cds-tag size="sm" type=${isAddressTag(t) ? 'purple' : 'teal'}>${t}</cds-tag>`;
+  const inferredGroup = (from) => {
+    const list = inferredList.filter((t) => t.from === from);
+    return list.length
+      ? html`<div class="tags inferred-tags">
+          ${list.map((t) => html`<cds-tag size="sm" type="outline">${t.tag}</cds-tag>`)}
+          <span class="meta">inferred from ${fromText[from] || from}</span>
+        </div>`
+      : nothing;
+  };
+  const addrTags = catTags.filter(isAddressTag);
+  const opTags = catTags.filter((t) => !isAddressTag(t));
+  const helpFor = (tags, inferred) =>
+    tagList(FIELD_HELP.category, [...tags.map((t) => [t, categoryTagHelp(t)]), ...inferred.map((t) => [`${t.tag} (inferred)`, categoryTagHelp(t.tag)])]);
+  const ownerInferred = inferredList.filter((t) => t.from === 'netname' || t.from === 'netblock');
+  const networkInferred = inferredList.filter((t) => t.from === 'name' || t.from === 'list');
+  const asn = r.asn;
+  const asnLine = asn && asn.announced !== false
+    ? html`${asnLink(asn.asn_string || `AS${asn.number}`)}${asn.handle && asn.handle !== asn.asn_string ? html` · <span class="mono">${asn.handle}</span>` : nothing}${r.country && isASN ? html` · ${countryText(r.country)}` : nothing}`
+    : nothing;
+  const identity = html`<div class="identity ${isASN ? 'single' : ''}">
+    ${isASN
+      ? nothing
+      : html`<section class="who">
+          <div class="who-label">${owner?.distinct ? 'Registered to' : 'Netblock'} ${tip('Netblock', FIELD_HELP.netblock)}</div>
+          ${nb ? html`<div class="who-name">${owner?.name || nb.raw}</div>` : html`<div class="who-name">${netblockBody === nothing ? unknown('No netblock data') : netblockBody}</div>`}
+          ${nb
+            ? html`<div class="meta">
+                ${[owner?.handle, nb.created ? `registered ${nb.created}` : '', nb.live_query ? `live ${nb.source === 'rdap' ? 'RDAP' : 'whois'}` : 'offline index'].filter(Boolean).join(' · ')}
+              </div>`
+            : nothing}
+          ${addrTags.length || ownerInferred.length
+            ? html`<div class="who-tags">
+                ${addrTags.length ? html`<div class="tags">${addrTags.map(tagView)}</div>` : nothing}
+                ${inferredGroup('netblock')} ${inferredGroup('netname')}
+                ${tip('These tags', helpFor(addrTags, ownerInferred))}
+              </div>`
+            : nothing}
+        </section>`}
+    <section class="who">
+      <div class="who-label">${isASN ? 'Network' : owner?.distinct ? 'Carried by' : 'Network'} ${tip('ASN', FIELD_HELP.asn)}</div>
+      <div class="who-name">${asn?.announced === false ? unknown('Not announced') : asn?.organization || asn?.name || unknown()}</div>
+      ${asnLine !== nothing ? html`<div class="meta">${asnLine}</div>` : nothing}
+      ${asn?.name_source === 'rdap' ? html`<div class="meta">name from live RDAP: not in the offline AS names list</div>` : nothing}
+      ${opTags.length || networkInferred.length
+        ? html`<div class="who-tags">
+            ${opTags.length ? html`<div class="tags">${opTags.map(tagView)}</div>` : nothing}
+            ${inferredGroup('name')} ${inferredGroup('list')}
+            ${tip('These tags', helpFor(opTags, networkInferred))}
+          </div>`
+        : loaded.category
+          ? html`<div class="meta">No category known</div>`
+          : nothing}
+    </section>
+  </div>`;
+
   return html`
     <article class="card ${listed ? 'listed' : ''}">
       <div class="card-head">
@@ -814,12 +878,10 @@ function resultCard(r, i) {
         </div>
       </div>
       ${findingsView(r, loaded)}
+      ${identity}
       <dl class="fields">
-        ${field('ASN', asnBody, '', FIELD_HELP.asn)}
         ${countryFields}
         ${field('City', cityBody, 'DB-IP geolocation', FIELD_HELP.city)}
-        ${field('Netblock', netblockBody, '', FIELD_HELP.netblock)}
-        ${field('Category', categoryBody, '', categoryHelp)}
         ${field('Reputation', rep ? reputationView(rep, isASN) : nothing, '', repHelp)}
         ${field('Reverse DNS', rdnsBody, '', FIELD_HELP.rdns)}
       </dl>

@@ -268,6 +268,7 @@ func TestCategoryNetnameRangeTags(t *testing.T) {
 	nbPath := buildTestNetblockDB(t, func(b *netblockBuilder) {
 		b.add(net.ParseIP("10.0.0.0"), net.ParseIP("10.0.3.255"), "ACME-NET", "Acme Telecom", NetblockMeta{})
 		b.add(net.ParseIP("10.0.1.0"), net.ParseIP("10.0.1.255"), "ACME-ADSL-POOL", "Acme Telecom", NetblockMeta{})
+		b.add(net.ParseIP("10.0.2.0"), net.ParseIP("10.0.2.255"), "LISMORECITYCOUNCIL", "LISMORE CITY COUNCIL", NetblockMeta{})
 		b.add(net.ParseIP("10.1.0.0"), net.ParseIP("10.1.0.255"), "US_broadband_Internet", "Customer", NetblockMeta{})
 		start, end, _ := ParseNetRange("2001:db8::/48")
 		b.add(start, end, "ACME-LTE-POOL", "Acme Telecom", NetblockMeta{})
@@ -296,11 +297,13 @@ func TestCategoryNetnameRangeTags(t *testing.T) {
 		require.Equal(t, 1, st.ranges["range:mobile"])
 	})
 
-	require.Equal(t, []string{"range:broadband"}, db.InferredRange(net.ParseIP("10.0.1.7")))
-	require.Nil(t, db.InferredRange(net.ParseIP("10.0.0.7")), "the parent range has no such word")
-	require.Nil(t, db.InferredRange(net.ParseIP("10.0.2.0")), "the parent resumes after the pool")
-	require.Nil(t, db.InferredRange(net.ParseIP("10.1.0.1")), "skipped inside a hosting network")
-	require.Equal(t, []string{"range:mobile"}, db.InferredRange(net.ParseIP("2001:db8::1")))
+	require.Equal(t, []RangeTag{{"range:broadband", InferredFromNetname}}, db.InferredRange(net.ParseIP("10.0.1.7")))
+	require.Nil(t, db.InferredRange(net.ParseIP("10.0.0.7")), "the ISP's own range: its owner's isp adds nothing")
+	require.Nil(t, db.InferredRange(net.ParseIP("10.0.3.0")), "the parent resumes after the council's block")
+	require.Equal(t, []RangeTag{{"government", InferredFromOwner}}, db.InferredRange(net.ParseIP("10.0.2.9")),
+		"a council's block inside an ISP is the council's")
+	require.Nil(t, db.InferredRange(net.ParseIP("10.1.0.1")), "netnames are not trusted inside a hosting network")
+	require.Equal(t, []RangeTag{{"range:mobile", InferredFromNetname}}, db.InferredRange(net.ParseIP("2001:db8::1")))
 }
 
 func TestNetblockEachRangeMatchesLookup(t *testing.T) {

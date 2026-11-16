@@ -502,7 +502,17 @@ func rankResults(results []NetblockSearchResult, opts NetblockSearchOptions) []N
 
 func (d *NetblockDB) searchStrings(m *NameMatcher) (map[uint32]matchedString, error) {
 	matched := make(map[uint32]matchedString)
+	err := d.EachString(func(off uint32, str []byte) {
+		if rank := m.Rank(str); rank != MatchNone {
+			matched[off] = matchedString{string(str), rank}
+		}
+	})
+	return matched, err
+}
 
+// EachString calls fn with every string in the string table and its
+// offset, reading the table sequentially. str is only valid during the call.
+func (d *NetblockDB) EachString(fn func(off uint32, str []byte)) error {
 	buf := make([]byte, 1024*1024)
 	var curStr []byte
 	var strStartOff uint32 = 0
@@ -531,19 +541,17 @@ func (d *NetblockDB) searchStrings(m *NameMatcher) (map[uint32]matchedString, er
 				curStr = append(curStr, str...)
 				str = curStr
 			}
-			if rank := m.Rank(str); rank != MatchNone {
-				matched[strStartOff] = matchedString{string(str), rank}
-			}
+			fn(strStartOff, str)
 			idx += nullIdx + 1
 			strStartOff = uint32(filePos + int64(idx))
 			curStr = curStr[:0]
 		}
 		filePos += int64(n)
 		if err != nil && err != io.EOF {
-			return nil, err
+			return err
 		}
 	}
-	return matched, nil
+	return nil
 }
 
 // foldMatcher reports whether a string contains a query, ignoring case. An

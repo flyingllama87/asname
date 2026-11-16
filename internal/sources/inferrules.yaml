@@ -27,13 +27,16 @@ words:
     academy of sciences, instituto federal, k12, k-12]
   government_strong: [ministry, ministerio, ministère, ministere, bundesministerium, gobierno, governo, prefeitura,
     municipality, municipalidad, city of, county of, town of, parliament, senado, police, gemeente, ayuntamiento,
-    regulatory authority, regulatory commission]
+    regulatory authority, regulatory commission, city council, county council, district council, borough council,
+    shire council, town council, regional council, municipal council, village council, parish council, islands council,
+    metropolitan borough, borough of, council of the city, gemeinde, kommune, comune di, mairie, conseil départemental,
+    conseil regional, conseil régional]
   government: [government, department of, secretaria, district court, courts]
   finance: [bank, banco, banque, bancorp, credit union, sparkasse, volksbank, stock exchange, insurance, assurance,
     versicherung, seguros, savings]
   central_bank: [central bank, reserve bank, banco central, banque centrale, national bank of, bank of england,
     bundesbank]
-  healthcare: [hospital*, medical center, medical centre, health system, healthcare, health care, clinic, klinikum,
+  healthcare: [hospital, hospitals, hospitalier, hospitalière, hôpital, ospedale, ospedaliera, krankenhaus, medical center, medical centre, health system, healthcare, health care, clinic, klinikum,
     hospitais, hospitalar]
   mobile: [mobile, cellular, mobil, móvil, movil]
   mobile_context: [telecom*, telekom*, telecommunication*, communication, communications, network, networks, operator,
@@ -41,6 +44,7 @@ words:
   mobile_not: [molecular, tracking, health*, access, app, apps, game, games, payment, payments, banking, device,
     devices]
   subsidiary: [subsidiary, subsidiary of, a subsidiary]
+  no_hosting: [no hosting, without hosting]
   exchange: [internet exchange, exchange point, ix, ixp, association, asociación, asociacion, associação, associacao, peering]
 
 # What kind of organisation the AS belongs to: the first rule that matches
@@ -57,7 +61,7 @@ kinds:
 # What the network does, added independently. no_kind: only when no kind
 # above matched (a university's "data center" is not a hosting company).
 services:
-  - {tag: hosting, match: [hosting], not_kinds: [education, government]}
+  - {tag: hosting, match: [hosting], not: [no_hosting], not_kinds: [education, government]}
   - {tag: isp, match: [telecom], not: [exchange], no_kind: true}
   - {tag: mobile, match: [mobile, mobile_context], not: [mobile_not], no_kind: true}
   - {tag: government, match: [central_bank]}

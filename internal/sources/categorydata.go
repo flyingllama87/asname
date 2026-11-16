@@ -534,6 +534,10 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 	return out, nil
 }
 
+// OwnerTagPrefix marks, in the range table, a tag inferred from the
+// organisation a range is registered to rather than from its netname.
+const OwnerTagPrefix = "owner:"
+
 // InferNetnameSourceName names asname's netname rules among the sources.
 const InferNetnameSourceName = "asname netname rules"
 
@@ -569,44 +573,86 @@ func (b *categoryBuilder) importNetnames(netblockPath, asnDBPath string) (netnam
 		return st, fmt.Errorf("reading the ASN database: %v", err)
 	}
 
-	// Netnames repeat across ranges, so each is classified once.
-	byOffset := map[uint32][]string{}
+	// Netnames and owners repeat across ranges, so each string is
+	// classified once, in one sequential pass over the string table, as
+	// whatever the ranges use it for.
+	const asNetname, asOwner = 1, 2
+	roles := map[uint32]uint8{}
+	if err := nb.EachRange(func(r NetblockRange) error {
+		roles[r.NetnameOff] |= asNetname
+		roles[r.OrgOff] |= asOwner
+		return nil
+	}); err != nil {
+		return st, err
+	}
+	byNetname := map[uint32][]string{}
+	byOwner := map[uint32][]string{}
+	if err := nb.EachString(func(off uint32, str []byte) {
+		role := roles[off]
+		if role == 0 || len(str) == 0 {
+			return
+		}
+		s := string(str)
+		if role&asNetname != 0 {
+			if tags := rules.InferNetname(s); len(tags) > 0 {
+				byNetname[off] = tags
+			}
+		}
+		if role&asOwner != 0 {
+			if tags := rules.InferOrganisation(s); len(tags) > 0 {
+				byOwner[off] = tags
+			}
+		}
+	}); err != nil {
+		return st, err
+	}
+	roles = nil
 	hostingOnly := map[uint32]bool{}
-	asnKnown := map[uint32]bool{}
+	asTags := map[uint32]map[string]bool{}
 	seen := 0
 	err = nb.EachRange(func(r NetblockRange) error {
-		if r.NetnameOff == 0 {
-			return nil
-		}
-		tags, ok := byOffset[r.NetnameOff]
-		if !ok {
-			name, err := nb.str(r.NetnameOff)
-			if err != nil {
-				return err
-			}
-			tags = rules.InferNetname(name)
-			byOffset[r.NetnameOff] = tags
-		}
-		if len(tags) == 0 {
+		netTags := byNetname[r.NetnameOff]
+		ownerTags := byOwner[r.OrgOff]
+		if len(netTags) == 0 && len(ownerTags) == 0 {
 			return nil
 		}
 		var asn uint32
 		if as, err := asnDB.Lookup(net.IP(r.Start.AsSlice()).To16()); err == nil {
 			asn = as.Number
 		}
-		if !asnKnown[asn] {
-			asnKnown[asn] = true
-			all := slices.Collect(maps.Keys(b.asns[asn]))
-			all = append(all, b.inferred[asn].Tags...)
-			hostingOnly[asn] = HostingOnly(all)
+		if asTags[asn] == nil {
+			all := map[string]bool{}
+			for t := range b.asns[asn] {
+				all[t] = true
+			}
+			for _, t := range b.inferred[asn].Tags {
+				all[t] = true
+			}
+			asTags[asn] = all
+			hostingOnly[asn] = HostingOnly(slices.Collect(maps.Keys(all)))
 		}
-		keep := tags[:0:0]
-		for _, tag := range tags {
+		var keep []string
+		for _, tag := range netTags {
 			if hostingOnly[asn] {
 				st.skipped[tag]++
 				continue
 			}
 			keep = append(keep, tag)
+		}
+		// The owner's kind is kept only where it says something the
+		// network's own tags do not: a council's block inside an ISP, not
+		// the ISP's own ranges.
+		for _, tag := range ownerTags {
+			if asTags[asn][tag] {
+				continue
+			}
+			// An "ISP" registered inside a network that only hosts servers
+			// is a leased range, not an access network.
+			if hostingOnly[asn] && (tag == "isp" || tag == "mobile") {
+				st.skipped[OwnerTagPrefix+tag]++
+				continue
+			}
+			keep = append(keep, OwnerTagPrefix+tag)
 		}
 		if len(keep) == 0 {
 			return nil
@@ -628,9 +674,10 @@ func (b *categoryBuilder) importNetnames(netblockPath, asnDBPath string) (netnam
 				st.addrs4[tag] += uint64(addrUint32(r.End)-addrUint32(r.Start)) + 1
 			}
 			// An even spread of samples for review.
-			if st.ranges[tag]%97 == 1 && len(st.samples[tag]) < 60 {
+			if st.ranges[tag]%97 == 1 && len(st.samples[tag]) < 80 {
 				name, _ := nb.str(r.NetnameOff)
-				st.samples[tag] = append(st.samples[tag], fmt.Sprintf("%s-%s %s AS%d", r.Start, r.End, name, asn))
+				org, _ := nb.str(r.OrgOff)
+				st.samples[tag] = append(st.samples[tag], fmt.Sprintf("%s-%s %s | %s | AS%d %v", r.Start, r.End, name, org, asn, slices.Sorted(maps.Keys(asTags[asn]))))
 			}
 		}
 		return nil
