@@ -141,11 +141,14 @@ const (
 	srcRIR      = "RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline"
 	srcCity     = "DB-IP City Lite geolocation, offline"
 	srcNetblock = "RIR WHOIS dumps, offline"
-	srcWhois    = "Live WHOIS (IANA referral to the RIR)"
-	srcCategory = "Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline"
-	srcRDNS     = "Live DNS PTR query"
-	srcRep      = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline"
-	srcRIPEStat = "Live RIPEstat announced-prefixes API"
+	// srcNetblockCountry is the country a range names for itself, shown when
+	// it differs from the RIR delegation of its parent allocation.
+	srcNetblockCountry = "Netblock registration in RIR WHOIS dumps (RIPE NCC, APNIC, AFRINIC), offline"
+	srcWhois           = "Live WHOIS (IANA referral to the RIR)"
+	srcCategory        = "Cloud provider ranges, Tor exits, VPN server lists, bgp.tools tags, PeeringDB, offline"
+	srcRDNS            = "Live DNS PTR query"
+	srcRep             = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, offline"
+	srcRIPEStat        = "Live RIPEstat announced-prefixes API"
 )
 
 // writeReputation writes the Reputation section: the lists naming the
@@ -324,7 +327,12 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 	if res.Name != "" {
 		rows = append(rows, [2]string{"Organization", srcASNames})
 	}
-	rows = append(rows, [2]string{"Country", srcRIR})
+	if res.NetblockCountry != "" && res.NetblockCountry != res.Country {
+		rows = append(rows, [2]string{"Country", srcNetblockCountry})
+		rows = append(rows, [2]string{"Allocated in", srcRIR})
+	} else {
+		rows = append(rows, [2]string{"Country", srcRIR})
+	}
 	if res.City != "" {
 		rows = append(rows, [2]string{"City", srcCity})
 	}
