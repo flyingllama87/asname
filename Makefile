@@ -4,6 +4,9 @@ BINDIR ?= /usr/local/bin
 PREFIX ?= /usr/local
 WEBDIR ?= $(PREFIX)/share/asname/web
 LISTEN ?= 127.0.0.1:8086
+# MAX_AGE, when set (e.g. 168h), fixes the service's refresh age; empty lets
+# the web UI choose it.
+MAX_AGE ?=
 UNITDIR ?= /etc/systemd/system
 USERUNITDIR ?= $(HOME)/.config/systemd/user
 GOOS ?= $(shell go env GOOS)
@@ -52,6 +55,7 @@ help:
 	@printf "  %-14s %s\n" "BUILDDIR" "Build output directory (current: $(BUILDDIR))"
 	@printf "  %-14s %s\n" "WEBDIR" "Web UI installation directory (current: $(WEBDIR))"
 	@printf "  %-14s %s\n" "LISTEN" "Address the service listens on (current: $(LISTEN))"
+	@printf "  %-14s %s\n" "MAX_AGE" "Service refresh age, e.g. 168h; empty lets the web UI set it (current: $(if $(MAX_AGE),$(MAX_AGE),empty))"
 	@printf "  %-14s %s\n" "UNITDIR" "System unit directory (current: $(UNITDIR))"
 	@printf "  %-14s %s\n" "USERUNITDIR" "User unit directory (current: $(USERUNITDIR))"
 	@printf "  %-14s %s\n" "VERSION" "Version string (current: $(VERSION))"
@@ -127,7 +131,9 @@ define check_installed
 endef
 
 define render_unit
-	sed -e 's|@BINDIR@|$(BINDIR)|g' -e 's|@WEBDIR@|$(WEBDIR)|g' -e 's|@LISTEN@|$(LISTEN)|g' $(1) > $(2)
+	@test -z "$(MAX_AGE)" || echo "$(MAX_AGE)" | grep -Eq '^([0-9]+(\.[0-9]+)?(h|m|s))+$$' || { echo "MAX_AGE must be a duration in hours, minutes or seconds, such as 168h for a week (not $(MAX_AGE))"; exit 1; }
+	sed -e 's|@BINDIR@|$(BINDIR)|g' -e 's|@WEBDIR@|$(WEBDIR)|g' -e 's|@LISTEN@|$(LISTEN)|g' \
+		-e 's|@EXTRA_ARGS@|$(if $(MAX_AGE), --max-age $(MAX_AGE))|g' $(1) > $(2)
 	chmod 644 $(2)
 endef
 

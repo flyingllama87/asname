@@ -14,7 +14,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=@BINDIR@/asname --rest --allow-updates --web-dir @WEBDIR@ --listen @LISTEN@
+ExecStart=@BINDIR@/asname --rest --allow-updates --web-dir @WEBDIR@ --listen @LISTEN@@EXTRA_ARGS@
 Environment=ASNAME_DIR=%S/asname
 Restart=on-failure
 RestartSec=10s

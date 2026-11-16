@@ -12,7 +12,7 @@ Documentation=https://github.com/flyingllama87/asname
 
 [Service]
 Type=simple
-ExecStart=@BINDIR@/asname --rest --allow-updates --web-dir @WEBDIR@ --listen @LISTEN@
+ExecStart=@BINDIR@/asname --rest --allow-updates --web-dir @WEBDIR@ --listen @LISTEN@@EXTRA_ARGS@
 Restart=on-failure
 RestartSec=10s
 NoNewPrivileges=yes
