@@ -1,4 +1,4 @@
-VERSION ?= 0.16.0
+VERSION ?= 0.17.0
 BUILDDIR ?= build
 BINDIR ?= /usr/local/bin
 PREFIX ?= /usr/local
