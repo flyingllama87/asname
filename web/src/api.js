@@ -66,21 +66,24 @@ export const api = {
   // online is {whois, prefixes}; a key left undefined keeps the server's
   // default, as asking for a lookup the server has turned off is an error.
   lookup: (target, { reverseDNS, online = {}, signal } = {}) => {
-    const p = new URLSearchParams({ q: target });
+    // text=true: each result also comes as the command line prints it, for
+    // Copy summary.
+    const p = new URLSearchParams({ q: target, text: 'true' });
     if (reverseDNS) p.set('reverse_dns', 'true');
     if (online.whois !== undefined) p.set('whois', String(online.whois));
     if (online.prefixes !== undefined) p.set('online_prefixes', String(online.prefixes));
     return request(`/v1/lookup?${p}`, { signal });
   },
   bulk: (targets, { reverseDNS, online = {}, signal } = {}) =>
-    request('/v1/bulk', {
+    request('/v1/bulk?text=true', {
       method: 'POST',
       body: { targets, reverse_dns: !!reverseDNS, whois: online.whois, online_prefixes: online.prefixes },
       signal,
     }),
   saveSettings: (body) => request('/v1/settings', { method: 'PUT', body }),
-  search: ({ q, scope, limit, family }, { signal } = {}) => {
+  search: ({ q, scope, limit, family, fuzzy }, { signal } = {}) => {
     const p = new URLSearchParams({ q, scope, limit: String(limit) });
+    if (fuzzy) p.set('fuzzy', 'true');
     if (family === 'v4') p.set('v4_only', 'true');
     if (family === 'v6') p.set('v6_only', 'true');
     return request(`/v1/search?${p}`, { signal });

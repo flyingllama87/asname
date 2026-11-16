@@ -42,6 +42,7 @@ import '@carbon/web-components/es/components/data-table/table-row.js';
 import '@carbon/web-components/es/components/data-table/table-cell.js';
 import '@carbon/web-components/es/components/radio-button/radio-button-group.js';
 import '@carbon/web-components/es/components/radio-button/radio-button.js';
+import '@carbon/web-components/es/components/toggle-tip/toggletip.js';
 
 import { iconLoader } from '@carbon/web-components/es/globals/internal/icon-loader.js';
 import Asleep20 from '@carbon/icons/es/asleep/20.js';
@@ -50,6 +51,17 @@ import Settings20 from '@carbon/icons/es/settings/20.js';
 
 import { html, nothing, render } from 'lit';
 import { api, ApiError, getApiBase, setApiBase } from './api.js';
+import {
+  asnReputationHelp,
+  categoryTagHelp,
+  COLUMN_HELP,
+  CONTROL_HELP,
+  FIELD_HELP,
+  findings,
+  reputationTagHelp,
+  summaryText,
+  whereIs,
+} from './help.js';
 
 const THEME_KEY = 'asname.theme';
 const PREFIX_PREVIEW = 50;
@@ -105,6 +117,7 @@ const state = {
     ran: '',
     asked: { rdns: false, online: false },
     showAll: {},
+    copied: '',
   },
   search: {
     q: '',
@@ -114,6 +127,8 @@ const state = {
     loading: false,
     error: '',
     data: null,
+    fuzzy: false,
+    ranFuzzy: false,
     sort: { asns: null, blocks: null },
   },
   db: { selected: new Set(), busy: false, error: '', notice: '', saving: '', settingsError: '' },
@@ -162,7 +177,8 @@ function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '');
   const [path, query = ''] = raw.split('?');
   const tab = ['lookup', 'search', 'databases'].includes(path) ? path : 'lookup';
-  return { tab, q: new URLSearchParams(query).get('q') || '' };
+  const p = new URLSearchParams(query);
+  return { tab, q: p.get('q') || '', fuzzy: p.get('fuzzy') === '1' };
 }
 
 function go(hash) {
@@ -171,13 +187,14 @@ function go(hash) {
 }
 
 function route() {
-  const { tab, q } = parseHash();
+  const { tab, q, fuzzy } = parseHash();
   state.tab = tab;
   if (tab === 'lookup' && q) {
     state.lookup.input = q;
     runLookup(q);
   } else if (tab === 'search' && q) {
     state.search.q = q;
+    state.search.fuzzy = fuzzy;
     runSearch();
   }
   update();
@@ -255,11 +272,11 @@ async function runSearch() {
   if (!s.q.trim()) return;
   searchAbort?.abort();
   searchAbort = new AbortController();
-  Object.assign(s, { loading: true, error: '', data: null });
+  Object.assign(s, { loading: true, error: '', data: null, ranFuzzy: s.fuzzy });
   update();
   try {
     s.data = await api.search(
-      { q: s.q.trim(), scope: s.scope, limit: s.limit, family: s.family },
+      { q: s.q.trim(), scope: s.scope, limit: s.limit, family: s.family, fuzzy: s.fuzzy },
       { signal: searchAbort.signal },
     );
   } catch (err) {
@@ -416,7 +433,7 @@ function sortRows(rows, sort, getters) {
 // sortHeader is a header cell that sorts its table when clicked. Carbon's
 // table would reorder the rows itself, behind lit's back, so the event is
 // taken here and the rows are rendered in order instead.
-function sortHeader(table, key, label) {
+function sortHeader(table, key, label, help) {
   const sort = state.search.sort[table];
   const dir = sort?.key === key ? sort.dir : 'none';
   return html`<cds-table-header-cell
@@ -427,7 +444,7 @@ function sortHeader(table, key, label) {
       e.stopPropagation();
       state.search.sort[table] = { key, dir: e.detail.sortDirection };
       update();
-    }}>${label}</cds-table-header-cell>`;
+    }}>${label}${help ? tip(label, help) : nothing}</cds-table-header-cell>`;
 }
 
 // ---------- views ----------
@@ -435,11 +452,16 @@ function sortHeader(table, key, label) {
 const asnLink = (asn, label) =>
   html`<button class="linkish mono" type="button" title="Look up ${asn}" @click=${() => go(`#/lookup?q=${encodeURIComponent(asn)}`)}>${label ?? asn}</button>`;
 
-const field = (label, body, source) =>
+// field is one labelled value on a result card, with where it came from
+// and an (i) explaining it.
+const field = (label, body, source, help) =>
   body === nothing || body === '' || body == null
     ? nothing
     : html`<div class="field">
-        <dt>${label}${source ? html` <span class="source">${source}</span>` : nothing}</dt>
+        <dt>
+          ${label}${source ? html` <span class="source">${source}</span>` : nothing}
+          ${help ? tip(label, help) : nothing}
+        </dt>
         <dd>${body}</dd>
       </div>`;
 
@@ -527,6 +549,27 @@ function bannerView() {
   </cds-actionable-notification>`;
 }
 
+// tip is an (i) that opens an explanation; body is text or a template.
+function tip(label, body, alignment = 'bottom-start') {
+  return html`<cds-toggletip class="tip" autoalign alignment=${alignment} button-label="About ${label}">
+    <div slot="body-text" class="tip-body">${body}</div>
+  </cds-toggletip>`;
+}
+
+// tagList explains each tag shown, under the field's own explanation.
+function tagList(intro, items) {
+  return html`<p>${intro}</p>
+    ${items.length ? html`<dl class="tip-tags">${items.map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>` : nothing}`;
+}
+
+// switchWithTip is a compact switch with its label beside it and an (i).
+function switchWithTip(label, checked, onChange, help, disabled = false) {
+  return html`<span class="switch">
+    <cds-toggle .hideLabel=${true} label-text=${label} ?checked=${checked} ?disabled=${disabled} @cds-toggle-changed=${onChange}></cds-toggle>
+    ${tip(label, help)}
+  </span>`;
+}
+
 // Lookup
 
 function lookupView() {
@@ -538,9 +581,6 @@ function lookupView() {
     const targets = targetsOf(text);
     if (targets.length) go(`#/lookup?q=${encodeURIComponent(targets.join('\n'))}`);
   };
-  const onlineWhat = [avail.whois ? 'whois for netblocks the offline index lacks' : '', avail.prefixes ? 'RIPEstat for prefixes' : '']
-    .filter(Boolean)
-    .join(', and ');
   return html`
     <p class="lede">Look up IP addresses, hostnames, URLs or ASNs, one per line. Answers come from the local databases.</p>
     <div class="form">
@@ -558,37 +598,21 @@ function lookupView() {
             submit();
           }
         }}></cds-textarea>
-      <div class="form-row toggles-row">
-        <cds-toggle
-          label-text="Reverse DNS"
-          label-a="On"
-          label-b="Off"
-          ?checked=${l.rdns}
-          @cds-toggle-changed=${(e) => (l.rdns = e.target.checked)}></cds-toggle>
+      <div class="form-row controls-row">
+        ${switchWithTip('Reverse DNS', l.rdns, (e) => (l.rdns = e.target.checked), CONTROL_HELP.rdns)}
         ${avail.whois || avail.prefixes
-          ? html`<div>
-              <cds-toggle
-                label-text="Online lookups"
-                label-a="On"
-                label-b="Off"
-                ?checked=${onlineOn()}
-                @cds-toggle-changed=${(e) => {
-                  l.online = e.target.checked;
-                  update();
-                }}></cds-toggle>
-              <div class="hint toggle-hint">Asks ${onlineWhat}, sending the address or ASN to them.</div>
-            </div>`
+          ? switchWithTip('Online lookups', onlineOn(), (e) => {
+              l.online = e.target.checked;
+              update();
+            }, CONTROL_HELP.online)
           : nothing}
-      </div>
-      <div class="form-row">
-        <div class="actions">
-          <cds-button @click=${submit} ?disabled=${l.loading}>Look up</cds-button>
-          ${l.loading ? html`<cds-inline-loading status="active">Looking up…</cds-inline-loading>` : nothing}
-        </div>
+        <cds-button @click=${submit} ?disabled=${l.loading}>Look up</cds-button>
+        ${l.loading ? html`<cds-inline-loading status="active">Looking up…</cds-inline-loading>` : nothing}
       </div>
     </div>
     <div class="notifications">
       ${l.error ? errorNote('Lookup failed', l.error) : nothing}
+      ${l.copied ? html`<cds-inline-notification kind="success" low-contrast hide-close-button title=${l.copied}></cds-inline-notification>` : nothing}
       ${l.errors.map((e) => errorNote(e.target, e.error))}
     </div>
     <div class="results">
@@ -598,6 +622,39 @@ function lookupView() {
         : nothing}
     </div>
   `;
+}
+
+async function copySummary(r) {
+  const l = state.lookup;
+  try {
+    await navigator.clipboard.writeText(summaryText(r, state.status?.loaded || {}));
+    l.copied = `Copied the summary of ${r.target || r.ip}.`;
+  } catch {
+    l.error = 'The browser refused clipboard access.';
+  }
+  update();
+  setTimeout(() => {
+    l.copied = '';
+    update();
+  }, 3000);
+}
+
+const LEVEL_LABEL = { high: 'High', medium: 'Caution', info: 'Note', ok: 'OK' };
+
+function findingsView(r, loaded) {
+  const where = whereIs(r);
+  const points = findings(r, loaded);
+  if (!where && !points.length) return nothing;
+  const worst = points[0]?.level || 'info';
+  return html`<section class="findings findings-${worst}" aria-label="What this means">
+    <h4>What this means</h4>
+    ${where ? html`<p class="where"><strong>Where is it?</strong> ${where}</p>` : nothing}
+    ${points.length
+      ? html`<ul>
+          ${points.map((f) => html`<li class="finding finding-${f.level}"><span class="level">${LEVEL_LABEL[f.level]}</span><span>${f.text}</span></li>`)}
+        </ul>`
+      : nothing}
+  </section>`;
 }
 
 function resultCard(r, i) {
@@ -642,14 +699,14 @@ function resultCard(r, i) {
   // netblock names a different one; an ASN's from its AS name.
   let countryFields;
   if (isASN) {
-    countryFields = field('Country', r.country ? countryText(r.country) : unknown(), 'AS registration');
+    countryFields = field('Country', r.country ? countryText(r.country) : unknown(), 'AS registration', FIELD_HELP.countryASN);
     sources.push(['Country', SRC.asNames]);
   } else if (nbCountry) {
-    countryFields = html`${field('Country', countryText(nbCountry), 'netblock registration')}
-      ${field('Allocated in', r.country ? countryText(r.country) : unknown(), 'RIR allocation')}`;
-    sources.push(['Country', SRC.netblockCountry], ['Allocated in', SRC.rir]);
+    countryFields = html`${field('Registered in', countryText(nbCountry), 'netblock registration', FIELD_HELP.countryNetblock)}
+      ${field('Allocated in', r.country ? countryText(r.country) : unknown(), 'RIR allocation', FIELD_HELP.allocatedIn)}`;
+    sources.push(['Registered in', SRC.netblockCountry], ['Allocated in', SRC.rir]);
   } else {
-    countryFields = field('Country', r.country ? countryText(r.country) : unknown(), 'RIR registration');
+    countryFields = field('Country', r.country ? countryText(r.country) : unknown(), 'RIR registration', FIELD_HELP.countryRIR);
     sources.push(['Country', SRC.rir]);
   }
 
@@ -664,9 +721,10 @@ function resultCard(r, i) {
   const askedWhois = l.asked.online && avail.whois;
   let netblockBody = nothing;
   if (!isASN && nb) {
-    netblockBody = html`${nb.organization || nb.raw}
+    const name = nb.organization || nb.raw;
+    netblockBody = html`${name}
       <span class="meta">
-        ${[nb.handle && nb.handle !== nb.organization ? nb.handle : '', nb.created ? `registered ${nb.created}` : '', nb.live_query ? 'live whois' : 'offline index']
+        ${[nb.handle && nb.handle !== name ? nb.handle : '', nb.created ? `registered ${nb.created}` : '', nb.live_query ? 'live whois' : 'offline index']
           .filter(Boolean)
           .join(' · ')}
       </span>`;
@@ -680,15 +738,24 @@ function resultCard(r, i) {
   }
 
   // Category
+  const catTags = r.category?.tags || [];
   let categoryBody = nothing;
-  if (r.category?.tags?.length) {
-    categoryBody = html`<div class="tags">${r.category.tags.map((t) => html`<cds-tag size="sm" type="teal">${t}</cds-tag>`)}</div>`;
+  if (catTags.length) {
+    categoryBody = html`<div class="tags">${catTags.map((t) => html`<cds-tag size="sm" type=${t.includes(':') || t === 'tor-exit' || t === 'anonymised-holder' ? 'purple' : 'teal'}>${t}</cds-tag>`)}</div>`;
     sources.push(['Category', SRC.category]);
   } else if (loaded.category) {
     categoryBody = unknown();
     sources.push(['Category', SRC.category]);
   }
+  const categoryHelp = tagList(FIELD_HELP.category, catTags.map((t) => [t, categoryTagHelp(t)]));
 
+  // Reputation
+  const repHelp = rep
+    ? tagList(FIELD_HELP.reputation, [
+        ...(rep.lists || []).map((e) => [e, reputationTagHelp(e)]),
+        ...(rep.asn ? [['ASN', asnReputationHelp(rep.asn)]] : []),
+      ])
+    : FIELD_HELP.reputation;
   if (rep) sources.push(['Reputation', SRC.rep]);
 
   // Reverse DNS: only when asked for.
@@ -707,20 +774,24 @@ function resultCard(r, i) {
           <div class="card-title">${title}</div>
           ${sub ? html`<div class="card-sub">${sub}</div>` : nothing}
         </div>
-        <cds-button kind="ghost" size="sm" @click=${() => copyJSON(r)}>Copy JSON</cds-button>
+        <div class="card-actions">
+          <cds-button kind="ghost" size="sm" @click=${() => copySummary(r)}>Copy summary</cds-button>
+          <cds-button kind="ghost" size="sm" @click=${() => copyJSON(r)}>Copy JSON</cds-button>
+        </div>
       </div>
+      ${findingsView(r, loaded)}
       <dl class="fields">
-        ${field('ASN', asnBody)}
+        ${field('ASN', asnBody, '', FIELD_HELP.asn)}
         ${countryFields}
-        ${field('City', cityBody, 'DB-IP geolocation')}
-        ${field('Netblock', netblockBody)}
-        ${field('Category', categoryBody)}
-        ${field('Reputation', rep ? reputationView(rep, isASN) : nothing)}
-        ${field('Reverse DNS', rdnsBody)}
+        ${field('City', cityBody, 'DB-IP geolocation', FIELD_HELP.city)}
+        ${field('Netblock', netblockBody, '', FIELD_HELP.netblock)}
+        ${field('Category', categoryBody, '', categoryHelp)}
+        ${field('Reputation', rep ? reputationView(rep, isASN) : nothing, '', repHelp)}
+        ${field('Reverse DNS', rdnsBody, '', FIELD_HELP.rdns)}
       </dl>
       ${r.prefixes
         ? html`<div class="prefixes">
-            <h3>Announced prefixes</h3>
+            <h3>Announced prefixes ${tip('Announced prefixes', FIELD_HELP.prefixes)}</h3>
             <div class="hint">
               ${r.prefixes.total} total · ${r.prefixes.ipv4_count} IPv4 · ${r.prefixes.ipv6_count} IPv6
               · ${r.prefixes.source === 'ripe-stat' ? 'live from RIPEstat' : 'offline index'}
@@ -741,6 +812,7 @@ function resultCard(r, i) {
       ${sources.length
         ? html`<details class="sources">
             <summary>Data sources</summary>
+            <p class="hint">${FIELD_HELP.sources}</p>
             <dl>${sources.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
           </details>`
         : nothing}
@@ -748,8 +820,15 @@ function resultCard(r, i) {
   `;
 }
 
+// asnSummary drops the ASN-DROP clause the tag beside it already says.
+function asnSummary(asn) {
+  const s = asn?.summary || '';
+  return asn?.spamhaus_asn_drop ? s.replace(/^Spamhaus ASN-DROP(; )?/, '') : s;
+}
+
 function reputationView(rep, isASN) {
   const asn = rep.asn;
+  const summary = asnSummary(asn);
   return html`
     ${isASN
       ? nothing
@@ -759,7 +838,7 @@ function reputationView(rep, isASN) {
           ? html`<cds-tag size="sm" type="red">Listed</cds-tag>`
           : html`<span>Address not listed</span>`}
     ${asn?.spamhaus_asn_drop ? html`<div class="tags"><cds-tag size="sm" type="red">ASN on Spamhaus ASN-DROP</cds-tag></div>` : nothing}
-    ${asn?.summary ? html`<span class="meta">ASN: ${asn.summary}</span>` : nothing}
+    ${summary ? html`<span class="meta">ASN: ${summary}</span>` : nothing}
   `;
 }
 
@@ -771,37 +850,15 @@ function searchView() {
     s.q = document.getElementById('search-q')?.value ?? s.q;
     const limit = parseInt(document.getElementById('search-limit')?.value, 10);
     s.limit = Number.isFinite(limit) && limit > 0 ? limit : 50;
-    if (s.q.trim()) go(`#/search?q=${encodeURIComponent(s.q.trim())}`);
+    if (s.q.trim()) go(`#/search?q=${encodeURIComponent(s.q.trim())}${s.fuzzy ? '&fuzzy=1' : ''}`);
   };
   const d = s.data;
   return html`
-    <p class="lede">Search AS names and, with the netblock database, the organisations and network names registered in whois.</p>
-    <details class="tips">
-      <summary>Search tips</summary>
-      <p>
-        A search matches any part of a name, ignoring case, but otherwise letter for letter: spaces, hyphens and punctuation
-        have to line up. Organisations are registered in more than one form, so try several:
-      </p>
-      <ul>
-        <li><strong>The acronym or handle:</strong> <code>MSSTATE</code>, <code>UMMC</code>, <code>AWS</code>. AS names start with a short handle.</li>
-        <li><strong>The full name:</strong> <code>Mississippi State University</code>.</li>
-        <li>
-          <strong>The name without spaces, and with them:</strong> <code>colocrossing</code> finds ColoCrossing's ASNs and netblocks,
-          <code>colo crossing</code> finds nothing; <code>hostbaltic</code> and <code>host baltic</code> each find some the other misses.
-        </li>
-        <li><strong>With hyphens or underscores:</strong> handles and netnames often join words that way, as in <code>CLOUDFLARE-MTC</code> or <code>AMAZON-02</code>.</li>
-        <li>
-          <strong>One distinctive word:</strong> <code>cloudflare</code> rather than <code>Cloudflare, Inc.</code>. Leave out
-          <code>Inc</code>, <code>LLC</code>, <code>Ltd</code>, <code>GmbH</code>, <code>SRL</code>, <code>Pty</code> and commas, which vary between registrations.
-        </li>
-        <li><strong>Part of a word:</strong> <code>flare</code> or <code>missis</code>, which also catches misspellings and plurals.</li>
-        <li><strong>Common abbreviations:</strong> <code>Univ</code>, <code>Dept</code>, <code>Govt</code>, <code>Intl</code>, <code>Telecom</code>, as well as the words in full.</li>
-        <li><strong>Former names, parent companies and brands:</strong> space often stays registered to an old or parent name (<code>Twitter</code>, <code>Facebook</code>, <code>Level 3</code>).</li>
-        <li><strong>The name in the local language</strong>, as well as its English form.</li>
-      </ul>
-      <p>Click a column heading to sort the results, and an ASN to look it up.</p>
-    </details>
-    <div class="form">
+    <p class="lede">
+      Search AS names and, with the netblock database, the organisations and network names registered in whois. Search
+      only reads the local databases; it never goes online.
+    </p>
+    <div class="form search-form">
       <div class="form-row">
         <cds-text-input
           id="search-q"
@@ -811,7 +868,7 @@ function searchView() {
           .value=${s.q}
           @input=${(e) => (s.q = e.target.value)}
           @keydown=${(e) => e.key === 'Enter' && submit()}></cds-text-input>
-        <cds-number-input id="search-limit" label="Limit" min="1" max="10000" step="10" .value=${String(s.limit)}></cds-number-input>
+        <cds-number-input id="search-limit" class="limit" label="Limit" min="1" max="10000" step="10" .value=${String(s.limit)}></cds-number-input>
       </div>
       <div class="form-row">
         <cds-radio-button-group
@@ -823,17 +880,33 @@ function searchView() {
           <cds-radio-button label-text="AS names" value="asns" ?checked=${s.scope === 'asns'}></cds-radio-button>
           <cds-radio-button label-text="Netblocks" value="netblocks" ?checked=${s.scope === 'netblocks'}></cds-radio-button>
         </cds-radio-button-group>
-        <cds-select label-text="Address family" value=${s.family} @cds-select-selected=${(e) => (s.family = e.target.value)}>
+        <cds-select class="family" label-text="Address family" value=${s.family} @cds-select-selected=${(e) => (s.family = e.target.value)}>
           <cds-select-item value="any">IPv4 and IPv6</cds-select-item>
           <cds-select-item value="v4">IPv4 only</cds-select-item>
           <cds-select-item value="v6">IPv6 only</cds-select-item>
         </cds-select>
-        <div class="actions">
-          <cds-button @click=${submit} ?disabled=${s.loading}>Search</cds-button>
-          ${s.loading ? html`<cds-inline-loading status="active">Searching…</cds-inline-loading>` : nothing}
-        </div>
+      </div>
+      <div class="form-row controls-row">
+        ${switchWithTip('Fuzzy match', s.fuzzy, (e) => (s.fuzzy = e.target.checked), CONTROL_HELP.fuzzy)}
+        <cds-button @click=${submit} ?disabled=${s.loading}>Search</cds-button>
+        ${s.loading ? html`<cds-inline-loading status="active">Searching…</cds-inline-loading>` : nothing}
       </div>
     </div>
+    <details class="tips">
+      <summary>Search tips</summary>
+      <p>
+        A plain search matches any part of a name, ignoring case, but otherwise letter for letter. Fuzzy match also
+        ignores spaces and punctuation and matches word by word, which covers most spellings. Beyond that, try:
+      </p>
+      <ul>
+        <li><strong>The acronym or handle:</strong> <code>MSSTATE</code>, <code>UMMC</code>, <code>AWS</code>. AS names start with a short handle.</li>
+        <li><strong>One distinctive word</strong> rather than the full legal name: <code>cloudflare</code>, not <code>Cloudflare, Inc.</code></li>
+        <li><strong>Part of a word:</strong> <code>missis</code> finds Mississippi and Mississauga.</li>
+        <li><strong>Former names, parent companies and brands:</strong> space often stays registered to an old or parent name (<code>Twitter</code>, <code>Facebook</code>, <code>Level 3</code>).</li>
+        <li><strong>The name in the local language</strong>, as well as its English form.</li>
+      </ul>
+      <p>Click a column heading to sort the results, and an ASN to look it up.</p>
+    </details>
     <div class="notifications">${s.error ? errorNote('Search failed', s.error) : nothing}</div>
     ${d ? searchResults(d) : nothing}
   `;
@@ -847,9 +920,18 @@ const prefixCount = (a) => (a.ipv4_prefixes?.length || 0) + (a.ipv6_prefixes?.le
 // ASN-DROP first, then by the share of the ASN's space that is listed.
 const asnListedShare = (a) => (a.reputation ? (a.reputation.spamhaus_asn_drop ? 1000 : 0) + (a.reputation.listed_share_pct || 0) : '');
 
+const MATCH_ORDER = { exact: 1, compact: 2, words: 3 };
+const MATCH_TAG = { exact: ['green', 'exact'], compact: ['cyan', 'compact'], words: ['purple', 'words'] };
+const matchCell = (m) => {
+  const [type, label] = MATCH_TAG[m] || ['gray', m || ''];
+  return html`<cds-table-cell><cds-tag size="sm" type=${type}>${label}</cds-tag></cds-table-cell>`;
+};
+
 function searchResults(d) {
   const sort = state.search.sort;
+  const fuzzy = state.search.ranFuzzy;
   const asns = sortRows(d.asns || [], sort.asns, {
+    match: (a) => MATCH_ORDER[a.match] ?? '',
     asn: (a) => asnNumber(a.asn),
     name: (a) => a.name,
     country: (a) => a.country,
@@ -858,6 +940,7 @@ function searchResults(d) {
   });
   const blocks = sortRows(d.results || [], sort.blocks, {
     // IPv4 numerically; IPv6 after it, as text.
+    match: (b) => MATCH_ORDER[b.match] ?? '',
     range: (b) => (b.is_v6 ? `~${b.range_start}` : ipv4Number(b.range_start)),
     netname: (b) => b.netname,
     org: (b) => b.org,
@@ -872,16 +955,18 @@ function searchResults(d) {
                 <cds-table size="sm" use-zebra-styles>
                   <cds-table-head>
                     <cds-table-header-row>
+                      ${fuzzy ? sortHeader('asns', 'match', 'Match', COLUMN_HELP.match) : nothing}
                       ${sortHeader('asns', 'asn', 'ASN')}
                       ${sortHeader('asns', 'name', 'Name')}
                       ${sortHeader('asns', 'country', 'Country')}
-                      ${sortHeader('asns', 'prefixes', 'Prefixes')}
-                      ${sortHeader('asns', 'reputation', 'Reputation')}
+                      ${sortHeader('asns', 'prefixes', 'Prefixes', COLUMN_HELP.prefixes)}
+                      ${sortHeader('asns', 'reputation', 'Reputation', COLUMN_HELP.asnReputation)}
                     </cds-table-header-row>
                   </cds-table-head>
                   <cds-table-body>
                     ${asns.map(
                       (a) => html`<cds-table-row>
+                        ${fuzzy ? matchCell(a.match) : nothing}
                         <cds-table-cell class="nowrap">${asnLink(a.asn)}</cds-table-cell>
                         <cds-table-cell class="wrap">${a.name}</cds-table-cell>
                         <cds-table-cell>${a.country || ''}</cds-table-cell>
@@ -890,7 +975,7 @@ function searchResults(d) {
                           ${a.reputation?.spamhaus_asn_drop
                             ? html`<cds-tag size="sm" type="red">Spamhaus ASN-DROP</cds-tag>`
                             : nothing}
-                          ${a.reputation?.summary || ''}
+                          <span class=${a.reputation?.listed || a.reputation?.spamhaus_asn_drop ? '' : 'muted'}>${asnSummary(a.reputation)}</span>
                         </cds-table-cell>
                       </cds-table-row>`,
                     )}
@@ -906,6 +991,7 @@ function searchResults(d) {
                 <cds-table size="sm" use-zebra-styles>
                   <cds-table-head>
                     <cds-table-header-row>
+                      ${fuzzy ? sortHeader('blocks', 'match', 'Match', COLUMN_HELP.match) : nothing}
                       ${sortHeader('blocks', 'range', 'Range')}
                       ${sortHeader('blocks', 'netname', 'Network')}
                       ${sortHeader('blocks', 'org', 'Organisation')}
@@ -916,13 +1002,14 @@ function searchResults(d) {
                   <cds-table-body>
                     ${blocks.map(
                       (b) => html`<cds-table-row>
+                        ${fuzzy ? matchCell(b.match) : nothing}
                         <cds-table-cell class="mono">${(b.cidrs?.length ? b.cidrs : [`${b.range_start} – ${b.range_end}`]).map(
                           (c) => html`<div>${c}</div>`,
                         )}</cds-table-cell>
                         <cds-table-cell class="wrap">${b.netname || ''}</cds-table-cell>
                         <cds-table-cell class="wrap">${b.org || ''}</cds-table-cell>
                         <cds-table-cell class="wrap">
-                          ${b.asn ? html`${asnLink(b.asn)} ${b.as_name || ''}` : ''}
+                          ${b.asn && b.asn !== 'N/A' ? html`${asnLink(b.asn)} ${b.as_name || ''}` : html`<span class="muted">Not announced</span>`}
                         </cds-table-cell>
                         <cds-table-cell>${b.country || ''}</cds-table-cell>
                       </cds-table-row>`,
@@ -982,6 +1069,7 @@ function settingsPanel(st) {
       ${d.settingsError ? errorNote('Setting not saved', d.settingsError) : nothing}
       <div class="form-row settings-row">
         <cds-select
+          class="max-age"
           label-text="Refresh databases older than"
           helper-text=${ageHelp}
           value=${String(hours)}
@@ -992,18 +1080,8 @@ function settingsPanel(st) {
           }}>
           ${choices.map(([h, label]) => html`<cds-select-item value=${String(h)}>${label}</cds-select-item>`)}
         </cds-select>
-        <div>
-          <cds-toggle
-            label-text="IPv6 routes"
-            label-a="Imported"
-            label-b="Off"
-            ?checked=${!!store.ipv6_routes}
-            ?disabled=${!editable || d.saving === 'ipv6'}
-            @cds-toggle-changed=${(e) => saveSetting('ipv6', { ipv6_routes: e.target.checked })}></cds-toggle>
-          <div class="hint toggle-hint">
-            Whether ASN updates import IPv6 routes (~25 MB more). Takes effect at the next update of the ASN database.
-          </div>
-        </div>
+        ${tip('Refresh age', CONTROL_HELP.maxAge)}
+        ${switchWithTip('Import IPv6 routes', !!store.ipv6_routes, (e) => saveSetting('ipv6', { ipv6_routes: e.target.checked }), CONTROL_HELP.ipv6, !editable || d.saving === 'ipv6')}
         ${d.saving ? html`<cds-inline-loading status="active">Saving…</cds-inline-loading>` : nothing}
       </div>
     </section>
@@ -1058,7 +1136,7 @@ function databasesView() {
           <cds-table-header-row>
             <cds-table-header-cell><span class="sr-only">Select</span></cds-table-header-cell>
             <cds-table-header-cell>Database</cds-table-header-cell>
-            <cds-table-header-cell>Status</cds-table-header-cell>
+            <cds-table-header-cell>Status ${tip('Status', COLUMN_HELP.status)}</cds-table-header-cell>
             <cds-table-header-cell>Updated</cds-table-header-cell>
             <cds-table-header-cell>Size</cds-table-header-cell>
             <cds-table-header-cell>Notes</cds-table-header-cell>
@@ -1086,7 +1164,7 @@ function databasesView() {
               </cds-table-cell>
               <cds-table-cell>
                 ${db.name}
-                <div class="hint mono">${db.path}</div>
+                <div class="hint mono" title=${db.path}>${db.path.split('/').pop()}</div>
               </cds-table-cell>
               <cds-table-cell>
                 <div class="tags">${dbTags(db, st.loaded || {}).map(([type, text]) => html`<cds-tag size="sm" type=${type}>${text}</cds-tag>`)}</div>
@@ -1242,7 +1320,6 @@ function view() {
   return html`
     ${headerView()}
     <main id="main-content">
-      <h1>asname</h1>
       ${tabsView()}
       <div class="notifications">${bannerView()}</div>
       ${body}

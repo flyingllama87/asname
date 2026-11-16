@@ -153,18 +153,18 @@ h3 {
   gap: $spacing-05 $spacing-07;
 }
 
-.field dt {
+.field > dt {
   @include type.type-style('label-01');
   color: $text-secondary;
   margin-bottom: $spacing-02;
 }
 
-.field dd {
+.field > dd {
   @include type.type-style('body-01');
   overflow-wrap: anywhere;
 }
 
-.field dd .meta {
+.field > dd .meta {
   @include type.type-style('helper-text-01');
   color: $text-helper;
   display: block;
@@ -290,7 +290,7 @@ code {
 }
 
 // Where a field's value comes from, after its label: "RIR registration".
-.field dt .source {
+.field > dt .source {
   @include type.type-style('helper-text-01');
   color: $text-helper;
   margin-left: $spacing-02;
@@ -303,10 +303,6 @@ code {
 // A field that was checked and came back empty.
 .muted {
   color: $text-secondary;
-}
-
-.toggles-row {
-  align-items: flex-start;
 }
 
 .toggle-hint {
@@ -387,4 +383,148 @@ details.tips {
     color: $text-primary;
     font-weight: 600;
   }
+}
+
+// (i) explanations
+.tip {
+  vertical-align: middle;
+  margin-left: $spacing-01;
+}
+
+.tip-body {
+  @include type.type-style('body-01');
+  text-align: left;
+  color: inherit;
+  max-width: 26rem;
+  white-space: normal;
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: normal;
+
+  p + dl,
+  p + p {
+    margin-top: $spacing-03;
+  }
+}
+
+.tip-tags {
+  display: grid;
+  gap: $spacing-02;
+
+  dt,
+  dd {
+    color: inherit;
+  }
+
+  dt {
+    font-weight: 600;
+    @include type.type-style('code-01');
+    font-family: 'IBM Plex Mono', monospace;
+    margin-top: $spacing-03;
+  }
+}
+
+.field > dt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 $spacing-02;
+}
+
+// A switch with its label beside it and an (i).
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-02;
+}
+
+.controls-row {
+  align-items: center;
+  gap: $spacing-06;
+}
+
+.card-actions {
+  display: flex;
+  gap: $spacing-02;
+}
+
+// What this means
+.findings {
+  background: $layer-02;
+  border-left: 3px solid $support-info;
+  padding: $spacing-04 $spacing-05;
+  margin-bottom: $spacing-06;
+
+  &.findings-high {
+    border-left-color: $support-error;
+  }
+
+  &.findings-medium {
+    border-left-color: $support-warning;
+  }
+
+  &.findings-ok {
+    border-left-color: $support-success;
+  }
+
+  h4 {
+    @include type.type-style('heading-compact-01');
+    margin-bottom: $spacing-03;
+  }
+
+  .where {
+    margin-bottom: $spacing-03;
+  }
+
+  ul {
+    display: grid;
+    gap: $spacing-02;
+  }
+}
+
+.finding {
+  display: flex;
+  gap: $spacing-03;
+  align-items: baseline;
+
+  .level {
+    @include type.type-style('label-01');
+    flex: 0 0 4.25rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  &.finding-high .level {
+    color: $support-error;
+  }
+
+  &.finding-medium .level {
+    color: $text-primary;
+  }
+
+  &.finding-info .level {
+    color: $support-info;
+  }
+
+  &.finding-ok .level {
+    color: $support-success;
+  }
+}
+
+// Search form: fields sized to what they hold, not full rows.
+.search-form {
+  max-width: 56rem;
+
+  .limit {
+    flex: 0 0 9rem;
+  }
+
+  .family {
+    flex: 0 0 14rem;
+  }
+}
+
+.max-age {
+  flex: 0 0 18rem;
 }

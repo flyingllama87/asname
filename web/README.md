@@ -41,6 +41,11 @@ another port talking to asname directly.
   tabs and the Settings modal, rendered with lit's `render()`. Routes live in
   the hash (`#/lookup?q=…`, `#/search?q=…`, `#/databases`), so a lookup can be
   linked to and the back button works.
+- `src/help.js` holds every explanation the UI shows, in one place: the (i)
+  text for each field, control, column and tag, `findings()` (a result's "What
+  this means" points, worst first) and `whereIs()` (which country an address is
+  most likely in). It is written for someone new to triage; keep it plain, and
+  in line with the README's descriptions of each source.
 - `src/api.js` is the REST client. The API base defaults to the page's own
   origin; Settings stores another in `localStorage` (`asname.apiBase`). That,
   and the theme, are per browser; the refresh age and IPv6 routes are server
@@ -66,6 +71,10 @@ The IBM Plex fonts are bundled, so the UI loads nothing from the internet.
 - A `cds-checkbox` inside a `cds-table-row` is taken for the row's selection
   checkbox; stop its `cds-checkbox-changed` event from bubbling, as the
   Databases tab does.
+- Carbon's attribute names are not always the dashed form of the property:
+  `cds-toggle`'s `hideLabel` has no declared attribute, so lit's default
+  `hidelabel` applies and `hide-label` does nothing. Bind the property
+  (`.hideLabel=${true}`) when in doubt, and check the decorator in the `.js`.
 - Sortable tables sort in the page's state, not in Carbon's table, which would
   reorder the rows behind lit's back: `sortHeader()` cancels the header cell's
   `cds-table-header-cell-sort` event and renders the rows in order.
