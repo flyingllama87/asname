@@ -196,7 +196,6 @@ h3 {
 .form {
   display: grid;
   gap: $spacing-06;
-  max-width: 48rem;
   margin-bottom: $spacing-07;
 }
 
@@ -1252,9 +1251,6 @@ a.header-api {
   margin-bottom: $spacing-05;
   border-bottom: 1px solid $border-subtle;
 
-  .glossary-filter {
-    max-width: 32rem;
-  }
 }
 
 .glossary-nav {
@@ -1265,7 +1261,6 @@ a.header-api {
 }
 
 .glossary-section {
-  max-width: 64rem;
   margin-bottom: $spacing-09;
   scroll-margin-top: 10rem;
 
