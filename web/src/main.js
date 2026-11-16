@@ -2065,7 +2065,9 @@ function glossaryView() {
   const sections = [...GLOSSARY, tagGlossary()]
     .map((sec) => ({
       ...sec,
-      terms: q ? sec.terms.filter((t) => `${t.term} ${t.aka || ''} ${t.body}`.toLowerCase().includes(q)) : sec.terms,
+      terms: q
+        ? sec.terms.filter((t) => [t.term, t.aka, t.body, ...(t.practice || []), ...(t.detail || [])].join(' ').toLowerCase().includes(q))
+        : sec.terms,
     }))
     .filter((sec) => sec.terms.length);
   return html`
@@ -2100,9 +2102,21 @@ function glossaryView() {
                     ${t.aka ? html`<span class="g-aka">${t.aka}</span>` : nothing}
                   </dt>
                   <dd>
-                    ${t.body}
+                    <p class="g-body">${t.body}</p>
+                    ${t.practice?.length
+                      ? html`<div class="g-block g-practice">
+                          <div class="g-label">In an investigation</div>
+                          <ul>${t.practice.map((x) => html`<li>${x}</li>`)}</ul>
+                        </div>`
+                      : nothing}
+                    ${t.detail?.length
+                      ? html`<div class="g-block g-detail">
+                          <div class="g-label">Under the hood</div>
+                          <ul>${t.detail.map((x) => html`<li>${x}</li>`)}</ul>
+                        </div>`
+                      : nothing}
                     ${t.links?.length
-                      ? html`<span class="g-links">${t.links.map(([label, url]) => html`<a href=${url} target="_blank" rel="noopener noreferrer">${label}</a>`)}</span>`
+                      ? html`<div class="g-links">${t.links.map(([label, url]) => html`<a href=${url} target="_blank" rel="noopener noreferrer">${label}</a>`)}</div>`
                       : nothing}
                   </dd>
                 </div>`,

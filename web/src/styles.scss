@@ -159,8 +159,6 @@ body {
 
 main {
   padding: calc(3rem + #{$spacing-06}) $spacing-07 $spacing-09;
-  max-width: 96rem;
-  margin: 0 auto;
 
   @media (max-width: 42rem) {
     padding-left: $spacing-05;
@@ -186,7 +184,6 @@ h3 {
   @include type.type-style('body-02');
   color: $text-secondary;
   margin-bottom: $spacing-06;
-  max-width: 48rem;
 }
 
 .tabs {
@@ -384,7 +381,6 @@ code {
 
 .wrap {
   overflow-wrap: anywhere;
-  max-width: 32rem;
 }
 
 // Databases
@@ -459,7 +455,6 @@ code {
 
 .toggle-hint {
   margin-top: $spacing-02;
-  max-width: 22rem;
 }
 
 .settings-grid {
@@ -525,7 +520,6 @@ details.sources dl {
 
 details.tips {
   margin: 0 0 $spacing-06;
-  max-width: 48rem;
 
   p,
   ul {
@@ -678,7 +672,6 @@ details.tips {
 
 // Search form: fields sized to what they hold, not full rows.
 .search-form {
-  max-width: 56rem;
 
   .limit {
     flex: 0 0 9rem;
@@ -906,7 +899,6 @@ details.tips {
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: $spacing-05 $spacing-05;
   align-items: end;
-  max-width: 96rem;
 
   @media (max-width: 82rem) {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1303,11 +1295,39 @@ a.header-api {
     @include type.type-style('body-01');
   }
 
+  .g-body {
+    margin-bottom: $spacing-03;
+  }
+
+  .g-block {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr;
+    gap: $spacing-04;
+    margin-top: $spacing-03;
+
+    ul {
+      list-style: disc;
+      padding-left: $spacing-05;
+      display: grid;
+      gap: $spacing-02;
+    }
+  }
+
+  .g-label {
+    @include type.type-style('label-01');
+    color: $text-secondary;
+    padding-top: 2px;
+  }
+
+  .g-detail li {
+    color: $text-secondary;
+  }
+
   .g-links {
-    display: inline-flex;
+    display: flex;
     flex-wrap: wrap;
-    gap: $spacing-02 $spacing-04;
-    margin-left: $spacing-03;
+    gap: $spacing-02 $spacing-05;
+    margin-top: $spacing-04;
 
     a {
       @include type.type-style('label-01');
