@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -77,6 +78,7 @@ type rdapBootstrap struct {
 
 type rdapService struct {
 	prefixes []netip.Prefix
+	asns     [][2]uint32 // inclusive ranges, from the asn.json file
 	base     string
 }
 
@@ -247,6 +249,22 @@ func (c *RDAPClient) serverFor(ctx context.Context, addr netip.Addr) (string, er
 	return best, nil
 }
 
+// serverForASN returns the RDAP base URL whose ASN ranges hold asn.
+func (c *RDAPClient) serverForASN(ctx context.Context, asn uint32) (string, error) {
+	boot, err := c.bootstrap(ctx, "asn")
+	if err != nil {
+		return "", err
+	}
+	for _, svc := range boot.services {
+		for _, r := range svc.asns {
+			if asn >= r[0] && asn <= r[1] {
+				return svc.base, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no RDAP server is listed for AS%d", asn)
+}
+
 // bootstrap returns the parsed bootstrap file for family, from memory, the
 // cache directory or IANA, in that order. A stale copy is used when IANA
 // cannot be reached.
@@ -355,20 +373,36 @@ func parseRDAPBootstrap(data []byte) (*rdapBootstrap, error) {
 		if base == "" {
 			continue
 		}
-		var prefixes []netip.Prefix
+		entry := rdapService{base: base}
 		for _, p := range svc[0] {
 			if pfx, err := netip.ParsePrefix(p); err == nil {
-				prefixes = append(prefixes, pfx.Masked())
+				entry.prefixes = append(entry.prefixes, pfx.Masked())
+			} else if r, ok := parseASNRange(p); ok {
+				entry.asns = append(entry.asns, r)
 			}
 		}
-		if len(prefixes) > 0 {
-			b.services = append(b.services, rdapService{prefixes: prefixes, base: base})
+		if len(entry.prefixes) > 0 || len(entry.asns) > 0 {
+			b.services = append(b.services, entry)
 		}
 	}
 	if len(b.services) == 0 {
 		return nil, errors.New("no HTTPS services listed")
 	}
 	return b, nil
+}
+
+// parseASNRange reads an asn.json entry: "64512-65534" or a single "2043".
+func parseASNRange(s string) ([2]uint32, bool) {
+	lo, hi, isRange := strings.Cut(s, "-")
+	if !isRange {
+		hi = lo
+	}
+	a, err1 := strconv.ParseUint(lo, 10, 32)
+	b, err2 := strconv.ParseUint(hi, 10, 32)
+	if err1 != nil || err2 != nil || a > b {
+		return [2]uint32{}, false
+	}
+	return [2]uint32{uint32(a), uint32(b)}, true
 }
 
 type rdapEntity struct {
@@ -411,18 +445,11 @@ func ParseRDAPNetwork(body []byte) (NetblockInfo, error) {
 		Netname: CleanValue(n.Name),
 		Org:     registrantName(n.Entities),
 	}
-	// registro.br names a network by its owner's number ("22817"), which
-	// says nothing to a reader.
-	if isDigits(info.Netname) {
+	if !meaningfulRDAPName(info.Netname) {
 		info.Netname = ""
 	}
 	if info.Org == "" {
-		for _, r := range n.Remarks {
-			if (r.Title == "" || strings.EqualFold(r.Title, "description")) && len(r.Description) > 0 {
-				info.Org = CleanValue(r.Description[0])
-				break
-			}
-		}
+		info.Org = descriptionRemark(n)
 	}
 	if IsPlaceholderRange(info.Netname, info.Org) {
 		return NetblockInfo{}, nil
@@ -511,6 +538,22 @@ func vcardField(card []json.RawMessage, name string) string {
 	return ""
 }
 
+// meaningfulRDAPName drops names that are only identifiers: registro.br
+// names a network by its owner's number ("22817") and an AS by its number
+// ("ASN22548"); AFRINIC uses the holder's organisation handle
+// ("ORG-AFNC1-AFRINIC").
+func meaningfulRDAPName(name string) bool {
+	upper := strings.ToUpper(name)
+	switch {
+	case name == "", isDigits(name), strings.HasPrefix(upper, "ORG-"):
+		return false
+	case strings.HasPrefix(upper, "ASN") && isDigits(name[3:]),
+		strings.HasPrefix(upper, "AS") && isDigits(name[2:]):
+		return false
+	}
+	return true
+}
+
 func isDigits(s string) bool {
 	if s == "" {
 		return false
@@ -521,4 +564,90 @@ func isDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// ASNRegistration is what a registry's RDAP server says about an AS number.
+type ASNRegistration struct {
+	// Name is the AS name (GOOGLE), Org the holder's organisation, Country
+	// its ISO code when the registry gives one.
+	Name, Org, Country string
+}
+
+// Label formats r like an entry in the offline AS names list:
+// "GOOGLE - Google LLC, US", leaving out what the registry did not say.
+func (r ASNRegistration) Label() string {
+	label := r.Name
+	switch {
+	case label == "":
+		label = r.Org
+	case r.Org != "" && !strings.EqualFold(r.Org, r.Name):
+		label += " - " + r.Org
+	}
+	if label != "" && r.Country != "" {
+		label += ", " + r.Country
+	}
+	return label
+}
+
+// LookupASN asks the registry that holds asn for its registration.
+func (c *RDAPClient) LookupASN(ctx context.Context, asn uint32) (ASNRegistration, error) {
+	base, err := c.serverForASN(ctx, asn)
+	if err != nil {
+		return ASNRegistration{}, err
+	}
+	u := strings.TrimSuffix(base, "/") + "/autnum/" + strconv.FormatUint(uint64(asn), 10)
+	body, status, err := c.get(ctx, u)
+	if err != nil {
+		return ASNRegistration{}, fmt.Errorf("%s: %v", hostOf(u), err)
+	}
+	switch {
+	case status == http.StatusNotFound:
+		return ASNRegistration{}, ErrRDAPNotFound
+	case status == http.StatusTooManyRequests:
+		return ASNRegistration{}, fmt.Errorf("%s is rate-limiting queries; try again shortly", hostOf(u))
+	case status != http.StatusOK:
+		return ASNRegistration{}, fmt.Errorf("%s answered HTTP %d", hostOf(u), status)
+	}
+	reg, err := ParseRDAPAutnum(body)
+	if err != nil {
+		return ASNRegistration{}, fmt.Errorf("%s: %v", hostOf(u), err)
+	}
+	if reg.Label() == "" {
+		return ASNRegistration{}, ErrRDAPNotFound
+	}
+	return reg, nil
+}
+
+// ParseRDAPAutnum maps an RDAP autnum object to an ASNRegistration: name,
+// the registrant's vCard "fn" (or the first description remark) and country.
+func ParseRDAPAutnum(body []byte) (ASNRegistration, error) {
+	var n rdapNetwork // autnum objects share the fields asname reads
+	if err := json.Unmarshal(body, &n); err != nil {
+		return ASNRegistration{}, fmt.Errorf("decoding RDAP response: %v", err)
+	}
+	if n.ObjectClassName != "" && n.ObjectClassName != "autnum" {
+		return ASNRegistration{}, fmt.Errorf("RDAP answered with a %q object", n.ObjectClassName)
+	}
+	reg := ASNRegistration{Name: CleanValue(n.Name), Org: registrantName(n.Entities)}
+	if !meaningfulRDAPName(reg.Name) {
+		reg.Name = ""
+	}
+	if reg.Org == "" {
+		reg.Org = descriptionRemark(n)
+	}
+	if len(n.Country) == 2 {
+		reg.Country = strings.ToUpper(n.Country)
+	}
+	return reg, nil
+}
+
+// descriptionRemark is the first line of the first untitled or
+// "description" remark: RIPE's and APNIC's descr.
+func descriptionRemark(n rdapNetwork) string {
+	for _, r := range n.Remarks {
+		if (r.Title == "" || strings.EqualFold(r.Title, "description")) && len(r.Description) > 0 {
+			return CleanValue(r.Description[0])
+		}
+	}
+	return ""
 }

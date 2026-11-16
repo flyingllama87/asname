@@ -30,7 +30,10 @@ type Engine struct {
 	whois        *sources.WhoisAsker
 	// rdap answers the online netblock lookup, falling back to whois. It
 	// is shared by the views WithOnline returns.
-	rdap         *sources.RDAPClient
+	rdap *sources.RDAPClient
+	// rdapASNames caches AS names found over RDAP (uint32 -> string), shared
+	// by the views WithOnline returns. Only successes are kept.
+	rdapASNames  *sync.Map
 	categoryDB   *sources.CategoryDB
 	reputationDB *sources.ReputationDB
 	// asnReps caches asnReputation's results, as counting an ASN's announced
@@ -129,6 +132,7 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		showNetblock:   showNetblock,
 		whois:          whoisAsker,
 		rdap:           sources.NewRDAPClient(rdapCacheDir(cfg.ConsentPath)),
+		rdapASNames:    &sync.Map{},
 		categoryDB:     catDB,
 		reputationDB:   repDB,
 		prefixDB:       prefixDB,
@@ -218,6 +222,9 @@ type LookupResult struct {
 	// "rdap" or "whois" (sources.OnlineSource*). Empty when NetblockLive is
 	// false.
 	NetblockSource string
+	// NameSource is "rdap" when Name came from the registry over RDAP
+	// because the offline AS names list lacks the ASN; empty otherwise.
+	NameSource string
 	// NetblockCountry is the country the registry range itself names, as
 	// "US, United States"; Country is the RIR delegation of its parent
 	// allocation. NetblockCreated is when the range was registered,
@@ -292,6 +299,9 @@ func (e *Engine) LookupASNContext(ctx context.Context, asn uint32) (LookupResult
 	if name, ok := e.names[asn]; ok {
 		res.Name = name
 		_, res.Country = splitNameCountry(name)
+	} else if name, ok := e.onlineASName(ctx, asn); ok {
+		res.Name, res.NameSource = name, sources.OnlineSourceRDAP
+		_, res.Country = splitNameCountry(name)
 	}
 	if res.Country == "" {
 		res.Country = "Unknown"
@@ -347,6 +357,8 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		res.ASN = fmt.Sprintf("AS%d", as.Number)
 		if n, ok := e.names[as.Number]; ok {
 			res.Name = n
+		} else if n, ok := e.onlineASName(context.Background(), as.Number); ok {
+			res.Name, res.NameSource = n, sources.OnlineSourceRDAP
 		}
 	case database.ErrNotFound:
 		res.ASN = "N/A"
@@ -664,4 +676,30 @@ func rdapCacheDir(consentPath string) string {
 		return ""
 	}
 	return filepath.Dir(consentPath)
+}
+
+// onlineASName asks the registry over RDAP for an ASN the offline names
+// list lacks, if online lookups are allowed. It shares the netblock
+// lookups' consent and per-run allowance; a name already found is reused
+// without a query.
+func (e *Engine) onlineASName(ctx context.Context, asn uint32) (string, bool) {
+	if !e.whois.Enabled() || e.rdap == nil || e.rdapASNames == nil {
+		return "", false
+	}
+	if v, ok := e.rdapASNames.Load(asn); ok {
+		return v.(string), true
+	}
+	if !e.whois.AllowedASN(asn) {
+		return "", false
+	}
+	reg, err := e.rdap.LookupASN(ctx, asn)
+	if err != nil {
+		if !errors.Is(err, sources.ErrRDAPNotFound) {
+			fmt.Fprintf(e.log, "asname: RDAP lookup for AS%d failed: %v\n", asn, err)
+		}
+		return "", false
+	}
+	name := reg.Label()
+	e.rdapASNames.Store(asn, name)
+	return name, true
 }

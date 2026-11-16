@@ -61,13 +61,28 @@ func NewWhoisAsker(path string, mode WhoisMode) *WhoisAsker {
 	}
 }
 
+// Allowed reports whether ip's netblock may be looked up online, asking
+// first if need be, and counts the query.
 func (a *WhoisAsker) Allowed(ip net.IP) bool {
+	return a.allowed(fmt.Sprintf("%s has no offline netblock: not every registry publishes owner data", ip))
+}
+
+// AllowedASN reports whether asn's registration may be looked up online,
+// under the same answer and allowance as the netblock lookups.
+func (a *WhoisAsker) AllowedASN(asn uint32) bool {
+	return a.allowed(fmt.Sprintf("AS%d is not in the offline AS names list, which can lag new registrations", asn))
+}
+
+// Enabled reports whether online lookups could be allowed at all.
+func (a *WhoisAsker) Enabled() bool { return a != nil && a.Mode != WhoisNever }
+
+func (a *WhoisAsker) allowed(why string) bool {
 	if a == nil || a.Mode == WhoisNever {
 		return false
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.decide(ip) {
+	if !a.decide(why) {
 		return false
 	}
 	if a.queries >= MaxWhoisQueries {
@@ -81,7 +96,7 @@ func (a *WhoisAsker) Allowed(ip net.IP) bool {
 	return true
 }
 
-func (a *WhoisAsker) decide(ip net.IP) bool {
+func (a *WhoisAsker) decide(why string) bool {
 	if a.decided {
 		return a.allow
 	}
@@ -98,22 +113,22 @@ func (a *WhoisAsker) decide(ip net.IP) bool {
 	}
 
 	if !a.Terminal {
-		fmt.Fprintln(a.Out, "asname: no offline netblock data for some addresses; pass --whois to look them up online")
+		fmt.Fprintln(a.Out, "asname: the offline databases lack some netblocks or AS names; pass --whois to look them up online")
 		a.allow = false
 		return false
 	}
 
-	a.allow = a.ask(ip)
+	a.allow = a.ask(why)
 	if err := SaveWhoisConsent(a.Path, a.allow); err != nil {
 		fmt.Fprintln(a.Out, "asname: could not remember that answer:", err)
 	}
 	return a.allow
 }
 
-func (a *WhoisAsker) ask(ip net.IP) bool {
-	fmt.Fprintf(a.Out, "asname: %s has no offline netblock: not every registry publishes owner data\n", ip)
-	fmt.Fprintf(a.Out, "asname: in a form that can be indexed offline. Ask the registry over the network for\n")
-	fmt.Fprintf(a.Out, "asname: addresses like it? Either answer is remembered for an hour. [y/N] ")
+func (a *WhoisAsker) ask(why string) bool {
+	fmt.Fprintf(a.Out, "asname: %s.\n", why)
+	fmt.Fprintf(a.Out, "asname: Ask the registry over the network about it and anything else the offline\n")
+	fmt.Fprintf(a.Out, "asname: databases lack? Either answer is remembered for an hour. [y/N] ")
 
 	line, err := bufio.NewReader(a.In).ReadString('\n')
 	if err != nil && line == "" {

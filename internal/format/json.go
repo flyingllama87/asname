@@ -42,7 +42,10 @@ type JSONASN struct {
 	Number    uint32 `json:"number"`
 	ASNString string `json:"asn_string"`
 	Name      string `json:"name,omitempty"`
-	Announced bool   `json:"announced"`
+	// NameSource is "rdap" when the name came from the registry because
+	// the offline AS names list lacks the ASN.
+	NameSource string `json:"name_source,omitempty"`
+	Announced  bool   `json:"announced"`
 }
 
 type JSONCountry struct {
@@ -135,10 +138,11 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		numStr := strings.TrimPrefix(res.ASN, "AS")
 		num, _ := strconv.ParseUint(numStr, 10, 32)
 		out.ASN = &JSONASN{
-			Number:    uint32(num),
-			ASNString: res.ASN,
-			Name:      res.Name,
-			Announced: true,
+			Number:     uint32(num),
+			ASNString:  res.ASN,
+			Name:       res.Name,
+			NameSource: res.NameSource,
+			Announced:  true,
 		}
 		if res.Country != "" && res.Country != "Unknown" {
 			parts := strings.SplitN(res.Country, ", ", 2)
@@ -185,10 +189,11 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		numStr := strings.TrimPrefix(res.ASN, "AS")
 		num, _ := strconv.ParseUint(numStr, 10, 32)
 		out.ASN = &JSONASN{
-			Number:    uint32(num),
-			ASNString: res.ASN,
-			Name:      res.Name,
-			Announced: true,
+			Number:     uint32(num),
+			ASNString:  res.ASN,
+			Name:       res.Name,
+			NameSource: res.NameSource,
+			Announced:  true,
 		}
 	} else if res.ASN == "N/A" {
 		out.ASN = &JSONASN{

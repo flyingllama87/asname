@@ -39,7 +39,8 @@ func TestParseRDAPNetworkEachRegistry(t *testing.T) {
 			NetblockMeta: NetblockMeta{Country: "NL", Created: "2003-03-17"}}},
 		{"apnic-1.1.1.1.json", NetblockInfo{Netname: "APNIC-LABS", Org: "APNIC Research and Development",
 			NetblockMeta: NetblockMeta{Country: "AU", Created: "2011-08-10"}}},
-		{"afrinic-196.216.2.1.json", NetblockInfo{Netname: "ORG-AFNC1-AFRINIC", Org: "African Network Information Center - (AfriNIC) Ltd",
+		// AFRINIC's "name" is the holder's organisation handle: dropped.
+		{"afrinic-196.216.2.1.json", NetblockInfo{Org: "African Network Information Center - (AfriNIC) Ltd",
 			NetblockMeta: NetblockMeta{Country: "ZA", Created: "2005-02-21"}}},
 		// LACNIC redirects Brazilian space to registro.br. Its accents come
 		// through intact, unlike LACNIC's port-43 whois; the numeric name
@@ -118,10 +119,26 @@ func newFakeRDAP(t *testing.T, nets map[string]string) *fakeRDAP {
 	mux.HandleFunc("/bootstrap/", func(w http.ResponseWriter, r *http.Request) {
 		f.bootstraps.Add(1)
 		prefix := "0.0.0.0/0"
-		if strings.HasSuffix(r.URL.Path, "ipv6.json") {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "ipv6.json"):
 			prefix = "::/0"
+		case strings.HasSuffix(r.URL.Path, "asn.json"):
+			prefix = "1-4294967295"
 		}
 		_, _ = w.Write([]byte(`{"services":[[["` + prefix + `"],["` + f.srv.URL + `/rdap/"]]]}`))
+	})
+	mux.HandleFunc("/rdap/autnum/", func(w http.ResponseWriter, r *http.Request) {
+		f.queries.Add(1)
+		if f.status != 0 {
+			w.WriteHeader(f.status)
+			return
+		}
+		body, ok := nets["AS"+strings.TrimPrefix(r.URL.Path, "/rdap/autnum/")]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
 	})
 	mux.HandleFunc("/rdap/ip/", func(w http.ResponseWriter, r *http.Request) {
 		f.queries.Add(1)
@@ -284,4 +301,74 @@ func TestRDAPRetriesOverIPv4AndRemembers(t *testing.T) {
 		require.Equal(t, "GOGL", info.Netname)
 	}
 	require.EqualValues(t, 1, broken.calls.Load(), "after one failure the host is asked over IPv4 directly")
+}
+
+func TestParseRDAPAutnumEachRegistry(t *testing.T) {
+	cases := map[string]string{
+		"arin-AS15169.json":        "GOOGLE - Google LLC",
+		"arin-AS13335.json":        "CLOUDFLARENET - Cloudflare, Inc.",
+		"ripe-AS3333.json":         "RIPE-NCC-AS - Reseaux IP Europeens Network Coordination Centre (RIPE NCC)",
+		"registro.br-AS22548.json": "Núcleo de Inf. e Coord. do Ponto BR - NIC.BR, BR",
+		"afrinic-AS33764.json":     "African Network Information Center - (AfriNIC) Ltd",
+	}
+	for fixture, want := range cases {
+		reg, err := ParseRDAPAutnum(readRDAPFixture(t, fixture))
+		require.NoError(t, err, fixture)
+		require.Equal(t, want, reg.Label(), fixture)
+	}
+	_, err := ParseRDAPAutnum(readRDAPFixture(t, "arin-8.8.8.8.json"))
+	require.Error(t, err, "an ip network is not an autnum")
+}
+
+func TestASNRegistrationLabel(t *testing.T) {
+	require.Equal(t, "EXAMPLE - Example Ltd, GB", ASNRegistration{Name: "EXAMPLE", Org: "Example Ltd", Country: "GB"}.Label())
+	require.Equal(t, "EXAMPLE", ASNRegistration{Name: "EXAMPLE", Org: "example"}.Label())
+	require.Equal(t, "Example Ltd", ASNRegistration{Org: "Example Ltd"}.Label())
+	require.Empty(t, ASNRegistration{Country: "GB"}.Label())
+}
+
+func TestRDAPBootstrapPicksTheRegistryForAnASN(t *testing.T) {
+	b, err := parseRDAPBootstrap(readRDAPFixture(t, "bootstrap-asn.json"))
+	require.NoError(t, err)
+	b.fetched = time.Now()
+	c := &RDAPClient{boot: map[string]*rdapBootstrap{"asn": b}}
+	for asn, want := range map[uint32]string{
+		15169: "https://rdap.arin.net/registry/",
+		3333:  "https://rdap.db.ripe.net/",
+		2043:  "https://rdap.db.ripe.net/", // a single-number entry
+		4608:  "https://rdap.apnic.net/",
+		27648: "https://rdap.lacnic.net/rdap/",
+		22548: "https://rdap.arin.net/registry/", // early LACNIC ASNs: ARIN redirects
+		36864: "https://rdap.afrinic.net/rdap/",
+	} {
+		got, err := c.serverForASN(context.Background(), asn)
+		require.NoError(t, err, asn)
+		require.Equal(t, want, got, asn)
+	}
+	_, err = c.serverForASN(context.Background(), 4200000000) // private use
+	require.Error(t, err)
+}
+
+func TestRDAPLookupASN(t *testing.T) {
+	f := newFakeRDAP(t, map[string]string{"AS15169": string(readRDAPFixture(t, "arin-AS15169.json"))})
+	c := f.client(t.TempDir())
+	reg, err := c.LookupASN(context.Background(), 15169)
+	require.NoError(t, err)
+	require.Equal(t, "GOOGLE - Google LLC", reg.Label())
+
+	_, err = c.LookupASN(context.Background(), 64999)
+	require.ErrorIs(t, err, ErrRDAPNotFound)
+
+	f.status = http.StatusTooManyRequests
+	_, err = c.LookupASN(context.Background(), 15169)
+	require.ErrorContains(t, err, "rate-limiting")
+}
+
+func TestMeaningfulRDAPName(t *testing.T) {
+	for _, name := range []string{"", "22817", "ASN22548", "AS22548", "ORG-AFNC1-AFRINIC"} {
+		require.False(t, meaningfulRDAPName(name), name)
+	}
+	for _, name := range []string{"GOGL", "AS-CHOOPA", "ASTRA-NET", "RIPE-NCC"} {
+		require.True(t, meaningfulRDAPName(name), name)
+	}
 }

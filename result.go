@@ -29,6 +29,9 @@ type Result struct {
 	// NetblockSource is the service that answered a live netblock lookup,
 	// "rdap" or "whois"; empty when NetblockLive is false.
 	NetblockSource string `json:"netblock_source,omitempty"`
+	// NameSource is "rdap" when Name came from the registry because the
+	// offline AS names list lacks the ASN.
+	NameSource string `json:"name_source,omitempty"`
 	// NetblockCountry is the country the registry range itself names, as
 	// "US, United States". Country is that of the RIR allocation the range
 	// sits in, which for a sub-allocated or leased block is often elsewhere.
@@ -150,6 +153,7 @@ func resultFromEngine(r engine.LookupResult) Result {
 		Netblock:        known(r.Netblock),
 		NetblockLive:    r.NetblockLive,
 		NetblockSource:  r.NetblockSource,
+		NameSource:      r.NameSource,
 		NetblockCountry: r.NetblockCountry,
 		NetblockCreated: r.NetblockCreated,
 		Category:        known(r.Category),

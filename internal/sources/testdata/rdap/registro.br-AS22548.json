@@ -1,0 +1,82 @@
+{
+ "objectClassName": "autnum",
+ "handle": "22548",
+ "startAutnum": 22548,
+ "endAutnum": 22548,
+ "name": "ASN22548",
+ "type": "DIRECT ALLOCATION",
+ "country": "BR",
+ "events": [
+  {
+   "eventAction": "registration",
+   "eventDate": "2001-10-16T12:00:00Z"
+  },
+  {
+   "eventAction": "last changed",
+   "eventDate": "2021-09-15T18:22:20Z"
+  }
+ ],
+ "entities": [
+  {
+   "objectClassName": "entity",
+   "handle": "05506560000136",
+   "roles": [
+    "registrant"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "org"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Núcleo de Inf. e Coord. do Ponto BR - NIC.BR"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "EX1-FAN",
+   "roles": [
+    "administrative",
+    "abuse"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "individual"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Example Contact"
+     ]
+    ]
+   ]
+  }
+ ]
+}

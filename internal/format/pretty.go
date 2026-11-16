@@ -227,7 +227,7 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 			}
 		}
 
-		rows := [][2]string{{"Organization", srcASNames}, {"Country", srcASNames}}
+		rows := [][2]string{{"Organization", nameSrc(res)}, {"Country", nameSrc(res)}}
 		if res.Category != "" {
 			rows = append(rows, [2]string{"Category", srcCategory})
 		}
@@ -326,7 +326,7 @@ func FormatPrettyLookupOutput(res engine.LookupResult, index, total int, colored
 
 	rows := [][2]string{{"ASN", srcRIB}}
 	if res.Name != "" {
-		rows = append(rows, [2]string{"Organization", srcASNames})
+		rows = append(rows, [2]string{"Organization", nameSrc(res)})
 	}
 	if res.NetblockCountry != "" && res.NetblockCountry != res.Country {
 		rows = append(rows, [2]string{"Country", srcNetblockCountry})
@@ -521,4 +521,12 @@ func liveNetblockLabel(source string) string {
 		return "Live RDAP"
 	}
 	return "Live WHOIS"
+}
+
+// nameSrc is where the AS name came from: the offline list, or RDAP.
+func nameSrc(res engine.LookupResult) string {
+	if res.NameSource == sources.OnlineSourceRDAP {
+		return srcRDAP
+	}
+	return srcASNames
 }

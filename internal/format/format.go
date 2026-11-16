@@ -44,7 +44,7 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 	if res.IsASN {
 		fields := []outputField{
 			{label: "ASN", value: res.ASN, width: UniformASNWidth},
-			{label: "Name", value: res.Name, width: UniformNameWidth},
+			{label: "Name", value: nameWithSource(res), width: UniformNameWidth},
 			{label: "Country", value: res.Country, width: UniformCountryWidth},
 		}
 		if res.Category != "" {
@@ -78,7 +78,7 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 	fields = append(fields,
 		outputField{label: "IP", value: res.IP.String(), width: UniformIPWidth},
 		outputField{label: "ASN", value: res.ASN, width: UniformASNWidth},
-		outputField{label: "Name", value: res.Name, width: UniformNameWidth},
+		outputField{label: "Name", value: nameWithSource(res), width: UniformNameWidth},
 		outputField{label: "Country", value: res.Country, width: UniformCountryWidth},
 	)
 	if res.City != "" {
@@ -221,4 +221,12 @@ func liveSource(source string) string {
 		return sources.OnlineSourceWhois
 	}
 	return source
+}
+
+// nameWithSource marks an AS name that came from the registry over RDAP.
+func nameWithSource(res engine.LookupResult) string {
+	if res.NameSource != "" {
+		return res.Name + " [" + res.NameSource + "]"
+	}
+	return res.Name
 }

@@ -1,0 +1,109 @@
+{
+ "objectClassName": "autnum",
+ "handle": "AS33764",
+ "startAutnum": 33764,
+ "endAutnum": 33764,
+ "name": "ORG-AFNC1-AFRINIC",
+ "events": [
+  {
+   "eventAction": "registration",
+   "eventDate": "2005-02-21T15:31:00Z"
+  },
+  {
+   "eventAction": "last changed",
+   "eventDate": "2016-05-26T06:46:00Z"
+  }
+ ],
+ "entities": [
+  {
+   "objectClassName": "entity",
+   "handle": "EX1-AFRINIC",
+   "roles": [
+    "technical"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "individual"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Example Contact"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "EX1-AFRINIC",
+   "roles": [
+    "administrative"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "individual"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Example Contact"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "ORG-AFNC1-AFRINIC",
+   "roles": [
+    "registrant"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "org"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "African Network Information Center - (AfriNIC) Ltd"
+     ]
+    ]
+   ]
+  }
+ ]
+}

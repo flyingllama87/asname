@@ -691,11 +691,13 @@ function resultCard(r, i) {
   const asnBody = r.asn
     ? r.asn.announced === false
       ? unknown('Not announced')
-      : html`${asnLink(r.asn.asn_string || `AS${r.asn.number}`)} ${r.asn.name || ''}`
+      : html`${asnLink(r.asn.asn_string || `AS${r.asn.number}`)} ${r.asn.name || ''}
+        ${r.asn.name_source === 'rdap' ? html`<span class="meta">live RDAP: not in the offline AS names list</span>` : nothing}`
     : nothing;
+  const nameSrc = r.asn?.name_source === 'rdap' ? SRC.rdap : SRC.asNames;
   if (r.asn?.announced !== false) {
     if (!isASN) sources.push(['ASN', SRC.rib]);
-    sources.push(['Organization', SRC.asNames]);
+    sources.push(['Organization', nameSrc]);
   }
 
   // Country: an address's comes from the RIR delegation, unless its
@@ -703,7 +705,7 @@ function resultCard(r, i) {
   let countryFields;
   if (isASN) {
     countryFields = field('Country', r.country ? countryText(r.country) : unknown(), 'AS registration', FIELD_HELP.countryASN);
-    sources.push(['Country', SRC.asNames]);
+    sources.push(['Country', nameSrc]);
   } else if (nbCountry) {
     countryFields = html`${field('Registered in', countryText(nbCountry), 'netblock registration', FIELD_HELP.countryNetblock)}
       ${field('Allocated in', r.country ? countryText(r.country) : unknown(), 'RIR allocation', FIELD_HELP.allocatedIn)}`;

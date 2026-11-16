@@ -1,0 +1,147 @@
+{
+ "objectClassName": "autnum",
+ "handle": "AS13335",
+ "startAutnum": 13335,
+ "endAutnum": 13335,
+ "name": "CLOUDFLARENET",
+ "events": [
+  {
+   "eventAction": "last changed",
+   "eventDate": "2017-02-17T18:04:32-05:00"
+  },
+  {
+   "eventAction": "registration",
+   "eventDate": "2010-07-14T18:35:57-04:00"
+  }
+ ],
+ "remarks": [
+  {
+   "title": "Registration Comments",
+   "description": [
+    "All Cloudflare abuse reporting can be done via https://www.cloudflare.com/abuse"
+   ]
+  }
+ ],
+ "entities": [
+  {
+   "objectClassName": "entity",
+   "handle": "CLOUD14",
+   "roles": [
+    "registrant"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Cloudflare, Inc."
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "org"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "ABUSE2916-ARIN",
+   "roles": [
+    "abuse"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Abuse"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "group"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "ADMIN2521-ARIN",
+   "roles": [
+    "technical"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "Admin"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "group"
+     ]
+    ]
+   ]
+  },
+  {
+   "objectClassName": "entity",
+   "handle": "NOC11962-ARIN",
+   "roles": [
+    "noc"
+   ],
+   "vcardArray": [
+    "vcard",
+    [
+     [
+      "version",
+      {},
+      "text",
+      "4.0"
+     ],
+     [
+      "fn",
+      {},
+      "text",
+      "NOC"
+     ],
+     [
+      "kind",
+      {},
+      "text",
+      "group"
+     ]
+    ]
+   ]
+  }
+ ]
+}
