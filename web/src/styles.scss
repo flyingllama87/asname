@@ -288,3 +288,103 @@ code {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+// Where a field's value comes from, after its label: "RIR registration".
+.field dt .source {
+  @include type.type-style('helper-text-01');
+  color: $text-helper;
+  margin-left: $spacing-02;
+
+  &::before {
+    content: '· ';
+  }
+}
+
+// A field that was checked and came back empty.
+.muted {
+  color: $text-secondary;
+}
+
+.toggles-row {
+  align-items: flex-start;
+}
+
+.toggle-hint {
+  margin-top: $spacing-02;
+  max-width: 22rem;
+}
+
+.settings-row {
+  margin-top: $spacing-05;
+  align-items: flex-start;
+
+  cds-select {
+    min-width: 16rem;
+  }
+}
+
+// Collapsible sections: a card's data sources, the search tips.
+details.sources,
+details.tips {
+  margin-top: $spacing-05;
+
+  summary {
+    @include type.type-style('label-01');
+    color: $link-primary;
+    cursor: pointer;
+    width: fit-content;
+
+    &:focus-visible {
+      outline: 2px solid $focus;
+      outline-offset: 2px;
+    }
+  }
+}
+
+details.sources dl {
+  display: grid;
+  gap: $spacing-02;
+  margin-top: $spacing-03;
+
+  div {
+    display: grid;
+    grid-template-columns: 9rem 1fr;
+    gap: $spacing-04;
+  }
+
+  dt {
+    @include type.type-style('label-01');
+    color: $text-secondary;
+  }
+
+  dd {
+    @include type.type-style('helper-text-01');
+    color: $text-primary;
+  }
+}
+
+details.tips {
+  margin: 0 0 $spacing-06;
+  max-width: 48rem;
+
+  p,
+  ul {
+    @include type.type-style('body-01');
+    color: $text-secondary;
+    margin-top: $spacing-03;
+  }
+
+  ul {
+    list-style: disc;
+    padding-left: $spacing-06;
+  }
+
+  li {
+    margin-bottom: $spacing-02;
+  }
+
+  strong {
+    color: $text-primary;
+    font-weight: 600;
+  }
+}

@@ -42,7 +42,9 @@ another port talking to asname directly.
   the hash (`#/lookup?q=…`, `#/search?q=…`, `#/databases`), so a lookup can be
   linked to and the back button works.
 - `src/api.js` is the REST client. The API base defaults to the page's own
-  origin; Settings stores another in `localStorage` (`asname.apiBase`).
+  origin; Settings stores another in `localStorage` (`asname.apiBase`). That,
+  and the theme, are per browser; the refresh age and IPv6 routes are server
+  settings (`PUT /v1/settings`), on the Databases tab.
 - `src/styles.scss` compiles Carbon's reset, theme tokens and type from
   `@carbon/styles`, and the page's own layout. The light (White) and dark
   (Gray 100) themes are Carbon theme zones on `<html>`.
@@ -64,5 +66,12 @@ The IBM Plex fonts are bundled, so the UI loads nothing from the internet.
 - A `cds-checkbox` inside a `cds-table-row` is taken for the row's selection
   checkbox; stop its `cds-checkbox-changed` event from bubbling, as the
   Databases tab does.
+- Sortable tables sort in the page's state, not in Carbon's table, which would
+  reorder the rows behind lit's back: `sortHeader()` cancels the header cell's
+  `cds-table-header-cell-sort` event and renders the rows in order.
+- `/v1/status` drives more than the Databases tab: the banner, which online
+  lookups the Lookup tab offers, and which fields a result card shows as
+  "Unknown" (a database that is loaded but had no answer) rather than leaving
+  out (a database that is not loaded). It is polled on every tab.
 - Dependencies are pinned to exact versions in `package.json`; `make web` uses
   `npm ci`, so builds match `package-lock.json`.

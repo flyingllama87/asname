@@ -63,10 +63,22 @@ async function request(path, { method = 'GET', body, signal, base } = {}) {
 export const api = {
   health: (base) => request('/health', { base }),
   status: () => request('/v1/status'),
-  lookup: (target, { reverseDNS, signal } = {}) =>
-    request(`/v1/lookup?q=${encodeURIComponent(target)}${reverseDNS ? '&reverse_dns=true' : ''}`, { signal }),
-  bulk: (targets, { reverseDNS, signal } = {}) =>
-    request('/v1/bulk', { method: 'POST', body: { targets, reverse_dns: !!reverseDNS }, signal }),
+  // online is {whois, prefixes}; a key left undefined keeps the server's
+  // default, as asking for a lookup the server has turned off is an error.
+  lookup: (target, { reverseDNS, online = {}, signal } = {}) => {
+    const p = new URLSearchParams({ q: target });
+    if (reverseDNS) p.set('reverse_dns', 'true');
+    if (online.whois !== undefined) p.set('whois', String(online.whois));
+    if (online.prefixes !== undefined) p.set('online_prefixes', String(online.prefixes));
+    return request(`/v1/lookup?${p}`, { signal });
+  },
+  bulk: (targets, { reverseDNS, online = {}, signal } = {}) =>
+    request('/v1/bulk', {
+      method: 'POST',
+      body: { targets, reverse_dns: !!reverseDNS, whois: online.whois, online_prefixes: online.prefixes },
+      signal,
+    }),
+  saveSettings: (body) => request('/v1/settings', { method: 'PUT', body }),
   search: ({ q, scope, limit, family }, { signal } = {}) => {
     const p = new URLSearchParams({ q, scope, limit: String(limit) });
     if (family === 'v4') p.set('v4_only', 'true');
