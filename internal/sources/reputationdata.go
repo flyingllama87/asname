@@ -26,6 +26,7 @@ const (
 	fireholLevel2   = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level2.netset"
 	fireholLevel3   = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level3.netset"
 	feodoTracker    = "https://feodotracker.abuse.ch/downloads/ipblocklist.json"
+	c2IntelIPs      = "https://raw.githubusercontent.com/drb-ra/C2IntelFeeds/master/feeds/IPC2s-30day.csv"
 
 	// maxExpandBits caps how large an IPv4 block is counted address by
 	// address towards an ASN's listed IPs; a larger block counts once.
@@ -56,6 +57,12 @@ func UpdateReputationDB(ctx context.Context, cfg Config) (err error) {
 		{"FireHOL level 2", func() (int, error) { return b.ImportNetsetFrom(fireholLevel2, "firehol-level2") }},
 		{"FireHOL level 3", func() (int, error) { return b.ImportNetsetFrom(fireholLevel3, "firehol-level3") }},
 		{"abuse.ch Feodo Tracker", func() (int, error) { return b.ImportFeodoFrom(feodoTracker) }},
+		{"C2IntelFeeds", func() (int, error) { return b.ImportC2IntelFrom(c2IntelIPs) }},
+	}
+	if key, ok := AbuseCHKey(); ok {
+		srcs = append(srcs, source{"abuse.ch ThreatFox", func() (int, error) { return b.ImportThreatFoxFrom(threatFoxAPI, key) }})
+	} else {
+		noteUnused(ctx, "abuse.ch ThreatFox", "not used: needs an abuse.ch Auth-Key ("+AbuseCHKeyEnvVar+")")
 	}
 
 	imported := 0

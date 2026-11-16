@@ -416,7 +416,8 @@ export const GLOSSARY = [
           'An internal host talking to a C2 is almost certainly infected: isolate it and find the malware family\'s other indicators.',
           'Block C2 addresses outright; they have no legitimate use. They often sit on rented cloud servers, so check the date: a cloud address may have passed to an innocent customer since.',
         ],
-        links: [['Feodo Tracker', 'https://feodotracker.abuse.ch/'], ['abuse.ch', 'https://abuse.ch/'], wiki('Botnet')],
+        detail: ['C2IntelFeeds lists attack frameworks\' C2 servers (mostly Cobalt Strike) found by scanning for their fingerprints, keeping those verified in the last 30 days. ThreatFox, with an abuse.ch key, adds the last week\'s reported malware infrastructure by family.'],
+        links: [['Feodo Tracker', 'https://feodotracker.abuse.ch/'], ['ThreatFox', 'https://threatfox.abuse.ch/'], ['C2IntelFeeds', 'https://github.com/drb-ra/C2IntelFeeds'], wiki('Botnet')],
       },
       {
         term: 'Internet scanner',

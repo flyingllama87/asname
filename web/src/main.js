@@ -135,7 +135,7 @@ const SRC = {
   inferredList: "asname's list of well-known networks (inferrules.yaml), offline",
   inferredNetname: "asname's rules on the registry netname (inferrules.yaml), offline",
   rdns: 'Live DNS PTR query',
-  rep: 'Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker, offline',
+  rep: 'Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker and ThreatFox, C2IntelFeeds, offline',
   ripeStat: 'Live RIPEstat announced-prefixes API',
 };
 
@@ -1071,6 +1071,10 @@ function listLabel(name) {
       return `IPsum · ${detail} lists`;
     case 'feodo':
       return `Feodo C2 · ${detail}`;
+    case 'c2intel':
+      return `C2 · ${detail}`;
+    case 'threatfox':
+      return `ThreatFox · ${detail}`;
     case 'spamhaus-drop':
       return detail ? `Spamhaus DROP · ${detail}` : 'Spamhaus DROP';
     default:

@@ -215,6 +215,10 @@ export function reputationTagHelp(entry) {
       return 'FireHOL level 2: reported attacking within the last 48 hours.';
     case 'firehol-level3':
       return 'FireHOL level 3: reported attacking within the last 30 days.';
+    case 'c2intel':
+      return `C2IntelFeeds: a ${detail} command-and-control server, verified within the last 30 days. Hosts talking to it are probably compromised.`;
+    case 'threatfox':
+      return `abuse.ch ThreatFox: reported in the last week as ${detail} infrastructure (a C2 or payload server).`;
     case 'feodo':
       return `abuse.ch Feodo Tracker: a botnet command-and-control (C2) server for ${detail}. Hosts talking to it are probably infected.`;
   }
@@ -268,6 +272,12 @@ export function findings(r, loaded = {}) {
   if (drop) add('high', 'In a Spamhaus DROP block: hijacked or criminal-operated space. Block it, and treat any traffic to or from it as hostile.');
   if (asnRep?.spamhaus_asn_drop) {
     add('high', `The whole network (${asn}) is on Spamhaus ASN-DROP: Spamhaus considers it run by or for criminals. Treat traffic from any of its addresses as hostile.`);
+  }
+  for (const f of lists.filter((l) => l.startsWith('c2intel:'))) {
+    add('high', `A ${f.slice(8)} command-and-control server (C2IntelFeeds, verified in the last 30 days): attackers drive compromised machines from here. Block it, and treat any internal host talking to it as compromised.`);
+  }
+  for (const f of lists.filter((l) => l.startsWith('threatfox:'))) {
+    add('high', `Reported in the last week as ${f.slice(10)} infrastructure (abuse.ch ThreatFox): a C2 or payload server. Block it, and check which hosts talked to it.`);
   }
   for (const f of lists.filter((l) => l.startsWith('feodo:'))) {
     add('high', `A ${f.slice(6)} botnet command-and-control server (abuse.ch Feodo Tracker). Block it, and treat any internal host talking to it as infected.`);

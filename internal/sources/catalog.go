@@ -120,6 +120,9 @@ func SourceCatalog(key string) []CatalogSource {
 			{Name: "FireHOL level 2", URL: fireholLevel2, Provides: "Addresses attacking in the last 48 hours, from several feeds."},
 			{Name: "FireHOL level 3", URL: fireholLevel3, Provides: "Addresses attacking in the last 30 days: broader, more false positives."},
 			{Name: "abuse.ch Feodo Tracker", URL: feodoTracker, Provides: "Botnet command-and-control servers, with the malware family each serves (feodo:<family>)."},
+			{Name: "C2IntelFeeds", URL: "https://github.com/drb-ra/C2IntelFeeds", Provides: "Command-and-control servers of attack frameworks such as Cobalt Strike, verified in the last 30 days (c2intel:<framework>)."},
+			{Name: "abuse.ch ThreatFox", URL: "https://threatfox.abuse.ch/", Condition: "with an abuse.ch Auth-Key (" + AbuseCHKeyEnvVar + ")",
+				Provides: "The last week's malware infrastructure (C2s, payload servers) by family; IP indicators only (threatfox:<family>)."},
 		}
 	}
 	return nil

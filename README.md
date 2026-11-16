@@ -304,6 +304,18 @@ asname's logs or errors. Keys issued since 2024 need the account ID; a key
 alone is refused, and asname says so. If MaxMind cannot be reached the DB-IP
 database is still updated and the update is reported incomplete.
 
+An [abuse.ch](https://auth.abuse.ch/) Auth-Key (free with an account) adds
+ThreatFox to the reputation database. Add it to the same file, or pass it for
+one update from a secret store:
+
+```bash
+echo 'ASNAME_ABUSECH_AUTH_KEY=...' >> ~/.config/asname/env
+asname update --reputation-only
+```
+
+The key is sent only to ThreatFox's API, as its `Auth-Key` header, and never
+appears in asname's logs or errors.
+
 #### The settings file
 
 `~/.config/asname/env` (or `$XDG_CONFIG_HOME/asname/env`, or the file
@@ -1013,6 +1025,8 @@ The address-level tags are:
 | `ipsum:N` | [IPsum](https://github.com/stamparm/ipsum) lists the address on N of the 30+ public feeds it aggregates. IPsum's author suggests 3 or more as a blocking threshold. |
 | `firehol-level2` | [FireHOL level 2](https://iplists.firehol.org/?ipset=firehol_level2): reported attacking within the last 48 hours. |
 | `firehol-level3` | [FireHOL level 3](https://iplists.firehol.org/?ipset=firehol_level3): reported attacking within the last 30 days. |
+| `c2intel:<framework>` | [C2IntelFeeds](https://github.com/drb-ra/C2IntelFeeds): a command-and-control server of an attack framework (mostly Cobalt Strike), verified in the last 30 days. |
+| `threatfox:<family>` | [abuse.ch ThreatFox](https://threatfox.abuse.ch/): reported in the last week as that malware family's infrastructure. Needs a free abuse.ch Auth-Key in `ASNAME_ABUSECH_AUTH_KEY`; only its IP indicators are used. |
 | `feodo:<family>` | [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/): a botnet command-and-control server for that malware family (QakBot, Emotet...). Block it; an internal host talking to it is probably infected. |
 
 The ASN-level summary is the useful signal for spotting a dodgy ASN:
@@ -1083,7 +1097,7 @@ $ asname -v 8.8.8.8
     City:              DB-IP geolocation, offline
     Netblock:          RIR WHOIS dumps, offline
     Category:          Cloud provider ranges (incl. Azure Service Tags), Tor exits, VPN server lists, iCloud Private Relay, MISP warninglists, Team Cymru bogons, bgp.tools tags, PeeringDB, offline
-    Reputation:        Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker, offline
+    Reputation:        Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker and ThreatFox, C2IntelFeeds, offline
 ```
 
 Colors are enabled automatically on interactive terminals and suppressed when piped, unless forced with `--color`. Use `--no-color` (or set the `NO_COLOR` environment variable) to disable colors explicitly.
@@ -1530,7 +1544,7 @@ Access, IVPN, AirVPN, Windscribe and PrivadoVPN publish for their apps,
 (MIT licence) for other providers, [PeeringDB](https://www.peeringdb.com/) network types, and
 [bgp.tools](https://bgp.tools/) operator tags.
 
-Reputation data comes from [Spamhaus DROP and ASN-DROP](https://www.spamhaus.org/blocklists/do-not-route-or-peer/), [IPsum](https://github.com/stamparm/ipsum), [FireHOL](https://github.com/firehol/blocklist-ipsets) levels 2 and 3 and [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/). Spamhaus DROP is free for any use under the [Spamhaus DROP terms](https://www.spamhaus.org/drop/terms/).
+Reputation data comes from [Spamhaus DROP and ASN-DROP](https://www.spamhaus.org/blocklists/do-not-route-or-peer/), [IPsum](https://github.com/stamparm/ipsum), [FireHOL](https://github.com/firehol/blocklist-ipsets) levels 2 and 3 and [abuse.ch Feodo Tracker](https://feodotracker.abuse.ch/), [C2IntelFeeds](https://github.com/drb-ra/C2IntelFeeds) and, with your own abuse.ch key, [ThreatFox](https://threatfox.abuse.ch/). Spamhaus DROP is free for any use under the [Spamhaus DROP terms](https://www.spamhaus.org/drop/terms/).
 
 Netblock data comes from the RIRs' bulk whois dumps, [APNIC](https://ftp.apnic.net/apnic/whois/),
 [RIPE NCC](https://ftp.ripe.net/ripe/dbase/split/) and [AFRINIC](https://ftp.afrinic.net/dbase/),

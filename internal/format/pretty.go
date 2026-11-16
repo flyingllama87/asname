@@ -147,7 +147,7 @@ const (
 	srcRDAP            = "Live RDAP (IANA bootstrap to the RIR)"
 	srcCategory        = "Cloud provider ranges (incl. Azure Service Tags), Tor exits, VPN server lists, iCloud Private Relay, MISP warninglists, Team Cymru bogons, bgp.tools tags, PeeringDB, offline"
 	srcRDNS            = "Live DNS PTR query"
-	srcRep             = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker, offline"
+	srcRep             = "Spamhaus DROP and ASN-DROP, IPsum, FireHOL level 2 and 3, abuse.ch Feodo Tracker and ThreatFox, C2IntelFeeds, offline"
 	srcRIPEStat        = "Live RIPEstat announced-prefixes API"
 )
 
@@ -187,6 +187,10 @@ func listName(entry string) string {
 		return "FireHOL level 3: attacks in the last 30 days"
 	case "feodo":
 		return "Feodo Tracker: " + detail + " botnet C2"
+	case "c2intel":
+		return "C2IntelFeeds: " + detail + " C2"
+	case "threatfox":
+		return "ThreatFox: " + detail
 	case "spamhaus-drop":
 		if detail != "" {
 			return "Spamhaus DROP (" + detail + ")"
