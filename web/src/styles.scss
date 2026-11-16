@@ -500,7 +500,7 @@ details.tips {
   }
 
   &.finding-medium .level {
-    color: $text-primary;
+    color: $support-warning;
   }
 
   &.finding-info .level {
@@ -665,4 +665,27 @@ details.tips {
     gap: $spacing-03;
     margin-top: $spacing-04;
   }
+}
+
+// The plain answers, set apart from the list of findings under them.
+.findings .answers {
+  margin-bottom: $spacing-05;
+  padding-bottom: $spacing-04;
+  border-bottom: 1px solid $border-subtle-01;
+
+  .where + .where {
+    margin-top: $spacing-03;
+  }
+}
+
+// A sortable header's label and its (i) stay on one line.
+.th-label {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-02;
+  white-space: nowrap;
+}
+
+.card .fields {
+  margin-bottom: $spacing-06;
 }

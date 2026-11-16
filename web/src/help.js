@@ -287,7 +287,7 @@ export function findings(r, loaded = {}) {
       const what = { finance: 'a bank or other financial institution', government: 'a government body', healthcare: 'a hospital or health service', education: 'a university, college or school' }[kind];
       add('info', `The block is registered to ${what} (inferred from its registered name): its addresses are normally that organisation's own ${kind === 'education' ? 'staff, systems or students' : 'staff and systems'}. Attack traffic from one usually means a compromised machine there; they will want to know.`);
     } else {
-      add('info', `The block is registered to ${owner.name}, a customer of the network, so this is that organisation's connection rather than a home user's.`);
+      add('info', `Contact ${owner.name}, who the block is registered to, before the network's abuse desk.`);
     }
   }
 
@@ -378,7 +378,7 @@ export function whoIs(r) {
   const owner = blockOwner(r);
   if (owner?.distinct) {
     const what = owner.kinds.map((k) => KIND_PHRASES[k]).filter(Boolean)[0];
-    return `${owner.name}${what ? `, ${what}` : ''}. The block is registered to them; ${network || 'the network'}${asn ? ` (${asn})` : ''} only carries its traffic. Activity from this address is theirs, so they are who to contact (or ${network || 'the network'}'s abuse desk if they do not answer).`;
+    return `${owner.name}${what ? ` (${what})` : ''}, on ${network || 'the network'}${asn ? ` (${asn})` : ''}. The block is registered to them; the network only carries their traffic.`;
   }
   if (!network) return null;
   const range = (r.category?.inferred || []).find((t) => t.from === 'netname')?.tag;

@@ -133,7 +133,7 @@ const state = {
   search: {
     q: '',
     scope: 'all',
-    limit: 50,
+    limit: 500,
     family: 'any',
     loading: false,
     error: '',
@@ -458,7 +458,7 @@ function sortHeader(table, key, label, help) {
       e.stopPropagation();
       state.search.sort[table] = { key, dir: e.detail.sortDirection };
       update();
-    }}>${label}${help ? tip(label, help) : nothing}</cds-table-header-cell>`;
+    }}><span class="th-label">${label}${help ? tip(label, help) : nothing}</span></cds-table-header-cell>`;
 }
 
 // ---------- views ----------
@@ -653,7 +653,7 @@ async function copySummary(r) {
   }, 3000);
 }
 
-const LEVEL_LABEL = { high: 'High', medium: 'Caution', info: 'Note', ok: 'OK' };
+const LEVEL_LABEL = { high: 'High', medium: 'Warning', info: 'Note', ok: 'OK' };
 
 function findingsView(r, loaded) {
   const who = whoIs(r);
@@ -663,8 +663,12 @@ function findingsView(r, loaded) {
   const worst = points[0]?.level || 'info';
   return html`<section class="findings findings-${worst}" aria-label="What this means">
     <h4>What this means</h4>
-    ${who ? html`<p class="where"><strong>Who is it?</strong> ${who}</p>` : nothing}
-    ${where ? html`<p class="where"><strong>Where is it?</strong> ${where}</p>` : nothing}
+    ${who || where
+      ? html`<div class="answers">
+          ${who ? html`<p class="where"><strong>Who is it?</strong> ${who}</p>` : nothing}
+          ${where ? html`<p class="where"><strong>Where is it?</strong> ${where}</p>` : nothing}
+        </div>`
+      : nothing}
     ${points.length
       ? html`<ul>
           ${points.map((f) => html`<li class="finding finding-${f.level}"><span class="level">${LEVEL_LABEL[f.level]}</span><span>${f.text}</span></li>`)}
@@ -877,7 +881,6 @@ function resultCard(r, i) {
           <cds-button kind="ghost" size="sm" @click=${() => copyJSON(r)}>Copy JSON</cds-button>
         </div>
       </div>
-      ${findingsView(r, loaded)}
       ${identity}
       <dl class="fields">
         ${countryFields}
@@ -885,6 +888,7 @@ function resultCard(r, i) {
         ${field('Reputation', rep ? reputationView(rep, isASN) : nothing, '', repHelp)}
         ${field('Reverse DNS', rdnsBody, '', FIELD_HELP.rdns)}
       </dl>
+      ${findingsView(r, loaded)}
       ${r.prefixes
         ? html`<div class="prefixes">
             <h3>Announced prefixes ${tip('Announced prefixes', FIELD_HELP.prefixes)}</h3>
@@ -945,7 +949,7 @@ function searchView() {
   const submit = () => {
     s.q = document.getElementById('search-q')?.value ?? s.q;
     const limit = parseInt(document.getElementById('search-limit')?.value, 10);
-    s.limit = Number.isFinite(limit) && limit > 0 ? limit : 50;
+    s.limit = Number.isFinite(limit) && limit > 0 ? limit : 500;
     if (s.q.trim()) go(`#/search?q=${encodeURIComponent(s.q.trim())}${s.fuzzy ? '&fuzzy=1' : ''}`);
   };
   const d = s.data;
