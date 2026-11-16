@@ -178,6 +178,9 @@ asname --rest --city --netblock -r
 
 # Start on custom host/port with CORS enabled for web dashboards
 asname --rest --listen 0.0.0.0:9000 --cors
+
+# Serve the web UI too (build it with `make web`), and allow database updates from it
+asname --rest --allow-updates --web-dir web/dist     # http://127.0.0.1:8086/
 ```
 
 ### Querying the REST API
@@ -214,6 +217,53 @@ curl -s -X POST http://127.0.0.1:8086/v1/bulk \
 curl -s -X POST http://127.0.0.1:8086/v1/bulk \
   -H "Content-Type: text/plain" \
   --data-binary $'8.8.8.8\n1.1.1.1\nhttps://github.com'
+
+# Databases on disk and loaded, their age, and the last or running update
+curl -s http://127.0.0.1:8086/v1/status
+```
+
+### Updating Databases over the API (`--allow-updates`)
+
+```bash
+# Rebuild chosen databases (asn, names, country, city, netblock, category, reputation)
+curl -s -X POST http://127.0.0.1:8086/v1/update \
+  -H "Content-Type: application/json" -d '{"databases": ["reputation"]}'
+
+# Everything on disk ({}), only stale ones, or only what the last update left out
+curl -s -X POST http://127.0.0.1:8086/v1/update -H "Content-Type: application/json" -d '{"stale_only": true}'
+curl -s -X POST http://127.0.0.1:8086/v1/update -H "Content-Type: application/json" -d '{"incremental": true}'
+
+# Watch the log, or cancel
+curl -s http://127.0.0.1:8086/v1/update
+curl -s -X DELETE http://127.0.0.1:8086/v1/update -H "Content-Type: application/json"
+
+# Updates are refused from other sites and from hostnames that aren't this machine,
+# and the server swaps in the new databases when one finishes, without a restart.
+# Stale databases are also refreshed every 6 hours while the server runs.
+```
+
+### Web UI & systemd Service
+
+```bash
+# Build and install the binary and the web UI (needs Node.js for `make web`)
+make build web
+sudo make install install-web           # /usr/local/bin, /usr/local/share/asname/web
+
+# System service: own sandboxed user, databases in /var/lib/asname, on 127.0.0.1:8086
+sudo make install-service
+journalctl -u asname -f
+sudo make uninstall-service
+
+# Or a user service sharing ~/.asname with the CLI
+make install-user-service
+journalctl --user -u asname -f
+make uninstall-user-service
+
+# Another address
+sudo make install-service LISTEN=127.0.0.1:9000
+
+# Work on the UI with hot reload against a running `asname --rest`
+cd web && npm run dev                    # ASNAME_API=http://127.0.0.1:9000 to point elsewhere
 ```
 
 ---
@@ -343,6 +393,14 @@ make release
 
 # Build release tarballs for all supported platforms
 make release-all
+
+# Build the web UI into web/dist, and install it to /usr/local/share/asname/web
+make web
+sudo make install-web
+
+# Install the REST server and web UI as a systemd service (or a user service)
+sudo make install-service
+make install-user-service
 ```
 
 ---
@@ -355,6 +413,8 @@ make release-all
 | `ASNAME_REPUTATION` | Custom path to the blocklist reputation database | `~/.asname/reputation.db` |
 | `ASNAME_PREFIXES` | Custom path to ASN announced prefixes database | `~/.asname/prefixes.db` |
 | `ASNAME_LISTEN` | REST API server bind host and port | `127.0.0.1:8086` |
+| `ASNAME_WEB_DIR` | Serve the web UI from this directory on the REST API server | `""` |
+| `ASNAME_ALLOW_UPDATES` | Let the REST API server update its databases (`/v1/update`) | `false` |
 | `ASNAME_WHOIS` | Enable online whois lookups without asking | `false` |
 | `ASNAME_ONLINE_PREFIXES` | Look up prefixes the offline database lacks on RIPEstat without asking | `false` |
 | `ASNAME_IPV6` | Import IPv6 routes on `asname update` (remembered for later updates) | `false` |

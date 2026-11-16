@@ -15,6 +15,7 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Pretty Cards, One-Liners, JSONL & CSV**: Results print as clean multi-line cards by default, or one line each (`--oneline`), streamable JSON objects (`--json`), or CSV for spreadsheets (`--csv`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
+- **Web UI**: An optional browser front end, served by the REST server itself (`--web-dir`), for lookups, searches and database updates, and a Makefile target that installs it all as a systemd service.
 - **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it, along with the country the block itself is registered in and when it was registered.
 - **Says Who Is Dodgy**: An optional reputation database flags addresses and ASNs named by Spamhaus DROP and ASN-DROP, IPsum and FireHOL, and shows what share of an ASN's address space is listed.
 - **Says What It Is**: Another optional database classifies an address as cloud, CDN, hosting, residential ISP, mobile or Tor exit, from the providers' own published ranges and operator-declared network types, and flags space rented out by IP leasing brokers or held by an anonymised company.
@@ -37,6 +38,14 @@ sudo make install
 
 This compiles the tool and places the `asname` binary into `/usr/local/bin/`.
 Run `make test` to run the test suite.
+
+The web UI is built separately, and needs Node.js and npm; see
+[Web UI](#web-ui) and [Running as a service](#running-as-a-service).
+
+```bash
+make web
+sudo make install-web
+```
 
 ## Go Package & Library Usage
 
@@ -800,7 +809,116 @@ curl -s "http://127.0.0.1:8086/v1/lookup/b64/aHR0cHM6Ly9leGFtcGxlLmNvbQ"
 curl -s -X POST http://127.0.0.1:8086/v1/bulk \
   -H "Content-Type: application/json" \
   -d '{"targets": ["8.8.8.8", "AS15169", "dns.google"], "reverse_dns": true}'
+
+# Which databases are on disk and loaded, how old they are, and the last update
+curl -s http://127.0.0.1:8086/v1/status
 ```
+
+#### Updating databases through the API
+
+Started with `--allow-updates` (`ASNAME_ALLOW_UPDATES`), the server can also
+rebuild its databases, which is what the web UI's Databases tab uses. It also
+checks every 6 hours for databases older than `--max-age` and refreshes them,
+as a lookup on the command line would. An update runs in the background; the
+server keeps answering from the current files and switches to the new ones when
+the update finishes, without a restart.
+
+```bash
+$ asname --rest --allow-updates
+
+# Rebuild the reputation and category databases (any absent one is built)
+curl -s -X POST http://127.0.0.1:8086/v1/update \
+  -H "Content-Type: application/json" \
+  -d '{"databases": ["reputation", "category"]}'
+
+# Refresh every database on disk, as `asname update` does
+curl -s -X POST http://127.0.0.1:8086/v1/update -H "Content-Type: application/json" -d '{}'
+
+# Only what is older than --max-age, or only what the last update left out
+curl -s -X POST http://127.0.0.1:8086/v1/update -H "Content-Type: application/json" -d '{"stale_only": true}'
+curl -s -X POST http://127.0.0.1:8086/v1/update -H "Content-Type: application/json" -d '{"incremental": true}'
+
+# Progress (the log of the running or last update), and cancelling it
+curl -s http://127.0.0.1:8086/v1/update
+curl -s -X DELETE http://127.0.0.1:8086/v1/update -H "Content-Type: application/json"
+```
+
+The databases are named `asn` (which includes the ASN prefixes), `names`,
+`country`, `city`, `netblock`, `category` and `reputation`. Only one update runs
+at a time; asking for another answers `409`.
+
+Updates download hundreds of megabytes and rewrite the data directory, so the
+server accepts them only from a page on its own origin: the request must be JSON,
+must not come from another site (`Origin`, `Sec-Fetch-Site`), and must be
+addressed to an IP address, `localhost` or this machine's own name. That stops a
+web page you visit from starting one, even through a domain re-pointed at your
+machine. The API has no login, so keep `--allow-updates` servers on
+`127.0.0.1`, or behind something that authenticates, rather than open to a
+network.
+
+### Web UI
+
+`asname` ships an optional web UI, built with IBM's
+[Carbon Design System](https://carbondesignsystem.com/), that the REST server
+serves itself with `--web-dir`:
+
+```bash
+make web        # npm ci && npm run build, into web/dist
+asname --rest --allow-updates --web-dir web/dist
+# open http://127.0.0.1:8086/
+```
+
+It has three tabs:
+
+- **Lookup**: IPs, hostnames, URLs or ASNs, one per line, each shown as a card
+  with its ASN, country, city, netblock, category, reputation and announced
+  prefixes. Click an ASN to look it up.
+- **Search**: AS names and registry netblocks by organisation or network name.
+- **Databases**: what is on disk and loaded, how old each database is, and
+  buttons to update the ones you choose, refresh everything, refresh only what
+  is stale, or retry what the last update left out, with the update's log as it
+  runs. Without `--allow-updates` it shows the status only.
+
+The UI talks to the asname that served it. Settings can point it at another
+server instead, which must then run with `--cors`, and which only accepts
+updates from its own page. Lookups and searches are linkable
+(`#/lookup?q=8.8.8.8`, `#/search?q=cloudflare`), and there is a light and a dark
+theme. See [web/README.md](web/README.md) to work on it.
+
+### Running as a service
+
+The Makefile installs the REST server and the web UI as a systemd service on
+`127.0.0.1:8086`. Build and install the binary and the UI first:
+
+```bash
+make build web
+sudo make install install-web
+```
+
+Then either a system service, which runs as its own unprivileged user
+(`DynamicUser`) with its databases in `/var/lib/asname`, sandboxed so it can
+write nothing else:
+
+```bash
+sudo make install-service      # enables and starts asname.service
+journalctl -u asname -f        # the first start downloads the core databases
+sudo make uninstall-service    # keeps /var/lib/private/asname
+```
+
+or a user service that runs as you and shares `~/.asname` with the `asname`
+command, so nothing is downloaded twice:
+
+```bash
+make install-user-service      # systemctl --user enable --now asname
+loginctl enable-linger         # optional: keep it running after you log out
+make uninstall-user-service
+```
+
+Both run `asname --rest --allow-updates --web-dir /usr/local/share/asname/web`.
+`LISTEN`, `BINDIR` and `WEBDIR` change the address and paths, e.g.
+`sudo make install-service LISTEN=127.0.0.1:9000`. Re-running an install target
+after `make install` or `make install-web` picks up the new files; restart the
+service to use them.
 
 ### Manual Updates
 
