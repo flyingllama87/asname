@@ -42,13 +42,15 @@ func DatabaseStatus(cfg Config) []DBStatus {
 		{Name: "Country", Path: cfg.CountryPath},
 		{Name: "ASN prefixes", Path: cfg.PrefixPath},
 		{Name: "City", Path: cfg.CityPath, Optional: true},
+		{Name: "City (MaxMind)", Path: cfg.MaxMindCityPath, Optional: true},
 		{Name: "Netblock", Path: cfg.NetblockPath, Optional: true},
+		{Name: "Geofeed", Path: cfg.GeofeedPath, Optional: true},
 		{Name: "Category", Path: cfg.CategoryPath, Optional: true},
 		{Name: "Reputation", Path: cfg.ReputationPath, Optional: true},
 	}
 	// The update record is kept per update step; the prefix database is
 	// written by the ASN step, which records a failure to write it.
-	keys := []string{KeyASN, KeyNames, KeyCountry, "", KeyCity, KeyNetblock, KeyCategory, KeyReputation}
+	keys := []string{KeyASN, KeyNames, KeyCountry, "", KeyCity, KeyCity, KeyNetblock, KeyGeofeed, KeyCategory, KeyReputation}
 	rec := LoadUpdateRecord(cfg.UpdateRecordPath)
 	for i, key := range keys {
 		out[i].UpdateKey = key
@@ -70,16 +72,24 @@ func DatabaseStatus(cfg Config) []DBStatus {
 		}
 		s.Present, s.Size, s.Updated = true, info.Size(), info.ModTime()
 	}
-	if cat := &out[6]; cat.Present {
+	if cat := &out[8]; cat.Present {
 		cat.VPNLists = categoryVPNLists(cat.Path, cat.Updated)
 	}
-	if city := &out[4]; city.Present {
+	for _, city := range []*DBStatus{&out[4], &out[5]} {
+		if !city.Present {
+			continue
+		}
 		if db, err := LoadCityDB(city.Path); err == nil {
 			if db.Metadata.BuildEpoch > 0 {
 				city.Built = db.Metadata.BuildTime()
 			}
 			db.Close()
 		}
+	}
+	// MaxMind's city database is listed once there is one, or an account
+	// to build it with.
+	if _, _, ok := MaxMindCredentials(); !ok && !out[5].Present {
+		out = append(out[:5], out[6:]...)
 	}
 	return out
 }

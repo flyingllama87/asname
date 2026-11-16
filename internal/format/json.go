@@ -12,19 +12,23 @@ import (
 )
 
 type JSONLookupResult struct {
-	Target     string          `json:"target,omitempty"`
-	Host       *string         `json:"host"`
-	IP         string          `json:"ip,omitempty"`
-	Version    int             `json:"version,omitempty"`
-	ASN        *JSONASN        `json:"asn,omitempty"`
-	Country    *JSONCountry    `json:"country,omitempty"`
-	City       *JSONCity       `json:"city,omitempty"`
-	Netblock   *JSONNetblock   `json:"netblock,omitempty"`
-	Category   *JSONCategory   `json:"category,omitempty"`
-	Reputation *JSONReputation `json:"reputation,omitempty"`
-	ReverseDNS *JSONReverseDNS `json:"reverse_dns,omitempty"`
-	Prefixes   *JSONPrefixes   `json:"prefixes,omitempty"`
-	Error      string          `json:"error,omitempty"`
+	Target  string       `json:"target,omitempty"`
+	Host    *string      `json:"host"`
+	IP      string       `json:"ip,omitempty"`
+	Version int          `json:"version,omitempty"`
+	ASN     *JSONASN     `json:"asn,omitempty"`
+	Country *JSONCountry `json:"country,omitempty"`
+	City    *JSONCity    `json:"city,omitempty"`
+	// CityMaxMind is MaxMind's estimate, beside City's, when asname has
+	// MaxMind's city database too.
+	CityMaxMind *JSONCity       `json:"city_maxmind,omitempty"`
+	Geofeed     *JSONGeofeed    `json:"geofeed,omitempty"`
+	Netblock    *JSONNetblock   `json:"netblock,omitempty"`
+	Category    *JSONCategory   `json:"category,omitempty"`
+	Reputation  *JSONReputation `json:"reputation,omitempty"`
+	ReverseDNS  *JSONReverseDNS `json:"reverse_dns,omitempty"`
+	Prefixes    *JSONPrefixes   `json:"prefixes,omitempty"`
+	Error       string          `json:"error,omitempty"`
 	// Text is the result as `asname -p` prints it, when asked for with
 	// text=true on the REST API, for copying into a ticket.
 	Text string `json:"text,omitempty"`
@@ -60,6 +64,20 @@ type JSONCountry struct {
 type JSONCity struct {
 	Name    string `json:"name"`
 	Present bool   `json:"present"`
+	// Source names who made the city database: "DB-IP", "MaxMind
+	// GeoLite2" or "MaxMind GeoIP2".
+	Source string `json:"source,omitempty"`
+}
+
+// JSONGeofeed is where the network's own geofeed (RFC 8805) places the
+// address: Region is an ISO 3166-2 code, Name the whole place as text, Feed
+// the URL of the geofeed that says so.
+type JSONGeofeed struct {
+	Country *JSONCountry `json:"country"`
+	Region  string       `json:"region,omitempty"`
+	City    string       `json:"city,omitempty"`
+	Name    string       `json:"name"`
+	Feed    string       `json:"feed"`
 }
 
 type JSONNetblock struct {
@@ -247,6 +265,24 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 		out.City = &JSONCity{
 			Name:    res.City,
 			Present: true,
+			Source:  res.CitySource,
+		}
+	}
+	if res.CityMaxMind != "" {
+		out.CityMaxMind = &JSONCity{Name: res.CityMaxMind, Present: true, Source: res.CityMaxMindSource}
+	}
+
+	if g := res.Geofeed; g != nil {
+		name := sources.CountryNames[g.Country]
+		if name == "" {
+			name = g.Country
+		}
+		out.Geofeed = &JSONGeofeed{
+			Country: &JSONCountry{Code: g.Country, Name: name},
+			Region:  g.Region,
+			City:    g.City,
+			Name:    g.String(),
+			Feed:    g.Feed,
 		}
 	}
 

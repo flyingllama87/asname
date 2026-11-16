@@ -156,6 +156,15 @@ func fetchCached(ctx context.Context, dir, url, userAgent string) (string, error
 	return path, nil
 }
 
+type basicAuthKey struct{}
+
+type basicAuth struct{ user, pass string }
+
+// withBasicAuth makes the downloads under ctx log in to their host.
+func withBasicAuth(ctx context.Context, user, pass string) context.Context {
+	return context.WithValue(ctx, basicAuthKey{}, basicAuth{user, pass})
+}
+
 // openCached is fetchCached followed by opening the result for reading.
 func openCached(ctx context.Context, dir, url, userAgent string) (*os.File, error) {
 	path, err := fetchCached(ctx, dir, url, userAgent)
@@ -204,12 +213,18 @@ func rangeStart(header string) (int64, error) {
 // httpGetFrom issues a GET, asking for the bytes from offset onwards when offset is positive.
 // A throttled or failing server is retried (see doWithRetry).
 func httpGetFrom(ctx context.Context, url, userAgent string, offset int64) (*http.Response, error) {
+	auth, _ := ctx.Value(basicAuthKey{}).(basicAuth)
 	return doWithRetry(ctx, url, func() (*http.Request, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("User-Agent", orDefaultAgent(userAgent))
+		// Go drops the header when a redirect leaves the host, so the
+		// credentials go to that host only.
+		if auth.user != "" {
+			req.SetBasicAuth(auth.user, auth.pass)
+		}
 		if offset > 0 {
 			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 		}

@@ -425,13 +425,13 @@ func TestVersion(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &v))
 	assert.Equal(t, "dev", v.Version)
 	assert.Equal(t, 720.0, v.MaxAgeHours)
-	require.Len(t, v.Databases, 8)
+	require.Len(t, v.Databases, 9)
 	for _, db := range v.Databases {
 		switch db.Name {
 		case "Country":
 			assert.True(t, db.Stale)
 			assert.Greater(t, db.AgeSeconds, int64(39*24*3600))
-		case "Category", "Reputation":
+		case "Category", "Reputation", "Geofeed":
 			assert.False(t, db.Present)
 			assert.Nil(t, db.Updated)
 		case "City":
@@ -588,8 +588,8 @@ func TestCSV(t *testing.T) {
 	out, _, err = run(t, "--dir", dir, "--no-update", "--no-whois", "8.8.8.8", "--csv")
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,netblock_country,netblock_created,category,reputation,asn_reputation,reverse_dns,prefixes,category_inferred,error",
-		"8.8.8.8,,8.8.8.8,4,AS15169,\"GOOGLE - Google LLC, US\",US,United States,,GOOGLE-DNS (Google LLC),offline,,,,,,,,,",
+		"target,host,ip,version,asn,as_name,country_code,country_name,city,netblock,netblock_source,netblock_country,netblock_created,category,reputation,asn_reputation,reverse_dns,prefixes,category_inferred,geofeed,city_maxmind,error",
+		"8.8.8.8,,8.8.8.8,4,AS15169,\"GOOGLE - Google LLC, US\",US,United States,,GOOGLE-DNS (Google LLC),offline,,,,,,,,,,,",
 	}, lines(out))
 
 	for _, args := range [][]string{

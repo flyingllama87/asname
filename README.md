@@ -15,9 +15,10 @@ Lookups are answered from local LC-trie databases, so there is no per-query netw
 - **Pretty Cards, One-Liners, JSONL & CSV**: Results print as clean multi-line cards by default, or one line each (`--oneline`), streamable JSON objects (`--json`), or CSV for spreadsheets (`--csv`).
 - **Real-Time Streaming**: Feed targets directly through standard input pipes (`--stream`).
 - **REST API Server**: Run as an instant in-memory HTTP daemon (`--rest`) on port `8086`.
-- **Web UI**: An optional browser front end, served by the REST server itself (`--web-dir`), for lookups, searches and database updates, and a Makefile target that installs it all as a systemd service.
+- **Web UI**: An optional browser front end that takes whatever you paste (a list, a log, an alert, a web page, defanged indicators included) and picks out the IPs, URLs, domains and ASNs, served by the REST server itself (`--web-dir`), for lookups, searches and database updates, and a Makefile target that installs it all as a systemd service.
 - **Names the Actual Owner**: An optional database built from the RIRs' bulk whois dumps resolves an address to the netblock it was assigned in, so a suballocation reports the customer holding it rather than the datacentre announcing it, along with the country the block itself is registered in and when it was registered.
 - **Says Who Is Dodgy**: An optional reputation database flags addresses and ASNs named by Spamhaus DROP and ASN-DROP, IPsum and FireHOL, and shows what share of an ASN's address space is listed.
+- **Says Where the Network Says It Is**: An optional database of the networks' own RFC 8805 geofeeds, found through their registry records, shown beside the geolocation estimate so a disagreement stands out.
 - **Says What It Is**: Another optional database classifies an address as cloud, CDN, hosting, residential ISP, mobile or Tor exit, from the providers' own published ranges and operator-declared network types, and flags space rented out by IP leasing brokers or held by an anonymised company.
 - **Auto-Updating**: Automatically fetches the latest RouteViews or RIPE RIS RIB dumps, RIPE ASN names, and RIR Delegation Statistics to build and maintain its own fresh databases when they get older than 30 days.
 - **Fully Standalone**: A single static binary — no Cgo, and no `geoiplookup` or other system tool to install alongside it.
@@ -117,7 +118,7 @@ client, err := asname.New(
 )
 ```
 
-The client reads the same environment variables as the CLI: `ASNAME_DIR` for the data directory, and `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, `ASNAME_CATEGORY`, `ASNAME_REPUTATION` and `ASNAME_PREFIXES` for individual files. An explicit `WithDataDir` beats `ASNAME_DIR`, a per-file variable beats the directory, and `WithCustomPaths` beats both.
+The client reads the same environment variables as the CLI: `ASNAME_DIR` for the data directory, and `ASNAME_DB`, `ASNAME_NAMES`, `ASNAME_COUNTRY`, `ASNAME_CITY`, `ASNAME_NETBLOCK`, `ASNAME_GEOFEED`, `ASNAME_CATEGORY`, `ASNAME_REPUTATION` and `ASNAME_PREFIXES` for individual files. An explicit `WithDataDir` beats `ASNAME_DIR`, a per-file variable beats the directory, and `WithCustomPaths` beats both.
 
 A field the databases cannot answer is empty in a `Result`; the CLI's `Unknown` and `N/A` are display text only. `Result.String()` puts them back for printing.
 
@@ -272,6 +273,82 @@ carriers, CGNAT and anycast routinely place an address hundreds of kilometres
 from where it really is — `dns.google`'s IPv6 anycast address reports as
 Montreal, for instance. The ASN and AS name come from BGP and are solid; the
 city is a best guess.
+
+#### MaxMind beside DB-IP
+
+With a MaxMind account the city update also downloads MaxMind's city database
+(GeoLite2 City, free with an account, or a paid GeoIP2 City edition) into
+`maxmind-city.mmdb`, and every lookup gives both estimates: `MaxMind:` beside
+`City:` in the output, `city_maxmind` beside `city` in JSON, and a row each in
+the web UI. Two independent estimates that agree are worth more than either
+alone, and when they disagree the web UI says the location is unclear.
+
+Put the account in asname's settings file, `~/.config/asname/env`, so the
+command, its REST server and the user service all see it:
+
+```bash
+mkdir -p ~/.config/asname
+cat > ~/.config/asname/env <<'END'
+ASNAME_MAXMIND_ACCOUNT_ID=123456
+ASNAME_MAXMIND_LICENSE_KEY=...
+# ASNAME_MAXMIND_EDITION=GeoIP2-City    # optional; GeoLite2-City by default
+END
+chmod 600 ~/.config/asname/env
+asname update --city-only
+```
+
+The account ID and key are sent only to MaxMind (as HTTP basic auth, which is
+not passed on when MaxMind redirects the download) and never appear in
+asname's logs or errors. Keys issued since 2024 need the account ID; a key
+alone is refused, and asname says so. If MaxMind cannot be reached the DB-IP
+database is still updated and the update is reported incomplete.
+
+#### The settings file
+
+`~/.config/asname/env` (or `$XDG_CONFIG_HOME/asname/env`, or the file
+`ASNAME_ENV_FILE` names) holds `ASNAME_*=value` lines that would otherwise
+have to be exported everywhere: the MaxMind account, `ASNAME_ARIN_APIKEY`,
+`ASNAME_CONTACT_EMAIL`. A variable set in the environment wins over the
+file. asname warns when the file can be read by other users. The system
+service reads `/etc/asname/env` instead.
+
+### Network geofeeds
+
+Many networks publish where their own addresses are, as an RFC 8805 *geofeed*:
+a CSV file their registry records point to (a `geofeed:` attribute, or a
+`remarks: Geofeed <url>` line, RFC 9092). asname can fetch them:
+
+```bash
+asname update --geofeed-only     # once; later updates keep it fresh
+asname -o 94.249.188.188
+IP: 94.249.188.188 | ASN: AS215365 | Name: Threatoff Tom Gewiese, DE | Country: DE, Germany | City: Kirchberg, Bavaria, Germany | MaxMind: Germany | Geofeed: Helsinki, Finland | Netblock: Threatoff | Block country: FI, Finland | Category: hosting
+```
+
+The netblock database finds the feeds, so it is needed first; RIPE, APNIC and
+AFRINIC registrations name some 6,000. ARIN's are found only with an ARIN bulk
+whois key. Fetching them is about 6,000 small downloads from the networks' own
+hosts, each host one connection at a time (a few for hosts serving many feeds),
+HTTPS only, in about five minutes. A host that cannot be reached three times
+in a row has its remaining feeds skipped. Expect a fifth of the feeds to be
+gone or broken at any time; the update log counts them by reason.
+
+**A feed only counts inside the ranges that name it.** Where registry ranges
+nest, the most specific one naming a feed decides which feed speaks for its
+addresses (RFC 9092, section 4), and anything a feed says about other
+addresses is dropped, so one network's feed cannot place another's space.
+Lines that do not parse are skipped. A region code from another country than
+the line's own discards the line's region and city, keeping only the country.
+
+**It is the holder's claim.** Measured on 3,000 random addresses from ranges
+that name a feed, the feed's country matched MaxMind GeoLite2's 90% of the
+time and DB-IP's 90%, as often as those two match each other (88%). In 5% it
+contradicted both, and most of those came from one feed placing German
+proxy space in Vilnius, Helsinki, Rome or London. So the web UI shows the
+geofeed beside the estimates, says when they disagree, and warns when a
+geofeed is contradicted by every estimate: typical of proxy and VPN space
+advertising a location it is not in (mobile and satellite users do roam,
+though). Use `--no-geofeed` to leave it out of
+one run, or delete `geofeed.db` to opt out.
 
 ### Registry netblocks
 

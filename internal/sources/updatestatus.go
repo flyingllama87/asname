@@ -19,12 +19,13 @@ const (
 	KeyCountry    = "country"
 	KeyCity       = "city"
 	KeyNetblock   = "netblock"
+	KeyGeofeed    = "geofeed"
 	KeyCategory   = "category"
 	KeyReputation = "reputation"
 )
 
 // UpdateKeys lists the database keys in update order.
-var UpdateKeys = []string{KeyASN, KeyNames, KeyCountry, KeyCity, KeyNetblock, KeyCategory, KeyReputation}
+var UpdateKeys = []string{KeyASN, KeyNames, KeyCountry, KeyCity, KeyNetblock, KeyGeofeed, KeyCategory, KeyReputation}
 
 // UpdateOutcome is the outcome of the last update of one database.
 type UpdateOutcome struct {

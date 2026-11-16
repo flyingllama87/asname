@@ -85,6 +85,7 @@ func NewWithOptions(opts Options) (*Client, error) {
 		_, err := UpdateStale(context.Background(), UpdateOptions{
 			ASN: true, Names: true, Country: true,
 			City: wantCity, Netblock: wantNetblock, Category: wantCategory, Reputation: wantReputation,
+			Geofeed: sources.GeofeedDBPresent(cfg.GeofeedPath),
 			DataDir: opts.DataDir, Paths: opts.Paths,
 			ContactEmail: opts.ContactEmail, Log: opts.Log,
 		}, opts.AutoUpdate)
@@ -310,6 +311,13 @@ func (c *Client) HasCategoryDB() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.eng != nil && c.eng.HasCategoryDB()
+}
+
+// HasGeofeedDB reports whether the geofeed database is loaded.
+func (c *Client) HasGeofeedDB() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.eng != nil && c.eng.HasGeofeedDB()
 }
 
 // HasReputationDB reports whether the reputation database is loaded.

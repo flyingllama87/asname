@@ -17,8 +17,9 @@ import (
 var LookupCSVHeader = []string{
 	"target", "host", "ip", "version", "asn", "as_name", "country_code", "country_name",
 	"city", "netblock", "netblock_source", "netblock_country", "netblock_created", "category", "reputation", "asn_reputation", "reverse_dns",
-	// category_inferred was added in 0.17, before error so error stays last.
-	"prefixes", "category_inferred", "error",
+	// category_inferred was added in 0.17 and geofeed in 0.18, before error
+	// so error stays last.
+	"prefixes", "category_inferred", "geofeed", "city_maxmind", "error",
 }
 
 // SearchCSVHeader names the columns of FormatCSVASNSearchOutput and
@@ -77,6 +78,12 @@ func FormatCSVLookupOutput(res engine.LookupResult) string {
 	}
 	if j.City != nil {
 		row["city"] = j.City.Name
+	}
+	if j.Geofeed != nil {
+		row["geofeed"] = j.Geofeed.Name
+	}
+	if j.CityMaxMind != nil {
+		row["city_maxmind"] = j.CityMaxMind.Name
 	}
 	if j.Netblock != nil {
 		row["netblock"] = j.Netblock.Raw

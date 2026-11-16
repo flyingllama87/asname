@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -161,6 +162,13 @@ func UpdateNetblockDB(ctx context.Context, cfg Config) (err error) {
 		return err
 	}
 	logf(ctx, "asname: wrote %s (%d ranges, %d bytes)\n", cfg.NetblockPath, imported, n)
+	refsPath := GeofeedRefsPath(cfg.NetblockPath)
+	if err := writeGeofeedRefs(refsPath, b.geofeeds); err != nil {
+		return fmt.Errorf("writing geofeed references: %v", err)
+	}
+	if len(b.geofeeds) > 0 {
+		logf(ctx, "asname: wrote %s (%d ranges name %d geofeeds)\n", refsPath, len(b.geofeeds), len(b.feedURLs))
+	}
 	return nil
 }
 
@@ -169,6 +177,31 @@ type netblockBuilder struct {
 	v6         []interval[[16]byte]
 	blob       []byte
 	orgOffsets map[string]uint32
+	// geofeeds are the ranges that name a geofeed, for the geofeed update.
+	geofeeds []geofeedRef
+	feedURLs map[string]string
+}
+
+// addGeofeedRef records that the range start..end names the geofeed at feed.
+func (b *netblockBuilder) addGeofeedRef(start, end net.IP, feed string) {
+	s, ok1 := netip.AddrFromSlice(start)
+	e, ok2 := netip.AddrFromSlice(end)
+	if !ok1 || !ok2 {
+		return
+	}
+	s, e = s.Unmap(), e.Unmap()
+	if s.Is4() != e.Is4() || e.Less(s) {
+		return
+	}
+	if b.feedURLs == nil {
+		b.feedURLs = map[string]string{}
+	}
+	if u, ok := b.feedURLs[feed]; ok {
+		feed = u // one copy of each URL
+	} else {
+		b.feedURLs[feed] = feed
+	}
+	b.geofeeds = append(b.geofeeds, geofeedRef{Start: s, End: e, URL: feed})
 }
 
 func newNetblockBuilder() *netblockBuilder {
@@ -242,8 +275,9 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 		want = append(want, src.schema.descrKey)
 	}
 	if src.schema.rpsl {
-		want = append(want, "country", "created", "mnt-by", "geofeed")
+		want = append(want, "country", "created", "mnt-by")
 	}
+	want = append(want, "geofeed")
 
 	count := 0
 	for _, url := range src.netURLs {
@@ -264,6 +298,9 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 			start, end, ok := ParseNetRange(raw)
 			if !ok {
 				return nil
+			}
+			if feed := cleanGeofeedURL(attrValue(attrs, "geofeed")); feed != "" {
+				b.addGeofeedRef(start, end, feed)
 			}
 
 			orgRef := attrValue(attrs, src.schema.orgRefKey)
@@ -621,6 +658,13 @@ func scanDump(path string, emit func([]attr) error, want ...string) error {
 			continue
 		}
 		name = strings.ToLower(strings.TrimSpace(name))
+		// RFC 9092 lets a range name its geofeed in a remark (a comment at
+		// ARIN) where the registry has no geofeed: attribute.
+		if (name == "remarks" || name == "comment") && wanted["geofeed"] {
+			if feed := geofeedRemark(value); feed != "" {
+				name, value = "geofeed", feed
+			}
+		}
 		if keeping = wanted[name]; !keeping {
 			continue
 		}
@@ -676,8 +720,15 @@ func ParseNetRange(s string) (net.IP, net.IP, bool) {
 }
 
 func redactURL(url string) string {
-	if i := strings.Index(url, "apikey="); i >= 0 {
-		return url[:i+len("apikey=")] + "..."
+	for _, k := range []string{"apikey=", "license_key="} {
+		if i := strings.Index(url, k); i >= 0 {
+			rest := url[i+len(k):]
+			end := ""
+			if j := strings.IndexByte(rest, '&'); j >= 0 {
+				end = rest[j:]
+			}
+			url = url[:i+len(k)] + "..." + end
+		}
 	}
 	return url
 }

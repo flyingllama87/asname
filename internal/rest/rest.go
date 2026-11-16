@@ -222,6 +222,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 			"netblock":   eng.HasNetblockDB(),
 			"category":   eng.HasCategoryDB(),
 			"reputation": eng.HasReputationDB(),
+			"geofeed":    eng.HasGeofeedDB(),
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)

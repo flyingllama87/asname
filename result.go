@@ -17,15 +17,27 @@ import (
 // prefix (see ASNNumber) and Country reads "US, United States" (see
 // CountryCode and CountryName).
 type Result struct {
-	Target       string `json:"target,omitempty"`
-	Host         string `json:"host,omitempty"`
-	IP           net.IP `json:"ip,omitempty"`
-	ASN          string `json:"asn,omitempty"`
-	Name         string `json:"name,omitempty"`
-	Country      string `json:"country,omitempty"`
-	City         string `json:"city,omitempty"`
-	Netblock     string `json:"netblock,omitempty"`
-	NetblockLive bool   `json:"netblock_live,omitempty"`
+	Target  string `json:"target,omitempty"`
+	Host    string `json:"host,omitempty"`
+	IP      net.IP `json:"ip,omitempty"`
+	ASN     string `json:"asn,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Country string `json:"country,omitempty"`
+	City    string `json:"city,omitempty"`
+	// CitySource names who made the city database City comes from:
+	// "DB-IP", "MaxMind GeoLite2" or "MaxMind GeoIP2".
+	CitySource string `json:"city_source,omitempty"`
+	// CityMaxMind is MaxMind's estimate of the place, beside City's, when
+	// the city update had a MaxMind account; CityMaxMindSource names the
+	// edition ("MaxMind GeoLite2").
+	CityMaxMind       string `json:"city_maxmind,omitempty"`
+	CityMaxMindSource string `json:"city_maxmind_source,omitempty"`
+	// Geofeed is where the network's own geofeed (RFC 8805) places the
+	// address, which can differ from City (an estimate); nil without
+	// the geofeed database or when no feed covers the address.
+	Geofeed      *GeofeedLocation `json:"geofeed,omitempty"`
+	Netblock     string           `json:"netblock,omitempty"`
+	NetblockLive bool             `json:"netblock_live,omitempty"`
 	// NetblockSource is the service that answered a live netblock lookup,
 	// "rdap" or "whois"; empty when NetblockLive is false.
 	NetblockSource string `json:"netblock_source,omitempty"`
@@ -148,30 +160,57 @@ func known(s string) string {
 
 func resultFromEngine(r engine.LookupResult) Result {
 	return Result{
-		Target:           r.Target,
-		Host:             r.Host,
-		IP:               r.IP,
-		ASN:              known(r.ASN),
-		Name:             known(r.Name),
-		Country:          known(r.Country),
-		City:             known(r.City),
-		Netblock:         known(r.Netblock),
-		NetblockLive:     r.NetblockLive,
-		NetblockSource:   r.NetblockSource,
-		NameSource:       r.NameSource,
-		NetblockCountry:  r.NetblockCountry,
-		NetblockCreated:  r.NetblockCreated,
-		Category:         known(r.Category),
-		CategoryInferred: inferredTags(r.Inferred),
-		Reputation:       r.Reputation,
-		ASNReputation:    asnReputationFromEngine(r.ASNReputation),
-		RDNS:             known(r.RDNS),
-		IsASN:            r.IsASN,
-		Prefixes:         r.Prefixes,
-		IPv4Prefixes:     r.IPv4Prefixes,
-		IPv6Prefixes:     r.IPv6Prefixes,
-		PrefixSource:     r.PrefixSource,
+		Target:            r.Target,
+		Host:              r.Host,
+		IP:                r.IP,
+		ASN:               known(r.ASN),
+		Name:              known(r.Name),
+		Country:           known(r.Country),
+		City:              known(r.City),
+		CitySource:        r.CitySource,
+		CityMaxMind:       r.CityMaxMind,
+		CityMaxMindSource: r.CityMaxMindSource,
+		Geofeed:           geofeedFromEngine(r.Geofeed),
+		Netblock:          known(r.Netblock),
+		NetblockLive:      r.NetblockLive,
+		NetblockSource:    r.NetblockSource,
+		NameSource:        r.NameSource,
+		NetblockCountry:   r.NetblockCountry,
+		NetblockCreated:   r.NetblockCreated,
+		Category:          known(r.Category),
+		CategoryInferred:  inferredTags(r.Inferred),
+		Reputation:        r.Reputation,
+		ASNReputation:     asnReputationFromEngine(r.ASNReputation),
+		RDNS:              known(r.RDNS),
+		IsASN:             r.IsASN,
+		Prefixes:          r.Prefixes,
+		IPv4Prefixes:      r.IPv4Prefixes,
+		IPv6Prefixes:      r.IPv6Prefixes,
+		PrefixSource:      r.PrefixSource,
 	}
+}
+
+// GeofeedLocation is where a network's own geofeed places an address: an
+// ISO 3166-1 country code, an ISO 3166-2 region code ("NL-LI") and a city,
+// with the URL of the feed. Only Country is always set. It is the holder's
+// claim: leased and VPN space can say anything.
+type GeofeedLocation struct {
+	Country string `json:"country"`
+	Region  string `json:"region,omitempty"`
+	City    string `json:"city,omitempty"`
+	Feed    string `json:"feed"`
+}
+
+// String reads "Kerkrade, NL-LI, Netherlands".
+func (g GeofeedLocation) String() string {
+	return sources.GeofeedLocation{Country: g.Country, Region: g.Region, City: g.City}.String()
+}
+
+func geofeedFromEngine(g *sources.GeofeedLocation) *GeofeedLocation {
+	if g == nil {
+		return nil
+	}
+	return &GeofeedLocation{Country: g.Country, Region: g.Region, City: g.City, Feed: g.Feed}
 }
 
 // ASNReputation is what public blocklists say about an Autonomous System.

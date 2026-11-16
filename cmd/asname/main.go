@@ -24,6 +24,7 @@ var version = "dev"
 
 func main() {
 	sources.Version = version
+	loadEnvFile(envFilePath(), os.Stderr)
 
 	cli.RootCommandHelpTemplate = `NAME:
    {{.Name}}{{if .Usage}} - {{.Usage}}{{end}}
@@ -253,6 +254,14 @@ func newApp() *cli.Command {
 				Name:  "no-reputation",
 				Usage: "omit reputation even when the reputation database is present",
 			},
+			&cli.BoolFlag{
+				Name:  "geofeed",
+				Usage: "include where the network's own geofeed (RFC 8805) places the address, building the database if absent (needs the netblock database); once present it is used without this flag",
+			},
+			&cli.BoolFlag{
+				Name:  "no-geofeed",
+				Usage: "omit the geofeed location even when the geofeed database is present",
+			},
 			&cli.StringFlag{
 				Name:    "org",
 				Aliases: []string{"O"},
@@ -332,6 +341,11 @@ func newApp() *cli.Command {
 				Usage:   "IP->netblock database `file` (default: <dir>/" + sources.NetblockFilename + ")",
 			},
 			&cli.StringFlag{
+				Name:    "geofeed-db",
+				Sources: cli.EnvVars(sources.GeofeedEnvVar),
+				Usage:   "IP->geofeed database `file` (default: <dir>/" + sources.GeofeedFilename + ")",
+			},
+			&cli.StringFlag{
 				Name:    "category-db",
 				Sources: cli.EnvVars(sources.CategoryEnvVar),
 				Usage:   "IP->category database `file` (default: <dir>/" + sources.CategoryFilename + ")",
@@ -405,11 +419,22 @@ func newConfig(cmd *cli.Command) sources.Config {
 	if c.CityPath == "" {
 		c.CityPath = filepath.Join(dir, sources.CityFilename)
 	}
+	c.MaxMindCityPath = os.Getenv(sources.MaxMindCityEnvVar)
+	if c.MaxMindCityPath == "" {
+		c.MaxMindCityPath = filepath.Join(dir, sources.MaxMindCityFilename)
+	}
 	if c.NetblockPath == "" {
 		c.NetblockPath = filepath.Join(dir, sources.NetblockFilename)
 	}
 	if c.CategoryPath == "" {
 		c.CategoryPath = filepath.Join(dir, sources.CategoryFilename)
+	}
+	c.GeofeedPath = cmd.String("geofeed-db")
+	if c.GeofeedPath == "" {
+		c.GeofeedPath = filepath.Join(dir, sources.GeofeedFilename)
+	}
+	if anyBool(cmd, "no-geofeed") {
+		c.GeofeedPath = ""
 	}
 	if c.ReputationPath == "" {
 		c.ReputationPath = filepath.Join(dir, sources.ReputationFilename)
@@ -495,6 +520,13 @@ func lookupAction(ctx context.Context, cmd *cli.Command) error {
 		contact := sources.NewContactAsker(cfg.ContactPath, cmd.String("contact-email"))
 		if err := sources.AutoUpdate(sources.WithLog(ctx, cmd.Root().ErrWriter), cfg, effectiveMaxAge(cmd, cfg).Age, wantCity, wantNetblock, wantCategory, wantReputation, contact); err != nil {
 			fmt.Fprintln(cmd.Root().ErrWriter, "asname: auto-update failed:", err)
+		}
+		// --geofeed builds the database the first time; AutoUpdate keeps
+		// it fresh from then on.
+		if cmd.Bool("geofeed") && cfg.GeofeedPath != "" && !sources.GeofeedDBPresent(cfg.GeofeedPath) {
+			if err := sources.UpdateGeofeedDB(sources.WithLog(ctx, cmd.Root().ErrWriter), cfg); err != nil {
+				fmt.Fprintln(cmd.Root().ErrWriter, "asname: building the geofeed database failed:", err)
+			}
 		}
 	}
 
@@ -1228,6 +1260,10 @@ func updateCommand() *cli.Command {
 				Usage: "only refresh the IP->category database (builds it if absent)",
 			},
 			&cli.BoolFlag{
+				Name:  "geofeed-only",
+				Usage: "only refresh the IP->geofeed database: fetches the networks' own location feeds (RFC 8805) that the netblock database's ranges name, ~6,000 small files from their hosts (builds it if absent)",
+			},
+			&cli.BoolFlag{
 				Name:  "reputation-only",
 				Usage: "only refresh the IP->reputation database of public blocklists (builds it if absent)",
 			},
@@ -1275,12 +1311,13 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 		"db-only": sources.KeyASN, "names-only": sources.KeyNames, "country-only": sources.KeyCountry,
 		"city-only": sources.KeyCity, "netblock-only": sources.KeyNetblock,
 		"category-only": sources.KeyCategory, "reputation-only": sources.KeyReputation,
+		"geofeed-only": sources.KeyGeofeed,
 	} {
 		if cmd.Bool(flag) {
 			sel.Only[key] = true
 		}
 	}
-	for _, key := range []string{sources.KeyCity, sources.KeyNetblock, sources.KeyCategory, sources.KeyReputation} {
+	for _, key := range []string{sources.KeyCity, sources.KeyNetblock, sources.KeyGeofeed, sources.KeyCategory, sources.KeyReputation} {
 		if cmd.Bool(key) {
 			sel.Also[key] = true
 		}
@@ -1479,6 +1516,7 @@ func runDatabaseUpdate(ctx context.Context, cfg sources.Config, sel updateSelect
 		sources.KeyCountry:    all || sel.Only[sources.KeyCountry],
 		sources.KeyCity:       sel.Only[sources.KeyCity] || sel.Also[sources.KeyCity] || (all && sources.CityDBPresent(cfg.CityPath)),
 		sources.KeyNetblock:   sel.Only[sources.KeyNetblock] || sel.Also[sources.KeyNetblock] || (all && sources.NetblockDBPresent(cfg.NetblockPath)),
+		sources.KeyGeofeed:    cfg.GeofeedPath != "" && (sel.Only[sources.KeyGeofeed] || sel.Also[sources.KeyGeofeed] || (all && sources.GeofeedDBPresent(cfg.GeofeedPath))),
 		sources.KeyCategory:   sel.Only[sources.KeyCategory] || sel.Also[sources.KeyCategory] || (all && sources.CategoryDBPresent(cfg.CategoryPath)),
 		sources.KeyReputation: sel.Only[sources.KeyReputation] || sel.Also[sources.KeyReputation] || (all && sources.ReputationDBPresent(cfg.ReputationPath)),
 	}
@@ -1539,6 +1577,12 @@ func runDatabaseUpdate(ctx context.Context, cfg sources.Config, sel updateSelect
 	if run[sources.KeyNetblock] {
 		if err := sources.UpdateNetblockDB(rctx, cfg); err != nil {
 			failed = append(failed, fmt.Errorf("updating netblock database: %v", err))
+		}
+	}
+	// After the netblock database, whose ranges name the feeds.
+	if run[sources.KeyGeofeed] {
+		if err := sources.UpdateGeofeedDB(rctx, cfg); err != nil {
+			failed = append(failed, fmt.Errorf("updating geofeed database: %v", err))
 		}
 	}
 	if run[sources.KeyCategory] {

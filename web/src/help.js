@@ -15,7 +15,12 @@ export const FIELD_HELP = {
     carved out of a larger allocation and registered somewhere else, which is common when space is sold or leased.`,
   allocatedIn: `The country of the larger block the RIR originally allocated, which this one was carved from.`,
   countryASN: `The country in the AS's registered name.`,
-  city: `Where DB-IP's free geolocation database places the address. It is an estimate: often right to the city for
+  location: `Each answer to where the address is, side by side. Geofeed is what the network itself publishes (an RFC 8805
+    file its registry record points to): usually right for its own broadband and offices, but it is the holder's claim,
+    and leased or VPN space can say anything. GeoLite2 (MaxMind) and DB-IP are independent estimates. When they agree,
+    the location is solid; when they do not, treat it as unknown.`,
+  city: `Where the geolocation database places the address: DB-IP's free Lite database, or MaxMind's when asname
+    has a MaxMind licence key. It is an estimate: often right to the city for
     home broadband, often wrong for VPNs, mobile networks and cloud servers, which can appear anywhere.`,
   netblock: `The registry record for the specific block the address is in: the organisation it is assigned to, its
     network name (netname), and when it was registered. This is often the actual customer, where ASN is only the
@@ -241,6 +246,21 @@ export function findings(r, loaded = {}) {
     add('medium', `${fmtPct(asnRep.listed_share_pct)} of ${asn}'s address space is on blocklists, which is high: the network tolerates or attracts abuse.`);
   }
 
+  // A geofeed every independent estimate contradicts.
+  const gf = r.geofeed;
+  if (gf) {
+    const gc = gf.country?.name || gf.country?.code;
+    const est = [];
+    if (r.city_maxmind?.present) est.push([(r.city_maxmind.source || 'MaxMind').replace(/^MaxMind /, ''), r.city_maxmind.name.split(',').pop().trim()]);
+    if (r.city?.present) est.push([(r.city.source || 'DB-IP').replace(/^MaxMind /, ''), r.city.name.split(',').pop().trim()]);
+    if (est.length && est.every(([, c]) => c !== gc)) {
+      const said = [...new Set(est.map(([, c]) => c))];
+      const who = est.map(([w]) => w).join(' and ');
+      add(est.length > 1 ? 'medium' : 'info',
+        `The network's own geofeed says ${gc}, but ${who} ${est.length > 1 ? 'both ' : ''}place it in ${said.join(' or ')}. A geofeed that the measurements contradict is typical of proxy and VPN space advertising a location it is not in, though mobile and satellite users do roam.`);
+    }
+  }
+
   // What the address is
   if (tags.includes('tor-exit')) add('medium', 'A Tor exit node: the traffic came from an anonymous Tor user, not from whoever runs this address. You cannot trace the user through it.');
   for (const t of tags.filter((t) => t.startsWith('vpn:'))) {
@@ -399,17 +419,44 @@ export function whereIs(r) {
   const rir = r.country?.name || r.country?.code || '';
   const nb = r.netblock?.country;
   const reg = nb?.name || nb?.code || rir;
-  const city = r.city?.present ? r.city.name : '';
-  const geo = city ? city.split(',').pop().trim() : '';
   const tags = r.category?.tags || [];
   const movable = tags.includes('tor-exit') || tags.some((t) => t.startsWith('vpn:') || t.startsWith('cloud:'));
+  const leased = tags.some((t) => t.startsWith('leased:'));
   const history = nb && rir && nb.code !== r.country?.code ? ` Parent allocation: ${rir}.` : '';
   const caveat = movable ? ' VPN, Tor or cloud: the user can be anywhere.' : '';
-  if (!reg && !geo) return null;
-  if (!geo) return `${reg} (registration; no geolocation).${history}${caveat}`;
-  if (!reg) return `${city} (geolocation; no registration).${caveat}`;
-  if (geo === reg) return `${reg}: registered there, geolocated to ${city}.${history}${caveat}`;
-  return `Unclear: registered in ${reg}, geolocated to ${city}.${history}${caveat || ' Broadband: trust the geolocation. Hosting: neither is reliable.'}`;
+  const country = (place) => place.split(',').pop().trim();
+  const short = (who) => (who || 'DB-IP').replace(/^MaxMind /, '');
+
+  // Each answer, by who gives it.
+  const answers = [];
+  if (r.geofeed) answers.push({ who: 'geofeed', place: r.geofeed.name, country: r.geofeed.country?.name || r.geofeed.country?.code });
+  if (r.city_maxmind?.present) answers.push({ who: short(r.city_maxmind.source), place: r.city_maxmind.name, country: country(r.city_maxmind.name) });
+  if (r.city?.present) answers.push({ who: short(r.city.source), place: r.city.name, country: country(r.city.name) });
+
+  if (!answers.length) return reg ? `${reg} (registration; no geolocation).${history}${caveat}` : null;
+  if (answers.length === 1) {
+    const [a] = answers;
+    const what = a.who === 'geofeed' ? "the network's geofeed says" : 'geolocated to';
+    if (!reg) return `${a.place} (${a.who}).${caveat}`;
+    if (a.country === reg) return `${reg}: registered there, ${what} ${a.place}.${history}${caveat}`;
+    return `Unclear: registered in ${reg}, ${what} ${a.place}.${history}${caveat || ' Broadband: trust the geolocation. Hosting: neither is reliable.'}`;
+  }
+
+  const byCountry = new Map();
+  for (const a of answers) byCountry.set(a.country, [...(byCountry.get(a.country) || []), a.who]);
+  const regNote = reg && !byCountry.has(reg) ? ` Registered in ${reg}.` : '';
+  const claim = caveat || (r.geofeed && leased ? ' Leased space: whoever rents it sets the geofeed.' : '');
+  if (byCountry.size === 1) {
+    const [c] = byCountry.keys();
+    return `${c}: ${joinAnd(answers.map((a) => a.who))} agree.${regNote}${history}${claim}`;
+  }
+  const split = [...byCountry].map(([c, who]) => `${c} (${who.join(', ')})`).join(' vs ');
+  return `Unclear: ${split}.${regNote}${history}${claim || (r.geofeed ? " The geofeed is the network's own claim; the others are estimates." : ' The estimates disagree: treat the location as unknown.')}`;
+}
+
+function joinAnd(list) {
+  if (list.length < 3) return list.join(' and ');
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
 }
 
 // summaryText is a result as plain text for a ticket: the command line's

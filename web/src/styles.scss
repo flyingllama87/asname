@@ -705,6 +705,13 @@ details.tips {
   margin-bottom: $spacing-04;
   padding-bottom: $spacing-04;
   border-bottom: 1px solid $border-subtle-01;
+
+  // With no findings under them, no rule either.
+  &:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
 }
 
 .answer {

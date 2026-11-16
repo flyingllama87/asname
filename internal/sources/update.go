@@ -156,6 +156,14 @@ func AutoUpdate(ctx context.Context, cfg Config, maxAge time.Duration, city, net
 			return err
 		}
 	}
+	// The geofeed database is opted into by building it once; it is kept
+	// fresh like the others from then on.
+	if GeofeedDBPresent(cfg.GeofeedPath) && Stale(cfg.GeofeedPath, maxAge) {
+		logf(ctx, "asname: refreshing geofeed database...\n")
+		if err := UpdateGeofeedDB(ctx, cfg); err != nil {
+			return err
+		}
+	}
 	if category && Stale(cfg.CategoryPath, maxAge) {
 		logf(ctx, "asname: refreshing category database...\n")
 		if err := os.MkdirAll(filepath.Dir(cfg.CategoryPath), 0o755); err != nil {
@@ -371,11 +379,33 @@ func UpdateNames(ctx context.Context, cfg Config) (err error) {
 	return nil
 }
 
-// UpdateCityDB downloads the DB-IP Lite city database and decompresses it into cfg.CityPath.
+// UpdateCityDB downloads DB-IP's free Lite city database into cfg.CityPath
+// and, with a MaxMind account in the environment (MaxMindCredentials),
+// MaxMind's into cfg.MaxMindCityPath: two independent estimates.
 func UpdateCityDB(ctx context.Context, cfg Config) (err error) {
 	ctx, done := beginUpdate(ctx, cfg, KeyCity)
 	defer func() { done(err) }()
 
+	dbipErr := updateDBIPCity(ctx, cfg)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if account, key, ok := MaxMindCredentials(); ok && cfg.MaxMindCityPath != "" {
+		edition := maxMindEdition()
+		logf(ctx, "asname: downloading MaxMind %s\n", edition)
+		if err := updateMaxMindCity(ctx, cfg, cfg.MaxMindCityPath, account, key, edition); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			logf(ctx, "asname: warning: MaxMind: %v\n", err)
+			noteFailed(ctx, MaxMindSourceName)
+		}
+	}
+	return dbipErr
+}
+
+// updateDBIPCity downloads the DB-IP Lite city database into cfg.CityPath.
+func updateDBIPCity(ctx context.Context, cfg Config) error {
 	cache := cfg.CacheDir()
 	now := time.Now().UTC()
 	var lastErr error

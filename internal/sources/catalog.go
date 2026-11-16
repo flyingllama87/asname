@@ -54,8 +54,13 @@ func SourceCatalog(key string) []CatalogSource {
 		}
 		return out
 	case KeyCity:
-		return []CatalogSource{{Name: "DB-IP City Lite", URL: "https://db-ip.com/db/download/ip-to-city-lite",
-			Provides: "Approximate city for each address (CC BY 4.0, monthly)."}}
+		return []CatalogSource{
+			{Name: "DB-IP City Lite", URL: "https://db-ip.com/db/download/ip-to-city-lite",
+				Provides: "Approximate city for each address (CC BY 4.0, monthly)."},
+			{Name: MaxMindSourceName, URL: "https://dev.maxmind.com/geoip/geolite2-free-geolocation-data",
+				Condition: "with a MaxMind account (" + MaxMindAccountEnvVar + " and " + MaxMindKeyEnvVar + "); GeoLite2-City unless " + MaxMindEditionEnvVar + " names another edition",
+				Provides:  "A second, independent city estimate, shown beside DB-IP's: GeoLite2 City (free with an account) or a paid GeoIP2 City edition."},
+		}
 	case KeyNetblock:
 		return []CatalogSource{
 			{Name: "APNIC", URL: apnicWhoisBase, Provides: "Asia-Pacific registrations: who each block is assigned to, its country and date."},
@@ -66,6 +71,11 @@ func SourceCatalog(key string) []CatalogSource {
 			{Name: "ARIN (delegated statistics)", URL: arinDelegatedURL, Condition: "without an ARIN key",
 				Provides: "ARIN's allocations, named after the AS that routes them: coarser than bulk whois."},
 		}
+	case KeyGeofeed:
+		return []CatalogSource{{Name: GeofeedSourceName, URL: "https://www.rfc-editor.org/rfc/rfc8805",
+			Condition: "with the netblock database, which finds the feeds",
+			Provides: "Where each network says its own addresses are (RFC 8805 geofeeds), fetched from the URL its registry ranges name (RFC 9092). " +
+				"A feed only counts for the addresses inside the ranges that name it. It is the holder's claim: leased and VPN space can say anything."}}
 	case KeyCategory:
 		out := []CatalogSource{
 			{Name: "AWS", URL: awsRanges, Provides: "Amazon Web Services address ranges (cloud:aws)."},

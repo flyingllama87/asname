@@ -23,11 +23,16 @@ const (
 
 // Config bundles the resolved file locations for a run.
 type Config struct {
-	DBPath         string
-	NamesPath      string
-	CountryPath    string
-	CityPath       string
-	NetblockPath   string
+	DBPath      string
+	NamesPath   string
+	CountryPath string
+	CityPath    string
+	// MaxMindCityPath is MaxMind's city database, written by the city
+	// update when a MaxMind account is configured; empty leaves it out.
+	MaxMindCityPath string
+	NetblockPath    string
+	// GeofeedPath is the geofeed database; empty leaves it out.
+	GeofeedPath    string
 	CategoryPath   string
 	ReputationPath string
 	PrefixPath     string

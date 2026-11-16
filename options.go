@@ -35,17 +35,20 @@ const (
 
 // CustomPaths allows explicitly specifying custom file paths for databases.
 type CustomPaths struct {
-	DBPath         string
-	NamesPath      string
-	CountryPath    string
-	CityPath       string
-	NetblockPath   string
-	CategoryPath   string
-	ReputationPath string
-	PrefixPath     string
-	ConsentPath    string
-	ContactPath    string
-	CachePath      string
+	DBPath      string
+	NamesPath   string
+	CountryPath string
+	CityPath    string
+	// MaxMindCityPath is MaxMind's city database, beside CityPath's DB-IP one.
+	MaxMindCityPath string
+	NetblockPath    string
+	GeofeedPath     string
+	CategoryPath    string
+	ReputationPath  string
+	PrefixPath      string
+	ConsentPath     string
+	ContactPath     string
+	CachePath       string
 }
 
 // Options configures the asname Client.
@@ -56,8 +59,8 @@ type Options struct {
 
 	// Paths allows setting individual database file locations. A path left
 	// empty comes from its environment variable (ASNAME_DB, ASNAME_NAMES,
-	// ASNAME_COUNTRY, ASNAME_CITY, ASNAME_NETBLOCK, ASNAME_CATEGORY,
-	// ASNAME_REPUTATION,
+	// ASNAME_COUNTRY, ASNAME_CITY, ASNAME_NETBLOCK, ASNAME_GEOFEED,
+	// ASNAME_CATEGORY, ASNAME_REPUTATION,
 	// ASNAME_PREFIXES), the same ones the asname CLI reads, and otherwise
 	// from DataDir.
 	Paths CustomPaths
@@ -69,6 +72,10 @@ type Options struct {
 	// Reputation loads the public blocklist database built by an update
 	// with UpdateOptions.Reputation.
 	Reputation FeatureState
+	// Geofeed loads the networks' own geofeeds, built by an update with
+	// UpdateOptions.Geofeed. FeatureAuto and FeatureEnabled load it when it
+	// is present; FeatureDisabled leaves it out.
+	Geofeed FeatureState
 
 	// EnableReverseDNS resolves PTR records for IP addresses during Lookup.
 	// Defaults to false for maximum lookup speed.
@@ -111,6 +118,7 @@ func DefaultOptions() Options {
 		Netblock:   FeatureAuto,
 		Category:   FeatureAuto,
 		Reputation: FeatureAuto,
+		Geofeed:    FeatureAuto,
 		Whois:      WhoisNever,
 	}
 }
@@ -169,6 +177,17 @@ func WithReputation(enable bool) Option {
 	}
 }
 
+// WithGeofeed controls whether the geofeed database is loaded.
+func WithGeofeed(enable bool) Option {
+	return func(o *Options) {
+		if enable {
+			o.Geofeed = FeatureEnabled
+		} else {
+			o.Geofeed = FeatureDisabled
+		}
+	}
+}
+
 // WithReverseDNS enables or disables reverse DNS PTR lookups during target queries.
 func WithReverseDNS(enable bool) Option {
 	return func(o *Options) {
@@ -222,7 +241,11 @@ func WithCustomPaths(paths CustomPaths) Option {
 }
 
 func (o *Options) toSourcesConfig() sources.Config {
-	return resolveConfig(o.DataDir, o.Paths)
+	cfg := resolveConfig(o.DataDir, o.Paths)
+	if o.Geofeed == FeatureDisabled {
+		cfg.GeofeedPath = ""
+	}
+	return cfg
 }
 
 // dataDir returns dir, else $ASNAME_DIR, else ~/.asname.
@@ -268,7 +291,9 @@ func resolveConfig(dir string, p CustomPaths) sources.Config {
 		NamesPath:        pick(p.NamesPath, sources.NamesEnvVar, sources.NamesFilename),
 		CountryPath:      pick(p.CountryPath, sources.CountryEnvVar, sources.CountryFilename),
 		CityPath:         pick(p.CityPath, sources.CityEnvVar, sources.CityFilename),
+		MaxMindCityPath:  pick(p.MaxMindCityPath, sources.MaxMindCityEnvVar, sources.MaxMindCityFilename),
 		NetblockPath:     pick(p.NetblockPath, sources.NetblockEnvVar, sources.NetblockFilename),
+		GeofeedPath:      pick(p.GeofeedPath, sources.GeofeedEnvVar, sources.GeofeedFilename),
 		CategoryPath:     pick(p.CategoryPath, sources.CategoryEnvVar, sources.CategoryFilename),
 		ReputationPath:   pick(p.ReputationPath, sources.ReputationEnvVar, sources.ReputationFilename),
 		PrefixPath:       pick(p.PrefixPath, sources.PrefixEnvVar, sources.PrefixFilename),

@@ -21,10 +21,14 @@ import (
 
 // Engine holds the databases for the run so that a batch of lookups parses them once.
 type Engine struct {
-	db           database.Database
-	names        map[uint32]string
-	countryDB    database.Database
-	cityDB       *maxminddb.Reader
+	db        database.Database
+	names     map[uint32]string
+	countryDB database.Database
+	cityDB    *maxminddb.Reader
+	// maxmindDB is MaxMind's city database, a second estimate beside
+	// cityDB's, when the city update had a MaxMind account.
+	maxmindDB    *maxminddb.Reader
+	geofeedDB    *sources.GeofeedDB
 	netblockDB   *sources.NetblockDB
 	showNetblock bool
 	whois        *sources.WhoisAsker
@@ -85,6 +89,24 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		}
 	}
 
+	// The geofeed database is used whenever it is present: building it is
+	// the opt-in. An empty GeofeedPath leaves it out.
+	var geoDB *sources.GeofeedDB
+	if sources.GeofeedDBPresent(cfg.GeofeedPath) {
+		if geoDB, err = sources.OpenGeofeedDB(cfg.GeofeedPath); err != nil {
+			fmt.Fprintln(log, "asname: geofeed database unavailable (run `asname update --geofeed-only`):", err)
+			geoDB = nil
+		}
+	}
+
+	var mmDB *maxminddb.Reader
+	if wantCity && cfg.MaxMindCityPath != "" && sources.CityDBPresent(cfg.MaxMindCityPath) {
+		if mmDB, err = sources.LoadCityDB(cfg.MaxMindCityPath); err != nil {
+			fmt.Fprintln(log, "asname: MaxMind city database unavailable (run `asname update --city-only`):", err)
+			mmDB = nil
+		}
+	}
+
 	var nbDB *sources.NetblockDB
 	if wantNetblock {
 		if nbDB, err = sources.OpenNetblockDB(cfg.NetblockPath); err != nil {
@@ -128,6 +150,8 @@ func NewEngine(cfg sources.Config, wantCity, wantNetblock, showNetblock, wantCat
 		names:          names,
 		countryDB:      countryDB,
 		cityDB:         cityDB,
+		maxmindDB:      mmDB,
+		geofeedDB:      geoDB,
 		netblockDB:     nbDB,
 		showNetblock:   showNetblock,
 		whois:          whoisAsker,
@@ -192,6 +216,9 @@ func (e *Engine) Close() {
 	if e.cityDB != nil {
 		e.cityDB.Close()
 	}
+	if e.maxmindDB != nil {
+		e.maxmindDB.Close()
+	}
 	if e.netblockDB != nil {
 		e.netblockDB.Close()
 	}
@@ -202,6 +229,7 @@ func (e *Engine) Close() {
 
 func (e *Engine) HasCountryDB() bool    { return e.countryDB != nil }
 func (e *Engine) HasCityDB() bool       { return e.cityDB != nil }
+func (e *Engine) HasGeofeedDB() bool    { return e.geofeedDB != nil }
 func (e *Engine) HasNetblockDB() bool   { return e.netblockDB != nil }
 func (e *Engine) HasCategoryDB() bool   { return e.categoryDB != nil }
 func (e *Engine) HasReputationDB() bool { return e.reputationDB != nil }
@@ -209,13 +237,24 @@ func (e *Engine) HasPrefixDB() bool     { return e.prefixDB != nil }
 
 // LookupResult is everything known about a single address or ASN.
 type LookupResult struct {
-	Target       string
-	Host         string
-	IP           net.IP
-	ASN          string
-	Name         string
-	Country      string
-	City         string
+	Target  string
+	Host    string
+	IP      net.IP
+	ASN     string
+	Name    string
+	Country string
+	City    string
+	// CitySource names who made the city database: "DB-IP", "MaxMind
+	// GeoLite2" or "MaxMind GeoIP2". Empty without it.
+	CitySource string
+	// CityMaxMind is MaxMind's estimate, from the second city database,
+	// and CityMaxMindSource its edition ("MaxMind GeoLite2"); both empty
+	// without that database.
+	CityMaxMind       string
+	CityMaxMindSource string
+	// Geofeed is where the network's own geofeed (RFC 8805) places the
+	// address; nil without the geofeed database or when no feed covers it.
+	Geofeed      *sources.GeofeedLocation
 	Netblock     string
 	NetblockLive bool
 	// NetblockSource says which service answered a live netblock lookup:
@@ -379,8 +418,19 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 
 	if e.cityDB != nil {
 		res.City = "Unknown"
+		res.CitySource = sources.CityProvider(e.cityDB)
 		if c := sources.LookupCity(e.cityDB, ip); c != "" {
 			res.City = c
+		}
+	}
+	if e.maxmindDB != nil {
+		res.CityMaxMindSource = sources.CityProvider(e.maxmindDB)
+		res.CityMaxMind = sources.LookupCity(e.maxmindDB, ip)
+	}
+
+	if e.geofeedDB != nil {
+		if loc, ok := e.geofeedDB.Lookup(ip); ok {
+			res.Geofeed = &loc
 		}
 	}
 

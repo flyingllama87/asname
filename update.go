@@ -24,6 +24,9 @@ type UpdateOptions struct {
 	Country  bool
 	City     bool
 	Netblock bool
+	// Geofeed fetches the networks' own RFC 8805 geofeeds, which the
+	// netblock database's registry ranges point to; it needs that database.
+	Geofeed  bool
 	Category bool
 	// Reputation builds the public blocklist database. It is built after
 	// the ASN database, whose routes attribute listed addresses to ASNs.
@@ -125,7 +128,7 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(updateStep) bo
 
 	all := opts.All
 	asn, names, country := opts.ASN || all, opts.Names || all, opts.Country || all
-	if !all && !opts.ASN && !opts.Names && !opts.Country && !opts.City && !opts.Netblock && !opts.Category && !opts.Reputation {
+	if !all && !opts.ASN && !opts.Names && !opts.Country && !opts.City && !opts.Netblock && !opts.Geofeed && !opts.Category && !opts.Reputation {
 		asn, names, country = true, true, true
 	}
 
@@ -146,6 +149,9 @@ func runUpdate(ctx context.Context, opts UpdateOptions, want func(updateStep) bo
 	}
 	if opts.Netblock || all {
 		steps = append(steps, updateStep{sources.KeyNetblock, "netblock", cfg.NetblockPath, sources.UpdateNetblockDB})
+	}
+	if opts.Geofeed || all {
+		steps = append(steps, updateStep{sources.KeyGeofeed, "geofeed", cfg.GeofeedPath, sources.UpdateGeofeedDB})
 	}
 	if opts.Category || all {
 		steps = append(steps, updateStep{sources.KeyCategory, "category", cfg.CategoryPath, func(ctx context.Context, cfg sources.Config) error {

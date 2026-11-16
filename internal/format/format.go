@@ -84,6 +84,12 @@ func FormatLookupOutput(res engine.LookupResult, uniform, showHost bool) string 
 	if res.City != "" {
 		fields = append(fields, outputField{label: "City", value: res.City, width: UniformCityWidth})
 	}
+	if res.CityMaxMind != "" {
+		fields = append(fields, outputField{label: "MaxMind", value: res.CityMaxMind, width: UniformCityWidth})
+	}
+	if res.Geofeed != nil {
+		fields = append(fields, outputField{label: "Geofeed", value: res.Geofeed.String(), width: UniformCityWidth})
+	}
 	if res.Netblock != "" {
 		netblock := res.Netblock
 		if res.NetblockLive {

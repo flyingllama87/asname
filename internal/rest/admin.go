@@ -93,7 +93,7 @@ func ErrSettingInvalid(msg string) error { return settingError{http.StatusBadReq
 // UpdateRequest is the body of POST /v1/update.
 type UpdateRequest struct {
 	// Databases lists the databases to rebuild by key (asn, names, country,
-	// city, netblock, category, reputation), building any that are absent.
+	// city, netblock, geofeed, category, reputation), building any that are absent.
 	// Empty means the core databases plus every optional one present, as a
 	// plain `asname update` does.
 	Databases []string `json:"databases,omitempty"`
@@ -306,6 +306,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"netblock":   eng != nil && eng.HasNetblockDB(),
 			"category":   eng != nil && eng.HasCategoryDB(),
 			"reputation": eng != nil && eng.HasReputationDB(),
+			"geofeed":    eng != nil && eng.HasGeofeedDB(),
 		},
 		Update:           s.job.snapshot(),
 		Online:           s.opts.Online,

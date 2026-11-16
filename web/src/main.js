@@ -86,7 +86,8 @@ const SRC = {
   rib: 'BGP RIB dump (RouteViews or RIPE RIS), offline',
   asNames: 'RIPE NCC AS names list (asn.txt), offline',
   rir: 'RIR delegation stats (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC), offline',
-  city: 'DB-IP City Lite geolocation, offline',
+  cityOf: (who) => (who === 'DB-IP' ? 'DB-IP City Lite geolocation, offline' : `${who} City geolocation, offline`),
+  geofeed: "The network's own RFC 8805 geofeed, named by its registry range, offline",
   netblock: 'RIR WHOIS dumps, offline',
   netblockCountry: 'Netblock registration in RIR WHOIS dumps (RIPE NCC, APNIC, AFRINIC), offline',
   whois: 'Live WHOIS (IANA referral to the RIR)',
@@ -744,11 +745,29 @@ function resultCard(r, i) {
     sources.push(['Country', SRC.rir]);
   }
 
-  // City
+  // Location: DB-IP's estimate alone, or one row per answer when there is
+  // more than one (the network's own geofeed, MaxMind's, DB-IP's).
   let cityBody = nothing;
-  if (!isASN && (r.city?.present || loaded.city)) {
-    cityBody = r.city?.present ? r.city.name : unknown();
-    sources.push(['City', SRC.city]);
+  let cityLabel = 'City';
+  let citySource = '';
+  let cityHelp = FIELD_HELP.city;
+  if (!isASN) {
+    const rows = locationRows(r);
+    if (rows.length > 1) {
+      cityLabel = 'Location';
+      citySource = rows.map((x) => x.label).join(', ');
+      cityHelp = FIELD_HELP.location;
+      cityBody = html`<div class="rep">
+        ${rows.map((x) => html`<div class="rep-row"><span class="rep-label">${x.label}</span><span title=${x.title || ''}>${x.name}</span></div>`)}
+      </div>`;
+    } else if (rows.length === 1 || loaded.city) {
+      const only = rows[0];
+      cityLabel = only?.label === 'Geofeed' ? 'Location' : 'City';
+      citySource = only ? (only.label === 'Geofeed' ? "network's geofeed" : `${only.who} geolocation`) : 'geolocation';
+      cityHelp = only?.label === 'Geofeed' ? FIELD_HELP.location : FIELD_HELP.city;
+      cityBody = only ? only.name : unknown();
+    }
+    for (const x of rows) sources.push([`Location (${x.label})`, x.src]);
   }
 
   // Netblock: shown when the netblock database is loaded or the registry was asked online.
@@ -896,7 +915,7 @@ function resultCard(r, i) {
       ${identity}
       <dl class="fields">
         ${countryFields}
-        ${field('City', cityBody, 'DB-IP geolocation', FIELD_HELP.city)}
+        ${field(cityLabel, cityBody, citySource, cityHelp)}
         ${field('Reputation', rep ? reputationView(rep, isASN) : nothing, '', repHelp)}
         ${field('Reverse DNS', rdnsBody, '', FIELD_HELP.rdns)}
       </dl>
@@ -992,6 +1011,22 @@ function fmtShare(p) {
   if (p >= 10) return `${Math.round(p)}%`;
   if (p >= 0.1) return `${p.toFixed(1)}%`;
   return p > 0 ? '<0.1%' : '0%';
+}
+
+// locationRows lists the answers to where an address is, each with a short
+// label: the network's geofeed, MaxMind's estimate and DB-IP's.
+function locationRows(r) {
+  const rows = [];
+  if (r.geofeed) rows.push({ label: 'Geofeed', name: r.geofeed.name, title: r.geofeed.feed, src: `${SRC.geofeed}: ${r.geofeed.feed}` });
+  if (r.city_maxmind?.present) {
+    const who = r.city_maxmind.source || 'MaxMind';
+    rows.push({ label: who.replace(/^MaxMind /, ''), who, name: r.city_maxmind.name, src: SRC.cityOf(who) });
+  }
+  if (r.city?.present) {
+    const who = r.city.source || 'DB-IP';
+    rows.push({ label: who.replace(/^MaxMind /, ''), who, name: r.city.name, src: SRC.cityOf(who) });
+  }
+  return rows;
 }
 
 // Search

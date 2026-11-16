@@ -17,9 +17,16 @@ type CityNetwork struct {
 	Country string            // ISO code
 }
 
-// WriteCityDB writes networks to a MaxMind DB city database at path.
+// WriteCityDB writes networks to a MaxMind DB city database at path, made
+// as DB-IP's.
 func WriteCityDB(path string, networks []CityNetwork) error {
-	tree, err := mmdbwriter.New(mmdbwriter.Options{DatabaseType: "DBIP-City-Lite", RecordSize: 28})
+	return WriteCityDBType(path, "DBIP-City-Lite", networks)
+}
+
+// WriteCityDBType is WriteCityDB with the database type the file declares,
+// such as "GeoLite2-City".
+func WriteCityDBType(path, dbType string, networks []CityNetwork) error {
+	tree, err := mmdbwriter.New(mmdbwriter.Options{DatabaseType: dbType, RecordSize: 28})
 	if err != nil {
 		return err
 	}
