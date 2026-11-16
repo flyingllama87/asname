@@ -619,7 +619,7 @@ function lookupView() {
               l.online = e.target.checked;
               update();
             }, CONTROL_HELP.online)
-          : nothing}
+          : switchWithTip('Online lookups', false, () => {}, CONTROL_HELP.onlineOff, true)}
         <cds-button @click=${submit} ?disabled=${l.loading}>Look up</cds-button>
         ${l.loading ? html`<cds-inline-loading status="active">Looking up…</cds-inline-loading>` : nothing}
       </div>

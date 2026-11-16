@@ -44,6 +44,8 @@ export const CONTROL_HELP = {
     offline index cannot name (over RDAP or, if that fails, whois) and for AS numbers too new for the offline names
     list (over RDAP); and RIPEstat for an AS's prefixes. The address or
     AS number is sent to those services, and registries rate-limit these queries, so leave it off unless you need it.`,
+  onlineOff: `Off on this server: it was started with --no-whois and --no-online-prefixes (or ASNAME_WHOIS=false), so
+    lookups here never leave this machine. Restart it without them to allow online lookups.`,
   fuzzy: `Also find names that match ignoring spaces and punctuation ("colo crossing" finds COLOCROSSING), or word by
     word in any order, leaving out company suffixes and expanding abbreviations ("univ of mississippi" finds
     "Mississippi State University"). Exact matches come first. Search never goes online, fuzzy or not.`,
