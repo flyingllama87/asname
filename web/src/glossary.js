@@ -521,6 +521,78 @@ const RANGE_PRACTICE = {
 
 // tagGlossary is the kinds of network a prefix, a block or an AS can be
 // tagged with.
+// LABEL_TERMS maps the result card's field labels and headings to the
+// glossary entry explaining them.
+export const LABEL_TERMS = {
+  Netblock: 'Netblock',
+  'Registered to': 'Netblock',
+  Network: 'Autonomous System (AS)',
+  'Carried by': 'Autonomous System (AS)',
+  Country: 'Delegation files',
+  'Registered in': 'Netblock',
+  'Allocated in': 'Allocation and assignment',
+  City: 'Geolocation',
+  Location: 'Geolocation',
+  Reputation: 'Blocklist',
+  'Reverse DNS': 'Reverse DNS',
+  'Announced prefixes': 'Announced prefix',
+  'Private Relay': 'iCloud Private Relay',
+  Geofeed: 'Geofeed',
+  GeoLite2: 'GeoLite2',
+  'GeoLite2-City': 'GeoLite2',
+  'DB-IP': 'DB-IP',
+  NAT64: 'NAT64 and DNS64',
+};
+
+// SOURCE_TERMS finds the glossary terms named inside a data source's
+// description, longest names first so "Spamhaus DROP" beats "Spamhaus".
+const SOURCE_TERMS = [
+  ['Spamhaus ASN-DROP', 'Spamhaus ASN-DROP'],
+  ['Spamhaus DROP', 'Spamhaus DROP'],
+  ['ASN-DROP', 'Spamhaus ASN-DROP'],
+  ['Spamhaus', 'Spamhaus'],
+  ['IPsum', 'IPsum'],
+  ['FireHOL', 'FireHOL'],
+  ['Feodo Tracker', 'Botnet C2'],
+  ['ThreatFox', 'Botnet C2'],
+  ['C2IntelFeeds', 'Botnet C2'],
+  ['MISP warninglists', 'MISP warninglists'],
+  ['PeeringDB', 'PeeringDB'],
+  ['bgp.tools', 'bgp.tools'],
+  ['DB-IP', 'DB-IP'],
+  ['GeoLite2', 'GeoLite2'],
+  ['MaxMind', 'GeoLite2'],
+  ['RDAP', 'RDAP'],
+  ['WHOIS', 'whois'],
+  ['whois', 'whois'],
+  ['Tor exits', 'Tor exit node'],
+  ['Tor', 'Tor exit node'],
+  ['iCloud Private Relay', 'iCloud Private Relay'],
+  ['VPN server lists', 'VPN'],
+  ['bogons', 'Bogon'],
+  ['RFC 8805 geofeed', 'Geofeed'],
+  ['geofeed', 'Geofeed'],
+  ['RIR delegation stats', 'Delegation files'],
+  ['delegation', 'Delegation files'],
+  ['RIR WHOIS dumps', 'Netblock'],
+  ['BGP RIB', 'BGP'],
+  ['RIPEstat', 'Announced prefix'],
+  ['special-purpose', 'Special-purpose address'],
+];
+const SOURCE_RE = new RegExp(`(${SOURCE_TERMS.map(([n]) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`);
+
+// sourceTerms splits text into plain strings and [name, term] pairs for
+// the glossary terms it names.
+export function sourceTerms(text) {
+  return String(text || '')
+    .split(SOURCE_RE)
+    .filter((s) => s !== '')
+    .map((s) => {
+      const hit = SOURCE_TERMS.find(([n]) => n === s);
+      return hit ? [s, hit[1]] : s;
+    });
+}
+
 // glossaryTerm names the glossary entry explaining a tag or blocklist entry
 // as the page shows it ("hosting", "cloud:aws", "spamhaus-drop:SBL1",
 // "Spamhaus ASN-DROP", "leased:ipxo"), or '' when there is none.
@@ -535,6 +607,9 @@ export function glossaryTerm(tag) {
     feodo: 'Botnet C2',
     c2intel: 'Botnet C2',
     threatfox: 'Botnet C2',
+    'special-purpose': 'Special-purpose address',
+    NAT64: 'NAT64 and DNS64',
+    CDN: 'CDN',
   };
   if (lists[kind]) return lists[kind];
   const labels = [

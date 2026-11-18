@@ -78,7 +78,7 @@ import { api, ApiError, getApiBase, setApiBase } from './api.js';
 import { extractTargets } from './targets.js';
 import { COUNTRIES, countryName } from './countries.js';
 import { asnList, csvText, prefixList, tableText } from './searchcopy.js';
-import { GLOSSARY, glossaryTerm, tagGlossary } from './glossary.js';
+import { GLOSSARY, LABEL_TERMS, glossaryTerm, sourceTerms, tagGlossary } from './glossary.js';
 import {
   DEFAULT_FILTERS,
   REPUTATIONS,
@@ -561,7 +561,7 @@ const field = (label, body, source, help) =>
     ? nothing
     : html`<div class="field">
         <dt>
-          ${label}${source ? html` <span class="source">${source}</span>` : nothing}
+          ${termLink(label)}${source ? html` <span class="source">${source}</span>` : nothing}
           ${help ? tip(label, help) : nothing}
         </dt>
         <dd>${body}</dd>
@@ -863,7 +863,7 @@ function resultCard(r, i) {
       citySource = rows.map((x) => x.label).join(', ');
       cityHelp = FIELD_HELP.location;
       cityBody = html`<div class="rep">
-        ${rows.map((x) => html`<div class="rep-row"><span class="rep-label">${x.label}</span><span title=${x.title || ''}>${x.name}</span></div>`)}
+        ${rows.map((x) => html`<div class="rep-row"><span class="rep-label">${termLink(x.label)}</span><span title=${x.title || ''}>${x.name}</span></div>`)}
       </div>`;
     } else if (rows.length === 1 || loaded.city) {
       const only = rows[0];
@@ -976,7 +976,7 @@ function resultCard(r, i) {
     ${isASN
       ? nothing
       : html`<section class="who">
-          <div class="who-label">${owner?.distinct ? 'Registered to' : 'Netblock'} ${tip('Netblock', FIELD_HELP.netblock)}</div>
+          <div class="who-label">${termLink(owner?.distinct ? 'Registered to' : 'Netblock')} ${tip('Netblock', FIELD_HELP.netblock)}</div>
           ${nb ? html`<div class="who-name">${owner?.name || nb.raw}</div>` : html`<div class="who-name">${netblockBody === nothing ? unknown('No netblock data') : netblockBody}</div>`}
           ${nb
             ? html`<div class="meta">
@@ -992,7 +992,7 @@ function resultCard(r, i) {
             : nothing}
         </section>`}
     <section class="who">
-      <div class="who-label">${isASN ? 'Network' : owner?.distinct ? 'Carried by' : 'Network'} ${tip('ASN', FIELD_HELP.asn)}</div>
+      <div class="who-label">${termLink(isASN ? 'Network' : owner?.distinct ? 'Carried by' : 'Network')} ${tip('ASN', FIELD_HELP.asn)}</div>
       <div class="who-name">${asn?.announced === false ? unknown(asn.no_ipv6_routes ? 'Unknown' : 'Not announced') : asn?.organization || asn?.name || unknown()}</div>
       ${asn?.no_ipv6_routes ? html`<div class="meta">This server's ASN database has no IPv6 routes</div>` : nothing}
       ${asnLine !== nothing ? html`<div class="meta">${asnLine}</div>` : nothing}
@@ -1016,16 +1016,16 @@ function resultCard(r, i) {
           <div class="card-title">${title}</div>
           ${sub ? html`<div class="card-sub">${sub}</div>` : nothing}
           ${r.special
-            ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">${r.special.rfc}</cds-tag> ${r.special.name}, ${r.special.prefix}${r.special.globally_reachable === false ? ': not reachable on the internet' : ''}</div>`
+            ? html`<div class="card-cdn">${glossaryTag(html`<cds-tag size="sm" type="warm-gray">${r.special.rfc}</cds-tag>`, 'special-purpose')} ${r.special.name}, ${r.special.prefix}${r.special.globally_reachable === false ? ': not reachable on the internet' : ''}</div>`
             : nothing}
           ${r.nat64
-            ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">NAT64</cds-tag> ${r.nat64.dns64 ? `the resolver answered ${r.nat64.address}, a made-up DNS64 address that carries this IPv4 address` : `${r.nat64.address} carries this IPv4 address`}</div>`
+            ? html`<div class="card-cdn">${glossaryTag(html`<cds-tag size="sm" type="warm-gray">NAT64</cds-tag>`, 'NAT64')} ${r.nat64.dns64 ? `the resolver answered ${r.nat64.address}, a made-up DNS64 address that carries this IPv4 address` : `${r.nat64.address} carries this IPv4 address`}</div>`
             : nothing}
           ${r.ipv6_skipped
             ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">IPv6</cds-tag> ${r.host} also has ${r.ipv6_skipped} IPv6 ${r.ipv6_skipped === 1 ? 'address' : 'addresses'}, not looked up: this server's ASN database has no IPv6 routes</div>`
             : nothing}
           ${r.served_by
-            ? html`<div class="card-cdn"><cds-tag size="sm" type="warm-gray">Served by ${r.served_by.cdn}</cds-tag> this is a CDN edge server, not ${r.host}'s own address</div>`
+            ? html`<div class="card-cdn">${glossaryTag(html`<cds-tag size="sm" type="warm-gray">Served by ${r.served_by.cdn}</cds-tag>`, 'CDN')} this is a CDN edge server, not ${r.host}'s own address</div>`
             : nothing}
         </div>
         <div class="card-actions">
@@ -1043,7 +1043,7 @@ function resultCard(r, i) {
       ${findingsView(r, loaded)}
       ${r.prefixes
         ? html`<div class="prefixes">
-            <h3>Announced prefixes ${tip('Announced prefixes', FIELD_HELP.prefixes)}</h3>
+            <h3>${termLink('Announced prefixes')} ${tip('Announced prefixes', FIELD_HELP.prefixes)}</h3>
             <div class="hint">
               ${r.prefixes.total} total · ${r.prefixes.ipv4_count} IPv4 · ${r.prefixes.ipv6_count} IPv6
               · ${r.prefixes.source === 'ripe-stat' ? 'live from RIPEstat' : 'offline index'}
@@ -1069,7 +1069,7 @@ function resultCard(r, i) {
         ? html`<details class="sources">
             <summary>Data sources</summary>
             <p class="hint">${FIELD_HELP.sources}</p>
-            <dl>${sources.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
+            <dl>${sources.map(([k, v]) => html`<div><dt>${k}</dt><dd>${linkTerms(v)}</dd></div>`)}</dl>
           </details>`
         : nothing}
     </article>
@@ -1974,6 +1974,7 @@ function sourceTable(g) {
             (s) => html`<cds-table-row>
               <cds-table-cell class=${s.group ? 'source-name sub' : 'source-name'}>
                 ${s.url ? html`<a href=${s.url} target="_blank" rel="noopener noreferrer">${s.name}</a>` : s.name}
+                ${sourceGlossary(s.name)}
               </cds-table-cell>
               <cds-table-cell class="wrap">
                 ${s.provides || ''}
@@ -2138,6 +2139,22 @@ const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g
 function glossaryTag(tagHtml, key) {
   const term = glossaryTerm(key);
   return term ? html`<a class="tag-link" href="#/glossary?t=${slug(term)}" title="${term}: what it means">${tagHtml}</a>` : tagHtml;
+}
+
+// termLink links a label to its glossary entry (LABEL_TERMS, or term).
+function termLink(label, term = LABEL_TERMS[label]) {
+  return term ? html`<a class="term-link" href="#/glossary?t=${slug(term)}" title="${term}: what it means">${label}</a>` : label;
+}
+
+// linkTerms links every glossary term a data source's description names.
+function linkTerms(text) {
+  return sourceTerms(text).map((p) => (typeof p === 'string' ? p : termLink(p[0], p[1])));
+}
+
+// sourceGlossary is a small glossary link for a data source named name.
+function sourceGlossary(name) {
+  const term = sourceTerms(name).find((p) => typeof p !== 'string');
+  return term ? html`<a class="term-link glossary-mini" href="#/glossary?t=${slug(term[1])}" title="${term[1]}: what it means">glossary</a>` : nothing;
 }
 
 // focusGlossary scrolls to a glossary entry and marks it.

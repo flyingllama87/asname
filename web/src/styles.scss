@@ -294,6 +294,26 @@ h3 {
   margin: 0;
 }
 
+// A label or source name that opens its glossary entry: a quiet dotted
+// underline, so it reads as text until pointed at.
+a.term-link {
+  color: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--cds-link-primary, #0f62fe);
+    text-decoration-style: solid;
+  }
+}
+
+a.glossary-mini {
+  margin-left: $spacing-02;
+  font-size: 0.75rem;
+  color: var(--cds-text-secondary, #525252);
+}
+
 // A tag that opens its glossary entry.
 a.tag-link {
   display: inline-flex;
