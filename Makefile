@@ -1,4 +1,8 @@
 VERSION ?= 0.20.0
+# A fork sets VERSION_SUFFIX (such as -mycompany) in fork.mk, so its builds
+# say which they are; upstream has no fork.mk.
+-include fork.mk
+VERSION_SUFFIX ?=
 BUILDDIR ?= build
 BINDIR ?= /usr/local/bin
 PREFIX ?= /usr/local
@@ -58,7 +62,7 @@ help:
 	@printf "  %-14s %s\n" "MAX_AGE" "Service refresh age, e.g. 168h; empty lets the web UI set it (current: $(if $(MAX_AGE),$(MAX_AGE),empty))"
 	@printf "  %-14s %s\n" "UNITDIR" "System unit directory (current: $(UNITDIR))"
 	@printf "  %-14s %s\n" "USERUNITDIR" "User unit directory (current: $(USERUNITDIR))"
-	@printf "  %-14s %s\n" "VERSION" "Version string (current: $(VERSION))"
+	@printf "  %-14s %s\n" "VERSION" "Version string (current: $(VERSION)$(VERSION_SUFFIX))"
 	@printf "  %-14s %s\n" "GOOS" "Target operating system (current: $(GOOS))"
 	@printf "  %-14s %s\n\n" "GOARCH" "Target architecture (current: $(GOARCH))"
 
@@ -74,14 +78,14 @@ deps:
 	go mod download
 
 $(BUILDDIR)/asname: deps
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '-extldflags "-static" -X main.version=$(VERSION)' -o $(BUILDDIR)/asname ./cmd/asname
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags '-extldflags "-static" -X main.version=$(VERSION)$(VERSION_SUFFIX)' -o $(BUILDDIR)/asname ./cmd/asname
 
 .PHONY: release
 release:
 	$(MAKE) clean
 	$(MAKE) build
 	cp -f README.md CHEATSHEET.md LICENSE NOTICE $(BUILDDIR)/
-	tar -zcf asname-$(GOOS)-$(GOARCH)-v$(VERSION).tar.gz -C $(BUILDDIR) asname README.md CHEATSHEET.md LICENSE NOTICE
+	tar -zcf asname-$(GOOS)-$(GOARCH)-v$(VERSION)$(VERSION_SUFFIX).tar.gz -C $(BUILDDIR) asname README.md CHEATSHEET.md LICENSE NOTICE
 
 .PHONY: release-all
 release-all:
