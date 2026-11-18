@@ -785,13 +785,13 @@ function findingsView(r, loaded) {
     <h4>What this means</h4>
     ${who || where
       ? html`<dl class="answers">
-          ${who ? html`<div class="answer"><dt>Who</dt><dd>${who}</dd></div>` : nothing}
-          ${where ? html`<div class="answer"><dt>Where</dt><dd>${where}</dd></div>` : nothing}
+          ${who ? html`<div class="answer"><dt>Who</dt><dd>${linkTerms(who)}</dd></div>` : nothing}
+          ${where ? html`<div class="answer"><dt>Where</dt><dd>${linkTerms(where)}</dd></div>` : nothing}
         </dl>`
       : nothing}
     ${points.length
       ? html`<ul>
-          ${points.map((f) => html`<li class="finding finding-${f.level}"><span class="level">${LEVEL_LABEL[f.level]}</span><span>${f.text}</span></li>`)}
+          ${points.map((f) => html`<li class="finding finding-${f.level}"><span class="level">${LEVEL_LABEL[f.level]}</span><span>${linkTerms(f.text)}</span></li>`)}
         </ul>`
       : nothing}
   </section>`;

@@ -579,17 +579,51 @@ const SOURCE_TERMS = [
   ['RIPEstat', 'Announced prefix'],
   ['special-purpose', 'Special-purpose address'],
 ];
-const SOURCE_RE = new RegExp(`(${SOURCE_TERMS.map(([n]) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`);
+// TEXT_TERMS are the phrases findings and the Who and Where answers use
+// for things the glossary explains.
+const TEXT_TERMS = [
+  ['IP leasing broker', 'IP leasing'],
+  ['leasing broker', 'IP leasing'],
+  ['leased space', 'IP leasing'],
+  ['Tor exit node', 'Tor exit node'],
+  ['command-and-control', 'Botnet C2'],
+  ['carrier-grade NAT', 'CGNAT'],
+  ['CGNAT', 'CGNAT'],
+  ['anycast', 'Anycast'],
+  ['CDN', 'CDN'],
+  ['sinkhole', 'Sinkhole'],
+  ['internet scanner', 'Internet scanner'],
+  ['bogon', 'Bogon'],
+  ['VPN', 'VPN'],
+  ['hosting network', 'hosting'],
+  ['public DNS resolver', 'public-dns'],
+  ['blocklists', 'Blocklist'],
+  ['blocklist', 'Blocklist'],
+  ['netblock', 'Netblock'],
+  ['netname', 'Netname'],
+  ['not announced', 'Not announced'],
+  ['NAT64', 'NAT64 and DNS64'],
+];
+const ALL_TERMS = [...SOURCE_TERMS, ...TEXT_TERMS].sort((a, b) => b[0].length - a[0].length);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Whole words only, any case: "Tor" is not inside "monitor".
+const TERMS_RE = new RegExp(`(?<![\\w-])(${ALL_TERMS.map(([n]) => escapeRe(n)).join('|')})(?![\\w-])`, 'i');
 
 // sourceTerms splits text into plain strings and [name, term] pairs for
-// the glossary terms it names.
+// the glossary terms it names, each phrase linked once.
 export function sourceTerms(text) {
+  const seen = new Set();
   return String(text || '')
-    .split(SOURCE_RE)
+    .split(TERMS_RE)
     .filter((s) => s !== '')
     .map((s) => {
-      const hit = SOURCE_TERMS.find(([n]) => n === s);
-      return hit ? [s, hit[1]] : s;
+      const hit = ALL_TERMS.find(([n]) => n.toLowerCase() === s.toLowerCase());
+      // Once per phrase, and not a phrase inside one already linked ("Tor"
+      // after "Tor exit node").
+      const phrase = hit?.[0].toLowerCase();
+      if (!hit || [...seen].some((p) => p.includes(phrase))) return s;
+      seen.add(phrase);
+      return [s, hit[1]];
     });
 }
 
