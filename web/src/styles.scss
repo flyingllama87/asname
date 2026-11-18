@@ -294,6 +294,23 @@ h3 {
   margin: 0;
 }
 
+// A tag that opens its glossary entry.
+a.tag-link {
+  display: inline-flex;
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover cds-tag,
+  &:focus-visible cds-tag {
+    text-decoration: underline;
+  }
+}
+
+.glossary-entry.g-focus {
+  outline: 2px solid var(--cds-focus, #0f62fe);
+  outline-offset: 4px;
+}
+
 // Reputation: one row for the address, one for its network, labels in a
 // column so both rows' tags start together.
 .rep {

@@ -78,7 +78,7 @@ import { api, ApiError, getApiBase, setApiBase } from './api.js';
 import { extractTargets } from './targets.js';
 import { COUNTRIES, countryName } from './countries.js';
 import { asnList, csvText, prefixList, tableText } from './searchcopy.js';
-import { GLOSSARY, tagGlossary } from './glossary.js';
+import { GLOSSARY, glossaryTerm, tagGlossary } from './glossary.js';
 import {
   DEFAULT_FILTERS,
   REPUTATIONS,
@@ -213,7 +213,7 @@ const state = {
   settings: { open: false, base: getApiBase(), testing: false, result: null, family: prefs.family, rdns: prefs.rdns },
   api: { open: false, copied: '' },
   help: { open: false },
-  glossary: { filter: '' },
+  glossary: { filter: '', focus: '' },
   explore: { f: { ...DEFAULT_FILTERS, tag: [] }, loading: false, error: '', data: null, allTags: [], copied: '', ran: '' },
 };
 
@@ -288,6 +288,11 @@ function route() {
     state.search.fuzzy = fuzzy;
     state.search.country = country;
     runSearch();
+  } else if (tab === 'glossary' && !params.get('t')) {
+    state.glossary.focus = '';
+  } else if (tab === 'glossary' && params.get('t')) {
+    focusGlossary(params.get('t'));
+    return;
   } else if (tab === 'explore') {
     const x = state.explore;
     x.f = fromParams(params);
@@ -903,13 +908,13 @@ function resultCard(r, i) {
   const inferredView = inferredTags.length
     ? [...new Set(inferredList.map((t) => t.from))].map(
         (from) => html`<div class="tags inferred-tags">
-          ${inferredList.filter((t) => t.from === from).map((t) => html`<cds-tag size="sm" type="outline">${t.tag}</cds-tag>`)}
+          ${inferredList.filter((t) => t.from === from).map((t) => glossaryTag(html`<cds-tag size="sm" type="outline">${t.tag}</cds-tag>`, t.tag))}
           <span class="meta">inferred from ${fromText[from] || from}</span>
         </div>`,
       )
     : nothing;
   if (catTags.length) {
-    categoryBody = html`<div class="tags">${catTags.map((t) => html`<cds-tag size="sm" type=${isAddrTag(t) ? 'purple' : 'teal'}>${t}</cds-tag>`)}</div>${inferredView}`;
+    categoryBody = html`<div class="tags">${catTags.map((t) => glossaryTag(html`<cds-tag size="sm" type=${isAddrTag(t) ? 'purple' : 'teal'}>${t}</cds-tag>`, t))}</div>${inferredView}`;
     sources.push(['Category', SRC.category]);
   } else if (inferredTags.length) {
     categoryBody = inferredView;
@@ -947,12 +952,12 @@ function resultCard(r, i) {
   // that carries it, each with the tags that describe it.
   const owner = blockOwner(r);
   const isAddressTag = isAddrTag;
-  const tagView = (t) => html`<cds-tag size="sm" type=${isAddressTag(t) ? 'purple' : 'teal'}>${t}</cds-tag>`;
+  const tagView = (t) => glossaryTag(html`<cds-tag size="sm" type=${isAddressTag(t) ? 'purple' : 'teal'}>${t}</cds-tag>`, t);
   const inferredGroup = (from) => {
     const list = inferredList.filter((t) => t.from === from);
     return list.length
       ? html`<div class="tags inferred-tags">
-          ${list.map((t) => html`<cds-tag size="sm" type="outline">${t.tag}</cds-tag>`)}
+          ${list.map((t) => glossaryTag(html`<cds-tag size="sm" type="outline">${t.tag}</cds-tag>`, t.tag))}
           <span class="meta">inferred from ${fromText[from] || from}</span>
         </div>`
       : nothing;
@@ -1116,7 +1121,7 @@ function reputationView(rep, isASN) {
     : html`<div class="rep-row">
         <span class="rep-label">Address</span>
         ${rep.lists?.length
-          ? html`<span class="tags">${rep.lists.map((name) => html`<cds-tag size="sm" type="red" title=${name}>${listLabel(name)}</cds-tag>`)}</span>`
+          ? html`<span class="tags">${rep.lists.map((name) => glossaryTag(html`<cds-tag size="sm" type="red" title=${name}>${listLabel(name)}</cds-tag>`, name))}</span>`
           : html`<span class="rep-none">Not listed</span>`}
       </div>`;
   let networkRow = nothing;
@@ -1132,7 +1137,7 @@ function reputationView(rep, isASN) {
     networkRow = html`<div class="rep-row">
       <span class="rep-label">Network</span>
       ${tags.length || counts
-        ? html`<span class="tags">${tags.map((t) => html`<cds-tag size="sm" type="red">${t}</cds-tag>`)}${counts ? html`<span class="rep-counts">${counts}</span>` : nothing}</span>`
+        ? html`<span class="tags">${tags.map((t) => glossaryTag(html`<cds-tag size="sm" type="red">${t}</cds-tag>`, t))}${counts ? html`<span class="rep-counts">${counts}</span>` : nothing}</span>`
         : html`<span class="rep-none">Not listed</span>`}
     </div>`;
   }
@@ -1370,7 +1375,7 @@ function searchResults(d) {
                           ${a.reputation?.listed || a.reputation?.spamhaus_asn_drop
                             ? html`<div class="rep-cell">
                                 ${a.reputation.spamhaus_asn_drop
-                                  ? html`<div class="rep-flags"><cds-tag size="sm" type="red">Spamhaus ASN-DROP</cds-tag></div>`
+                                  ? html`<div class="rep-flags">${glossaryTag(html`<cds-tag size="sm" type="red">Spamhaus ASN-DROP</cds-tag>`, 'Spamhaus ASN-DROP')}</div>`
                                   : nothing}
                                 ${asnSummary(a.reputation) ? html`<div class="rep-facts">${asnSummary(a.reputation)}</div>` : nothing}
                               </div>`
@@ -1616,7 +1621,7 @@ function repCell(r) {
   if (!flags.length && !facts.length) return html`<span class="muted">Not listed</span>`;
   return html`<div class="rep-cell">
     ${flags.length
-      ? html`<div class="rep-flags">${flags.map(([t, l]) => html`<cds-tag size="sm" type=${t} title=${rep.sbl?.join(' ') || ''}>${l}</cds-tag>`)}</div>`
+      ? html`<div class="rep-flags">${flags.map(([t, l]) => glossaryTag(html`<cds-tag size="sm" type=${t} title=${rep.sbl?.join(' ') || ''}>${l}</cds-tag>`, l))}</div>`
       : nothing}
     ${facts.length ? html`<div class="rep-facts">${facts.join(' · ')}</div>` : nothing}
   </div>`;
@@ -2128,6 +2133,22 @@ function saveSettings() {
 
 const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+// glossaryTag wraps a tag in a link to its glossary entry, when it has one.
+// key is the tag or list name; it defaults to the tag's text.
+function glossaryTag(tagHtml, key) {
+  const term = glossaryTerm(key);
+  return term ? html`<a class="tag-link" href="#/glossary?t=${slug(term)}" title="${term}: what it means">${tagHtml}</a>` : tagHtml;
+}
+
+// focusGlossary scrolls to a glossary entry and marks it.
+function focusGlossary(id) {
+  const g = state.glossary;
+  g.filter = '';
+  g.focus = id;
+  update();
+  setTimeout(() => document.getElementById(`g-${id}`)?.scrollIntoView({ block: 'start' }), 0);
+}
+
 function glossaryView() {
   const g = state.glossary;
   const q = g.filter.trim().toLowerCase();
@@ -2165,7 +2186,7 @@ function glossaryView() {
             ${sec.intro ? html`<p class="hint">${sec.intro}</p>` : nothing}
             <dl class="glossary-list">
               ${sec.terms.map(
-                (t) => html`<div class="glossary-entry" id="g-${slug(t.term)}">
+                (t) => html`<div class="glossary-entry ${g.focus === slug(t.term) ? 'g-focus' : ''}" id="g-${slug(t.term)}">
                   <dt>
                     <span class="g-term">${t.term}</span>
                     ${t.aka ? html`<span class="g-aka">${t.aka}</span>` : nothing}

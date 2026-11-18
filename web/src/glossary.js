@@ -521,6 +521,35 @@ const RANGE_PRACTICE = {
 
 // tagGlossary is the kinds of network a prefix, a block or an AS can be
 // tagged with.
+// glossaryTerm names the glossary entry explaining a tag or blocklist entry
+// as the page shows it ("hosting", "cloud:aws", "spamhaus-drop:SBL1",
+// "Spamhaus ASN-DROP", "leased:ipxo"), or '' when there is none.
+export function glossaryTerm(tag) {
+  const t = String(tag || '');
+  const [kind] = t.split(':');
+  const lists = {
+    'spamhaus-drop': 'Spamhaus DROP',
+    ipsum: 'IPsum',
+    'firehol-level2': 'FireHOL',
+    'firehol-level3': 'FireHOL',
+    feodo: 'Botnet C2',
+    c2intel: 'Botnet C2',
+    threatfox: 'Botnet C2',
+  };
+  if (lists[kind]) return lists[kind];
+  const labels = [
+    [/^Spamhaus ASN-DROP|^ASN-DROP/, 'Spamhaus ASN-DROP'],
+    [/^Spamhaus DROP|^Contains DROP/, 'Spamhaus DROP'],
+    [/^FireHOL/, 'FireHOL'],
+    [/^C2 · /, 'Botnet C2'],
+  ];
+  for (const [re, term] of labels) if (re.test(t)) return term;
+  const terms = tagGlossary().terms.map((x) => x.term);
+  if (terms.includes(t)) return t;
+  const family = `${kind}:<`;
+  return terms.find((x) => x.startsWith(family)) || '';
+}
+
 export function tagGlossary() {
   const op = Object.entries(OPERATOR_TAGS).map(([tag, what]) => ({
     term: tag,
