@@ -165,6 +165,11 @@ type categoryBuilder struct {
 	// relay holds where Apple says each iCloud Private Relay egress
 	// range's users are.
 	relay map[netip.Prefix]RelayLocation
+	// selfReported holds the tags each AS's own PeeringDB entry gives it,
+	// and confirmed the tags any other source gives it, so the tags only
+	// the network itself claims can be told apart.
+	selfReported map[uint32]map[string]bool
+	confirmed    map[uint32]map[string]bool
 	// lookupHost resolves the hostnames some VPN providers list instead of
 	// addresses.
 	lookupHost func(ctx context.Context, host string) ([]string, error)
@@ -180,6 +185,9 @@ func newCategoryBuilder(ctx context.Context) *categoryBuilder {
 		rangeTags:  make(map[netip.Prefix]map[string]bool),
 		relay:      make(map[netip.Prefix]RelayLocation),
 		lookupHost: net.DefaultResolver.LookupHost,
+
+		selfReported: make(map[uint32]map[string]bool),
+		confirmed:    make(map[uint32]map[string]bool),
 	}
 }
 
@@ -213,17 +221,43 @@ func (b *categoryBuilder) addPrefix(cidr string, tags ...string) {
 }
 
 func (b *categoryBuilder) addASN(asn uint32, tags ...string) {
+	b.addASNFrom(b.confirmed, asn, tags...)
+}
+
+// addSelfReportedASN adds tags the network gives itself, in PeeringDB.
+func (b *categoryBuilder) addSelfReportedASN(asn uint32, tags ...string) {
+	b.addASNFrom(b.selfReported, asn, tags...)
+}
+
+func (b *categoryBuilder) addASNFrom(from map[uint32]map[string]bool, asn uint32, tags ...string) {
 	if asn == 0 || len(tags) == 0 {
 		return
 	}
-	set := b.asns[asn]
-	if set == nil {
-		set = make(map[string]bool, len(tags))
-		b.asns[asn] = set
+	for _, m := range []map[uint32]map[string]bool{b.asns, from} {
+		set := m[asn]
+		if set == nil {
+			set = make(map[string]bool, len(tags))
+			m[asn] = set
+		}
+		for _, tag := range tags {
+			set[tag] = true
+		}
 	}
-	for _, tag := range tags {
-		set[tag] = true
+}
+
+// onlySelfReported returns, by AS, the tags PeeringDB gives it that no other
+// source does.
+func (b *categoryBuilder) onlySelfReported() map[uint32][]string {
+	out := map[uint32][]string{}
+	for asn, tags := range b.selfReported {
+		for tag := range tags {
+			if !b.confirmed[asn][tag] {
+				out[asn] = append(out[asn], tag)
+			}
+		}
+		slices.Sort(out[asn])
 	}
+	return out
 }
 
 func (b *categoryBuilder) importAWS() (int, error) { return b.ImportAWSFrom(awsRanges) }
@@ -429,7 +463,7 @@ func (b *categoryBuilder) ImportPeeringDBFrom(url string) (int, error) {
 		if !ok {
 			continue
 		}
-		b.addASN(net.ASN, tags...)
+		b.addSelfReportedASN(net.ASN, tags...)
 		count++
 	}
 	return count, nil
@@ -545,7 +579,27 @@ func (b *categoryBuilder) Marshal() ([]byte, error) {
 		return nil, err
 	}
 	out = append(out, relay...)
+	out = append(out, b.marshalSelfReported()...)
 	return out, nil
+}
+
+// marshalSelfReported writes the tags only an AS's own PeeringDB entry
+// gives it: a count, then for each AS its number and its tags joined by
+// ", " and ended by a NUL.
+func (b *categoryBuilder) marshalSelfReported() []byte {
+	only := b.onlySelfReported()
+	asns := make([]uint32, 0, len(only))
+	for asn := range only {
+		asns = append(asns, asn)
+	}
+	slices.Sort(asns)
+	out := binary.LittleEndian.AppendUint32(nil, uint32(len(asns)))
+	for _, asn := range asns {
+		out = binary.LittleEndian.AppendUint32(out, asn)
+		out = append(out, strings.Join(only[asn], ", ")...)
+		out = append(out, 0)
+	}
+	return out
 }
 
 // OwnerTagPrefix marks, in the range table, a tag inferred from the

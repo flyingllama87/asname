@@ -34,6 +34,9 @@ type CategoryDB struct {
 	// relay and relayLocs hold the iCloud Private Relay locations.
 	relay     database.Database
 	relayLocs []RelayLocation
+	// selfReported holds, by AS, the tags only its own PeeringDB entry
+	// gives it.
+	selfReported map[uint32][]string
 }
 
 // VPNList says where the addresses behind a vpn:<provider> tag came from, and
@@ -198,7 +201,36 @@ func OpenCategoryDB(path string) (*CategoryDB, error) {
 		db.relayLocs = append(db.relayLocs, RelayLocation{Country: f[0], Region: f[1], City: f[2]})
 		rest = after
 	}
+
+	// Databases built before self-reported tags were told apart end here.
+	if len(rest) < 4 {
+		return db, nil
+	}
+	selfCount := binary.LittleEndian.Uint32(rest[:4])
+	rest = rest[4:]
+	db.selfReported = make(map[uint32][]string, selfCount)
+	for range selfCount {
+		if len(rest) < 5 {
+			return nil, fmt.Errorf("truncated database: self-reported tags are short")
+		}
+		asn := binary.LittleEndian.Uint32(rest[:4])
+		tags, after, ok := bytes.Cut(rest[4:], []byte{0})
+		if !ok {
+			return nil, fmt.Errorf("truncated database: self-reported tags are short")
+		}
+		db.selfReported[asn] = strings.Split(string(tags), ", ")
+		rest = after
+	}
 	return db, nil
+}
+
+// SelfReported returns the tags only asn's own PeeringDB entry gives it:
+// what the network says it is, which no other source confirms.
+func (d *CategoryDB) SelfReported(asn uint32) []string {
+	if d == nil {
+		return nil
+	}
+	return d.selfReported[asn]
 }
 
 // RelayLocation returns where Apple says the users of the iCloud Private

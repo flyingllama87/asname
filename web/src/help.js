@@ -414,9 +414,22 @@ export function findings(r, loaded = {}) {
   // registered owner says more. asname's own inferred tags count too.
   if (!tags.some((t) => t.includes(':') || t === 'tor-exit') && !rangeKnown && !owner?.distinct) {
     const has = (t) => tags.includes(t) || inferred.includes(t);
-    const guess = (...ts) => (ts.some((t) => tags.includes(t)) ? '' : ' (inferred from its name)');
-    if (has('isp') || has('mobile')) {
-      add('info', `${has('mobile') ? 'A mobile' : 'A broadband'} network${guess('isp', 'mobile')}, so probably a real person's connection. Such addresses are shared or reassigned over time, so tie activity to a time as well as the address.`);
+    // How well each tag is backed: an independent source, the network's own
+    // PeeringDB entry, or asname's guess from the name.
+    const selfReported = r.category?.self_reported || [];
+    const strength = (t) => (!tags.includes(t) ? (inferred.includes(t) ? 1 : 0) : selfReported.includes(t) ? 2 : 3);
+    const guess = (...ts) => {
+      const best = Math.max(...ts.map(strength));
+      if (best === 1) return ' (inferred from its name)';
+      if (best === 2) return ' (by its own PeeringDB entry, which the network writes itself and which can be out of date or misleading)';
+      return '';
+    };
+    // A network tagged both hosting and broadband is read as hosting, unless
+    // the broadband tag is the better backed: hosts often call themselves an
+    // ISP in PeeringDB, which has no hosting type.
+    const broadband = has('isp') && !(has('hosting') && strength('hosting') >= strength('isp'));
+    if (has('mobile') || broadband) {
+      add('info', `${has('mobile') ? 'A mobile' : 'A broadband'} network${guess(has('mobile') ? 'mobile' : 'isp')}, so probably a real person's connection. Such addresses are shared or reassigned over time, so tie activity to a time as well as the address.`);
     } else if (has('hosting')) {
       add('info', `A hosting network${guess('hosting')}: probably a server rather than a person. The netblock owner, if shown, is often the customer running it.`);
     }

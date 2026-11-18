@@ -150,6 +150,9 @@ type JSONCategory struct {
 	// range's registry netname), "name" (the AS name) or "list" (asname's
 	// list of well-known networks).
 	Inferred []JSONInferredTag `json:"inferred,omitempty"`
+	// SelfReported lists the tags only the network's own PeeringDB entry
+	// gives it, which no other source confirms.
+	SelfReported []string `json:"self_reported,omitempty"`
 }
 
 type JSONInferredTag struct {
@@ -251,7 +254,7 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 			if res.Category != "" {
 				tags = strings.Split(res.Category, ", ")
 			}
-			out.Category = &JSONCategory{Tags: tags, Raw: res.Category, Inferred: jsonInferred(res.Inferred)}
+			out.Category = &JSONCategory{Tags: tags, Raw: res.Category, Inferred: jsonInferred(res.Inferred), SelfReported: res.SelfReported}
 		}
 		out.Reputation = newJSONReputation(res)
 		if len(res.Prefixes) > 0 {
@@ -394,9 +397,10 @@ func ToJSONResult(res engine.LookupResult) JSONLookupResult {
 			}
 		}
 		out.Category = &JSONCategory{
-			Tags:     tags,
-			Raw:      raw,
-			Inferred: jsonInferred(res.Inferred),
+			Tags:         tags,
+			Raw:          raw,
+			Inferred:     jsonInferred(res.Inferred),
+			SelfReported: res.SelfReported,
 		}
 	}
 

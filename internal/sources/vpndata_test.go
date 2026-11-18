@@ -232,11 +232,14 @@ func TestOpenCategoryDBReadsDatabasesWithoutVPNLists(t *testing.T) {
 	data, err := b.Marshal()
 	require.NoError(t, err)
 
-	// Without the trailing sections (the VPN list count, then the inferred
-	// AS and range tags), this is a database from before VPN lists.
+	// Without the trailing sections (the VPN list count, the inferred AS
+	// and range tags, the relay locations and the self-reported tags), this
+	// is a database from before VPN lists.
 	ranges, err := b.marshalRangeTags()
 	require.NoError(t, err)
-	cut := 4 + len(b.marshalInferred()) + len(ranges)
+	relay, err := b.marshalRelay()
+	require.NoError(t, err)
+	cut := 4 + len(b.marshalInferred()) + len(ranges) + len(relay) + len(b.marshalSelfReported())
 	path := filepath.Join(t.TempDir(), CategoryFilename)
 	require.NoError(t, os.WriteFile(path, data[:len(data)-cut], 0o644))
 	db, err := OpenCategoryDB(path)

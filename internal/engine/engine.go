@@ -292,6 +292,10 @@ type LookupResult struct {
 	// its registry netname) and its AS (from the AS name, or asname's list
 	// of well-known networks) that Category does not already have.
 	Inferred []InferredTag
+	// SelfReported lists the tags in Category that only the network's own
+	// PeeringDB entry gives it: what it says it is, which no other source
+	// confirms and which can be out of date or misleading.
+	SelfReported []string
 	// VPNLists says, for each vpn:<provider> tag in Category, where its
 	// addresses came from and when that list was current.
 	VPNLists map[string]sources.VPNList
@@ -404,6 +408,7 @@ func (e *Engine) LookupASNContext(ctx context.Context, asn uint32) (LookupResult
 
 	if e.categoryDB != nil {
 		res.Category = e.categoryDB.LookupASN(asn)
+		e.addSelfReported(&res, nil, asn)
 		e.addInferred(&res, asn)
 	}
 
@@ -534,6 +539,9 @@ func (e *Engine) Lookup(ip net.IP) (LookupResult, error) {
 		if c := e.categoryDB.Lookup(ip, asn, haveASN); c != "" {
 			res.Category = c
 			res.VPNLists = e.categoryDB.VPNLists(c)
+			if haveASN {
+				e.addSelfReported(&res, ip, asn)
+			}
 		}
 		if loc, ok := e.categoryDB.RelayLocation(ip); ok {
 			res.Relay = &loc
@@ -919,6 +927,29 @@ func (e *Engine) onlineASName(ctx context.Context, asn uint32) (string, bool) {
 type InferredTag struct {
 	Tag  string
 	From string
+}
+
+// addSelfReported records which of res's tags only asn's own PeeringDB
+// entry gives it. A tag the address's own range also has is confirmed.
+func (e *Engine) addSelfReported(res *LookupResult, ip net.IP, asn uint32) {
+	self := e.categoryDB.SelfReported(asn)
+	if len(self) == 0 {
+		return
+	}
+	have := map[string]bool{}
+	for _, tag := range strings.Split(res.Category, ", ") {
+		have[tag] = true
+	}
+	if ip != nil {
+		for _, tag := range strings.Split(e.categoryDB.Lookup(ip, 0, false), ", ") {
+			delete(have, tag)
+		}
+	}
+	for _, tag := range self {
+		if have[tag] {
+			res.SelfReported = append(res.SelfReported, tag)
+		}
+	}
 }
 
 // addInferred adds the tags asname's own rules give asn that res lacks,

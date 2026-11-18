@@ -330,3 +330,22 @@ func TestNetblockEachRangeMatchesLookup(t *testing.T) {
 		"255.255.255.0-255.255.255.255 LAST-V4",
 	}, got)
 }
+
+func TestCategorySelfReportedRoundTrip(t *testing.T) {
+	srv := serveFixture(t, `{"data":[
+		{"asn":55933,"info_type":"Cable/DSL/ISP"},
+		{"asn":1221,"info_type":"Cable/DSL/ISP"},
+		{"asn":11481,"info_type":"Educational/Research"}
+	]}`)
+	db := buildTestCategoryDB(t, func(b *categoryBuilder) {
+		b.addASN(55933, "hosting") // bgp.tools: a host calling itself an ISP
+		b.addASN(1221, "isp")      // bgp.tools agrees with PeeringDB
+		_, err := b.ImportPeeringDBFrom(srv.URL)
+		require.NoError(t, err)
+	})
+	require.Equal(t, "hosting, isp", db.LookupASN(55933))
+	require.Equal(t, []string{"isp"}, db.SelfReported(55933), "only PeeringDB says ISP")
+	require.Empty(t, db.SelfReported(1221), "another source confirms it")
+	require.Equal(t, []string{"education"}, db.SelfReported(11481))
+	require.Empty(t, db.SelfReported(64500))
+}

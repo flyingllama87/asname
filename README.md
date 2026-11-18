@@ -838,6 +838,14 @@ on a quarter of the eyeball ISPs in their data, because subscribers run relays.
 something. `biznet` means the network sells business connectivity, which
 describes an ISP rather than the business at the far end.
 
+*Self-reported tags* are the ones only the network's own PeeringDB entry
+gives it, which no other source confirms. The network chooses its PeeringDB
+type itself, and PeeringDB has no type for hosting, so hosts often call
+themselves "Cable/DSL/ISP". The JSON `category` lists them as
+`"self_reported": ["isp"]`, and the web UI's notes say when they rest on one.
+A network tagged both `hosting` and `isp` is read as hosting unless only the
+hosting tag is a guess.
+
 *Inferred tags* are asname's own, and are shown apart from the rest: as
 `inferred: finance` after the category, an `Inferred:` line in `--pretty`
 saying what each was inferred from, `"inferred": [{"tag": "finance", "from":
