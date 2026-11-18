@@ -627,6 +627,36 @@ export function sourceTerms(text) {
     });
 }
 
+// ENTRY_NAMES are the glossary's own entry names, and the abbreviation in
+// brackets after one ("Autonomous System" and "AS" for "Autonomous System
+// (AS)"), longest first. An all-capitals name matches
+// only as written, so ASN is not "asn" and no name matches the word "as";
+// any other may start with either case ("prefix" for Prefix).
+const ENTRY_NAMES = GLOSSARY.flatMap((s) =>
+  s.terms.flatMap((t) => {
+    const [, name, abbr] = t.term.match(/^(.*?)(?:\s*\((.*)\))?$/);
+    return abbr ? [[name, t.term], [abbr, t.term]] : [[name, t.term]];
+  }),
+).sort(
+  (a, b) => b[0].length - a[0].length,
+);
+const namePattern = (n) => (/^[A-Z0-9 .-]+$/.test(n) ? escapeRe(n) : `[${n[0].toUpperCase()}${n[0].toLowerCase()}]${escapeRe(n.slice(1))}`);
+const ENTRY_RE = new RegExp(`(?<![\\w-])(${ENTRY_NAMES.map(([n]) => namePattern(n)).join('|')})(?![\\w-])`);
+
+// glossaryMentions is sourceTerms for a glossary entry's own text: it also
+// finds the names of the glossary's entries.
+export function glossaryMentions(text) {
+  return sourceTerms(text).flatMap((p) => {
+    if (typeof p !== 'string') return [p];
+    // split with one capturing group puts each match at an odd index.
+    return p.split(ENTRY_RE).map((s, i) => {
+      if (i % 2 === 0) return s;
+      const hit = ENTRY_NAMES.find(([n]) => n.toLowerCase() === s.toLowerCase());
+      return hit ? [s, hit[1]] : s;
+    });
+  }).filter((s) => s !== '');
+}
+
 // glossaryTerm names the glossary entry explaining a tag or blocklist entry
 // as the page shows it ("hosting", "cloud:aws", "spamhaus-drop:SBL1",
 // "Spamhaus ASN-DROP", "leased:ipxo"), or '' when there is none.

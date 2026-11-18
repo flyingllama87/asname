@@ -78,7 +78,7 @@ import { api, ApiError, getApiBase, setApiBase } from './api.js';
 import { extractTargets } from './targets.js';
 import { COUNTRIES, countryName } from './countries.js';
 import { asnList, csvText, prefixList, tableText } from './searchcopy.js';
-import { GLOSSARY, LABEL_TERMS, glossaryTerm, sourceTerms, tagGlossary } from './glossary.js';
+import { GLOSSARY, LABEL_TERMS, glossaryMentions, glossaryTerm, sourceTerms, tagGlossary } from './glossary.js';
 import {
   DEFAULT_FILTERS,
   REPUTATIONS,
@@ -2207,6 +2207,25 @@ function closeTerms() {
 
 // seeLinks turns "see Tor exit node above" in an entry's text into a link
 // that opens that entry in the panel.
+// entryLinks links, in one glossary entry's text, the other entries it
+// mentions: each once per entry, and never the entry itself.
+function entryLinks(entries, self) {
+  const see = seeLinks(entries);
+  const linked = new Set([self]);
+  return (text) =>
+    see(text).flatMap((part) =>
+      typeof part !== 'string'
+        ? [part]
+        : glossaryMentions(part).map((p) => {
+            if (typeof p === 'string') return p;
+            const id = slug(p[1]);
+            if (linked.has(id) || !entries.has(id)) return p[0];
+            linked.add(id);
+            return termLink(p[0], p[1]);
+          }),
+    );
+}
+
 function seeLinks(entries) {
   return (text) => {
     const parts = String(text).split(/(see [^.;:,()]+? (?:above|below))/);
@@ -2245,7 +2264,7 @@ function gpanelView() {
         <button type="button" class="gpanel-btn" title="Close (Esc)" aria-label="Close" @click=${closeTerms}>✕</button>
       </div>
       <div class="gpanel-body glossary-entry">
-        ${t ? entryBody(t, seeLinks(entries)) : html`<p class="empty">No glossary entry for this.</p>`}
+        ${t ? entryBody(t, entryLinks(entries, id)) : html`<p class="empty">No glossary entry for this.</p>`}
       </div>
       <div class="gpanel-foot">
         <a class="g-open-full" href="#/glossary?t=${id}" @click=${() => (state.gpanel.stack = [])}>Open in Glossary</a>
@@ -2278,6 +2297,7 @@ function focusGlossary(id) {
 
 function glossaryView() {
   const g = state.glossary;
+  const allEntries = glossaryEntries();
   const q = g.filter.trim().toLowerCase();
   const sections = [...GLOSSARY, tagGlossary()]
     .map((sec) => ({
@@ -2318,7 +2338,7 @@ function glossaryView() {
                     <span class="g-term">${t.term}</span>
                     ${t.aka ? html`<span class="g-aka">${t.aka}</span>` : nothing}
                   </dt>
-                  <dd>${entryBody(t)}</dd>
+                  <dd>${entryBody(t, entryLinks(allEntries, slug(t.term)))}</dd>
                 </div>`,
               )}
             </dl>
