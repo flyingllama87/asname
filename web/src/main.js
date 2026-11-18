@@ -255,7 +255,7 @@ function toggleTheme() {
 }
 
 // ---------- routing ----------
-// #/lookup?q=…  #/search?q=…  #/databases  #/api (the API panel over Lookup)
+// #/lookup?q=…  #/search?q=…  #/databases (?s=sources: at Data sources)  #/api (the API panel over Lookup)
 
 function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '');
@@ -302,6 +302,16 @@ function route() {
     if (key !== x.ran || !x.data) runExplore();
   }
   update();
+  if (tab === 'databases' && params.get('s') === 'sources') scrollToWhenShown('data-sources');
+}
+
+// scrollToWhenShown scrolls to the element with id once it is on the page,
+// which for a section drawn from fetched data may be a moment after the
+// route changes. It gives up after a few seconds.
+function scrollToWhenShown(id, tries = 50) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ block: 'start' });
+  else if (tries > 0) setTimeout(() => scrollToWhenShown(id, tries - 1), 100);
 }
 
 // ---------- API calls ----------
@@ -708,7 +718,8 @@ function lookupView() {
   return html`
     <p class="lede">
       Intelligence on ${termLink('IP addresses', 'IP address')} and the networks (${termLink('ASNs', 'ASN')}) that hold them. A hostname or
-      URL is resolved to its IP addresses and those are assessed, not the domain or the page itself. Answers come from the local databases.
+      URL is resolved to its IP addresses and those are assessed, not the domain or the page itself. Answers come from the
+      <a href="#/databases?s=sources">local databases</a>.
     </p>
     <div class="form">
       <cds-textarea
@@ -1938,7 +1949,7 @@ function sourcesView(dbs) {
     if (e.target.open) open.add(key);
     else open.delete(key);
   };
-  return html`<section class="sources-panel">
+  return html`<section class="sources-panel" id="data-sources">
     <h3>Data sources ${tip('Data sources', SOURCES_HELP.section)}</h3>
     <p class="hint">Every public source each database is built from, and how it fared in the last update.</p>
     <cds-accordion>
