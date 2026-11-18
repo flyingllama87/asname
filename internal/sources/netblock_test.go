@@ -441,3 +441,27 @@ func TestNetblockWithin(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 }
+
+func TestDescrValueSkipsVerificationTokens(t *testing.T) {
+	token := "-----BEGIN TOKEN-----0583cd002dd2d40e0493d0b39614036b09af1496be82f0ea11044c6a4f6957-----END TOKEN-----"
+	attrs := []attr{{"netname", "ipxo"}, {"descr", token}, {"descr", "Example Hosting Ltd"}}
+	require.Equal(t, "Example Hosting Ltd", descrValue(attrs, "descr"))
+	require.Equal(t, "", descrValue([]attr{{"descr", token}}, "descr"), "a token alone leaves the organisation to name it")
+	require.Equal(t, "Plain", descrValue([]attr{{"descr", "Plain"}}, "descr"))
+	require.True(t, IsVerificationToken(token))
+	require.True(t, IsVerificationToken("??-BEGIN TOKEN??-d780b05f57f13a01b39ac305e286840d5f53d1ed??-END TOKEN??-"))
+	require.False(t, IsVerificationToken("----- separator -----"))
+	require.False(t, IsVerificationToken("BEGIN OF RANGE for Example Ltd END"))
+}
+
+func TestWhoisAndRDAPSkipVerificationTokens(t *testing.T) {
+	token := "-----BEGIN TOKEN-----0583cd002dd2d40e0493d0b39614036b-----END TOKEN-----"
+	body := "inetnum: 192.0.2.0 - 192.0.2.255\nnetname: ipxo\ndescr: " + token + "\ndescr: Example Hosting Ltd\n"
+	require.Equal(t, "Example Hosting Ltd", WhoisField(body, "orgname", "descr"))
+	var n rdapNetwork
+	n.Remarks = append(n.Remarks, struct {
+		Title       string   `json:"title"`
+		Description []string `json:"description"`
+	}{Description: []string{token, "Example Hosting Ltd"}})
+	require.Equal(t, "Example Hosting Ltd", descriptionRemark(n))
+}

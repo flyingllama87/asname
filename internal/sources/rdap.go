@@ -641,12 +641,17 @@ func ParseRDAPAutnum(body []byte) (ASNRegistration, error) {
 	return reg, nil
 }
 
-// descriptionRemark is the first line of the first untitled or
-// "description" remark: RIPE's and APNIC's descr.
+// descriptionRemark is the first line of the untitled or "description"
+// remarks (RIPE's and APNIC's descr) that is not a verification token.
 func descriptionRemark(n rdapNetwork) string {
 	for _, r := range n.Remarks {
-		if (r.Title == "" || strings.EqualFold(r.Title, "description")) && len(r.Description) > 0 {
-			return CleanValue(r.Description[0])
+		if r.Title != "" && !strings.EqualFold(r.Title, "description") {
+			continue
+		}
+		for _, line := range r.Description {
+			if v := CleanValue(line); v != "" && !IsVerificationToken(v) {
+				return v
+			}
 		}
 	}
 	return ""

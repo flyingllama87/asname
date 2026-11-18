@@ -218,6 +218,10 @@ func (d *NetblockDB) info(off int64) (NetblockInfo, error) {
 	if err != nil {
 		return NetblockInfo{}, err
 	}
+	if IsVerificationToken(org) {
+		// A database built before descrValue skipped them; the netname says more.
+		org = ""
+	}
 	return NetblockInfo{Netname: netname, Org: org, NetblockMeta: meta}, nil
 }
 
@@ -357,6 +361,9 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 
 					if orgName == "" && orgOff != 0 {
 						orgName, _ = d.str(orgOff)
+						if IsVerificationToken(orgName) {
+							orgName = ""
+						}
 					}
 					if netName == "" && netnameOff != 0 {
 						netName, _ = d.str(netnameOff)
@@ -447,6 +454,9 @@ func (d *NetblockDB) SearchOrg(query string, opts NetblockSearchOptions) ([]Netb
 
 					if orgName == "" && orgOff != 0 {
 						orgName, _ = d.str(orgOff)
+						if IsVerificationToken(orgName) {
+							orgName = ""
+						}
 					}
 					if netName == "" && netnameOff != 0 {
 						netName, _ = d.str(netnameOff)
@@ -515,7 +525,7 @@ func rankResults(results []NetblockSearchResult, opts NetblockSearchOptions) []N
 func (d *NetblockDB) searchStrings(m *NameMatcher) (map[uint32]matchedString, error) {
 	matched := make(map[uint32]matchedString)
 	err := d.EachString(func(off uint32, str []byte) {
-		if rank := m.Rank(str); rank != MatchNone {
+		if rank := m.Rank(str); rank != MatchNone && !IsVerificationToken(string(str)) {
 			matched[off] = matchedString{string(str), rank}
 		}
 	})
@@ -827,6 +837,9 @@ func (d *NetblockDB) segmentRecord(off int64) (netname, org string, ok bool, err
 	}
 	if org, err = d.str(oOff); err != nil {
 		return "", "", false, err
+	}
+	if IsVerificationToken(org) {
+		org = ""
 	}
 	return netname, org, netname != "" || org != "", nil
 }

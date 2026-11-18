@@ -267,7 +267,7 @@ func firstWhoisField(body, name string) string {
 		if !ok || !strings.EqualFold(strings.TrimSpace(key), name) {
 			continue
 		}
-		if v := CleanValue(value); v != "" {
+		if v := CleanValue(value); v != "" && !IsVerificationToken(v) {
 			return v
 		}
 	}

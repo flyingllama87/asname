@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -306,7 +307,7 @@ func (b *netblockBuilder) importSource(ctx context.Context, src netblockSource, 
 			orgRef := attrValue(attrs, src.schema.orgRefKey)
 			org := ""
 			if src.schema.descrKey != "" {
-				org = attrValue(attrs, src.schema.descrKey)
+				org = descrValue(attrs, src.schema.descrKey)
 			}
 			if org == "" {
 				org = orgs[orgRef]
@@ -599,6 +600,30 @@ func IncBytes16(v [16]byte) ([16]byte, bool) {
 }
 
 type attr struct{ name, value string }
+
+// descrValue is the first line of a description attribute that names
+// something, skipping ownership-verification tokens: OVHcloud's Bring Your
+// Own IP, for one, has the holder put "-----BEGIN TOKEN-----<hex>-----END
+// TOKEN-----" on a line of its own in the record's descr.
+func descrValue(attrs []attr, name string) string {
+	for _, a := range attrs {
+		if a.name == name && a.value != "" && !IsVerificationToken(a.value) {
+			return a.value
+		}
+	}
+	return ""
+}
+
+// verificationToken matches a "-----BEGIN TOKEN-----<hex>-----END
+// TOKEN-----" line, whatever the dashes became: some records have them as
+// typographic dashes that the dumps turn into "??-".
+var verificationToken = regexp.MustCompile(`^[^A-Za-z0-9]*BEGIN [A-Z ]+[^A-Za-z0-9]+[0-9A-Za-z+/=]{16,}[^A-Za-z0-9]+END [A-Z ]+[^A-Za-z0-9]*$`)
+
+// IsVerificationToken reports whether a registry text line is a
+// "-----BEGIN ...-----" verification token rather than a description.
+func IsVerificationToken(s string) bool {
+	return verificationToken.MatchString(strings.TrimSpace(s))
+}
 
 func attrValue(attrs []attr, name string) string {
 	for _, a := range attrs {
