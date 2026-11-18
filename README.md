@@ -1313,6 +1313,16 @@ one.
 [REST] api update finished (err=<nil>, reloaded=true)
 ```
 
+The request lines are also appended, each prefixed with the date and time, to
+`requests.log` in the data directory (`~/.asname/requests.log`), readable only
+by you, so the history of lookups survives a restart. `--request-log FILE`
+(`ASNAME_REQUEST_LOG`) writes them elsewhere; `--request-log off` keeps no file.
+
+```bash
+# Every address and ASN looked up, most recent last
+grep -oE '(q=|targets=)[^ &]+' ~/.asname/requests.log
+```
+
 ### Web UI
 
 `asname` ships an optional web UI, built with IBM's

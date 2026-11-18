@@ -51,6 +51,7 @@ EXECUTION MODES:
    --cors                         enable permissive CORS headers on the REST API server
    --web-dir directory            serve the web UI from this directory (built with ` + "`make web`" + `) at / on the REST API server [$ASNAME_WEB_DIR]
    --allow-updates                let the REST API server update its databases (POST /v1/update, used by the web UI), and refresh stale ones while it runs [$ASNAME_ALLOW_UPDATES]
+   --request-log file             append the REST API server's request log to this file (default: <dir>/requests.log; "off" for none) [$ASNAME_REQUEST_LOG]
 
 OPTIONAL LOOKUPS & METADATA:
    --reverse-dns, -r              also query reverse DNS and include PTR names in the output
@@ -176,6 +177,12 @@ func newApp() *cli.Command {
 				Name:    "web-dir",
 				Sources: cli.EnvVars("ASNAME_WEB_DIR"),
 				Usage:   "serve the web UI from this `directory` (built with `make web`) at / on the REST API server",
+				Local:   true,
+			},
+			&cli.StringFlag{
+				Name:    "request-log",
+				Sources: cli.EnvVars("ASNAME_REQUEST_LOG"),
+				Usage:   "append the REST API server's request log to this `file` (default requests.log in the data directory; \"off\" to keep no log file)",
 				Local:   true,
 			},
 			&cli.BoolFlag{
@@ -1361,6 +1368,27 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 	return runDatabaseUpdate(ctx, cfg, sel, cmd.Root().ErrWriter)
 }
 
+// RequestLogFilename is the REST API server's request log in the data
+// directory, unless --request-log names another file.
+const RequestLogFilename = "requests.log"
+
+// openRequestLog opens the file --request-log names for appending, or
+// requests.log in the data directory; nil when it is "off". The file is
+// private to the user: it records every address looked up.
+func openRequestLog(cmd *cli.Command) (*os.File, error) {
+	path := cmd.String("request-log")
+	switch path {
+	case "off", "none", "-":
+		return nil, nil
+	case "":
+		path = filepath.Join(cmd.String("dir"), RequestLogFilename)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+}
+
 // restRefreshEvery is how often a REST server started with --allow-updates
 // checks for databases older than --max-age.
 const restRefreshEvery = 6 * time.Hour
@@ -1374,6 +1402,12 @@ func restOptions(cmd *cli.Command, whois, onlinePrefixes sources.WhoisMode) rest
 		ReverseDNS: cmd.Bool("reverse-dns"),
 		Version:    version,
 		WebDir:     cmd.String("web-dir"),
+	}
+	if w, err := openRequestLog(cmd); err != nil {
+		fmt.Fprintf(cmd.Root().ErrWriter, "asname: request log: %v\n", err)
+	} else if w != nil {
+		opts.RequestLog = w
+		fmt.Fprintf(cmd.Root().ErrWriter, "asname: logging requests to %s\n", w.Name())
 	}
 	// Online lookups: whois and RIPEstat answer a request that asks for
 	// them unless turned off for the server; --whois and --online-prefixes

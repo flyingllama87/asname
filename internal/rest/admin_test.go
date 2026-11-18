@@ -320,3 +320,18 @@ func TestRequestLogDetail(t *testing.T) {
 	}
 	assert.True(t, strings.HasSuffix(targetsNote(many), "10.0.0.19 (+5 more)"))
 }
+
+func TestRequestLogWriter(t *testing.T) {
+	var logged strings.Builder
+	s := NewServerWithOptions(engine.NewTestEngine(t), Options{RequestLog: &logged})
+	h := s.Routes()
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/lookup?q=8.8.8.8", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/status", nil))
+	lines := strings.Split(strings.TrimSpace(logged.String()), "\n")
+	require.Len(t, lines, 1, "the status poll stays out of the file too")
+	stamp, rest, ok := strings.Cut(lines[0], " ")
+	require.True(t, ok)
+	_, err := time.Parse(time.RFC3339, stamp)
+	assert.NoError(t, err, "each line starts with the date and time")
+	assert.True(t, strings.HasPrefix(rest, "[REST] GET /v1/lookup?q=8.8.8.8 200 "), rest)
+}

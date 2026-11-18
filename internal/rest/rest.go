@@ -100,6 +100,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 // loggingMiddleware logs each request with its query string, so the log
 // shows what was looked up and searched for; a bulk lookup adds its targets.
+// Each line also goes to Options.RequestLog, when set.
 // The web UI's polling of /v1/status and /v1/update, and the UI's own
 // files, are left out when they succeed, or they would drown the rest.
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
@@ -114,8 +115,12 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 		if rw.note != "" {
 			note = " " + rw.note
 		}
-		fmt.Fprintf(os.Stdout, "[REST] %s %s %d %v (%s)%s\n",
+		line := fmt.Sprintf("[REST] %s %s %d %v (%s)%s\n",
 			r.Method, r.URL.RequestURI(), rw.statusCode, time.Since(start), r.RemoteAddr, note)
+		fmt.Fprint(os.Stdout, line)
+		if s.opts.RequestLog != nil {
+			fmt.Fprint(s.opts.RequestLog, start.Format(time.RFC3339)+" "+line)
+		}
 	})
 }
 

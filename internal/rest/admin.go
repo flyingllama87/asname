@@ -28,6 +28,10 @@ type Options struct {
 	// WebDir, when set, is served at / so the web UI shares the API's origin.
 	WebDir string
 
+	// RequestLog, when set, also receives each request's log line, prefixed
+	// with the date and time, so the history of lookups outlives the server.
+	RequestLog io.Writer
+
 	// Status returns the on-disk database status for GET /v1/status, as
 	// `asname version -j` reports it. Nil leaves it out.
 	Status func() any
