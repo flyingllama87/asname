@@ -18,7 +18,7 @@ export const GLOSSARY = [
     terms: [
       {
         term: 'IP address',
-        body: 'The number that identifies a machine, or the gateway in front of many, on the internet. IPv4 addresses are 32 bits (192.0.2.1); IPv6 addresses are 128 bits (2001:db8::1).',
+        body: 'The number that identifies a machine, or the gateway in front of many, on the internet. IPv4 addresses are 32 bits, written as four numbers from 0 to 255, for example 192.0.2.1. IPv6 addresses are 128 bits, written in hexadecimal, for example 2001:db8::1.',
         practice: [
           'The address in your log is the last hop that talked to you. A NAT gateway, proxy, VPN, Tor exit, CDN or load balancer may stand in front of the real machine: check the kind of network before you attribute.',
           'Addresses change hands. Home broadband addresses change daily to monthly; cloud addresses pass to a new customer within minutes of release. Attribute an address at a time, never forever.',
@@ -33,7 +33,7 @@ export const GLOSSARY = [
       {
         term: 'Prefix',
         aka: 'CIDR block, subnet, route',
-        body: 'A run of consecutive addresses written as a start and a length: 192.0.2.0/24 is the 256 addresses 192.0.2.0 to 192.0.2.255.',
+        body: 'A run of consecutive addresses written as a start address and a length. The length after the slash is how many leading bits are fixed, so a smaller number is a bigger block. For example, 192.0.2.0/24 is the 256 addresses 192.0.2.0 to 192.0.2.255, and a /16 is 65,536 addresses.',
         practice: [
           'Block the narrowest prefix that covers the threat. Blocking a /16 to stop one host takes out 65,536 addresses, most of them innocent.',
           'Search and Explore copy prefixes ready for a firewall or a SIEM query.',
@@ -58,7 +58,7 @@ export const GLOSSARY = [
       {
         term: 'ASN',
         aka: 'AS number',
-        body: 'The number identifying an Autonomous System, written AS13335.',
+        body: 'The number that identifies an Autonomous System. Every AS has its own, usually written with AS in front: Cloudflare is AS13335, Google AS15169, Telstra AS1221. Router configurations and some data sources write the number alone (13335).',
         practice: [
           'Pivot on it: look up the ASN for its prefixes and reputation, Explore with Origin AS for each prefix\'s blocklist hits, and Search for the AS number for every registry netblock under it, customers included.',
           'Blocking a whole ASN catches criminal hosts that rotate addresses (that is what Spamhaus ASN-DROP is for), but blocking a cloud or an ISP\'s ASN blocks all their customers.',
@@ -122,10 +122,10 @@ export const GLOSSARY = [
       },
       {
         term: 'Special-purpose address',
-        body: 'A block IANA sets aside for something other than ordinary addressing: private use (10/8, 172.16/12, 192.168/16), carrier-grade NAT (100.64/10), loopback, link-local, documentation (192.0.2/24, 2001:db8::/32), benchmarking, NAT64 (64:ff9b::/96), multicast and others.',
+        body: 'A block IANA sets aside for something other than ordinary addressing: private use (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), carrier-grade NAT (100.64.0.0/10), loopback, link-local, documentation (192.0.2.0/24, 2001:db8::/32), benchmarking, NAT64 (64:ff9b::/96), multicast and others.',
         practice: [
           'Most are not reachable on the internet. In your own logs they are internal hosts; in a report from outside they are a misconfiguration or spoofing.',
-          'Documentation ranges (192.0.2/24, 198.51.100/24, 203.0.113/24, 2001:db8::/32, 3fff::/20) appear in examples and test data, never in real traffic.',
+          'Documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32, 3fff::/20) appear in examples and test data, never in real traffic.',
           '100.64/10 is a carrier\'s CGNAT space: you see it on your own router\'s WAN when behind CGNAT, never as a public source.',
         ],
         detail: ['asname carries a copy of IANA\'s two special-purpose registries (RFC 6890), with each block\'s RFC and whether it is globally reachable.'],
@@ -374,13 +374,13 @@ export const GLOSSARY = [
       {
         term: 'SBL',
         aka: 'Spamhaus Block List record',
-        body: 'The record ID (SBL123456) behind a DROP listing.',
+        body: 'Spamhaus\'s ID for the record behind a DROP listing, for example SBL123456. Each listing has its own.',
         practice: ['Spamhaus\'s evidence for the listing: read it before escalating, and quote it in reports.'],
         links: [['Spamhaus SBL', 'https://www.spamhaus.org/blocklists/spamhaus-blocklist/']],
       },
       {
         term: 'FireHOL',
-        body: 'A project that combines many public blocklists into levels.',
+        body: 'A project that combines many public blocklists into numbered levels, level 1 being the safest to block.',
         practice: [
           'Level 1 is meant to be safe to block outright. Level 2: reported attacking in the last 48 hours. Level 3: in the last 30 days. Higher levels catch more and mislead more.',
         ],
