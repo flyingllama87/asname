@@ -706,7 +706,10 @@ function lookupView() {
     else update();
   };
   return html`
-    <p class="lede">Look up IP addresses, hostnames, URLs or ASNs. Answers come from the local databases.</p>
+    <p class="lede">
+      Intelligence on ${termLink('IP addresses', 'IP address')} and the networks (${termLink('ASNs', 'ASN')}) that hold them. A hostname or
+      URL is resolved to its IP addresses and those are assessed, not the domain or the page itself. Answers come from the local databases.
+    </p>
     <div class="form">
       <cds-textarea
         id="lookup-input"
