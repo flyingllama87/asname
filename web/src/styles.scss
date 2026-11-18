@@ -314,6 +314,101 @@ a.glossary-mini {
   color: var(--cds-text-secondary, #525252);
 }
 
+// The glossary side panel: an entry beside the page, over a light scrim.
+.gpanel-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 8000;
+  background: rgba(22, 22, 22, 0.25);
+}
+
+.gpanel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8001;
+  display: flex;
+  flex-direction: column;
+  width: min(32rem, 100vw);
+  background: $layer;
+  color: $text-primary;
+  border-left: 1px solid $border-subtle;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.2);
+  animation: gpanel-in 150ms ease-out;
+}
+
+@keyframes gpanel-in {
+  from {
+    transform: translateX(2rem);
+    opacity: 0;
+  }
+}
+
+.gpanel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-03;
+  padding: $spacing-05;
+  border-bottom: 1px solid $border-subtle;
+
+  h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 400;
+  }
+}
+
+.gpanel-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.gpanel-section {
+  @include type.type-style('label-01');
+  color: $text-secondary;
+}
+
+.gpanel-btn {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: $layer-hover;
+  }
+}
+
+.gpanel-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+// The entry stacks in the panel: no term column, labels above their lists.
+.glossary-entry.gpanel-body {
+  display: block;
+  padding: $spacing-05;
+  border-top: 0;
+
+  .g-block {
+    grid-template-columns: 1fr;
+    gap: $spacing-02;
+    margin-top: $spacing-05;
+  }
+}
+
+.gpanel-foot {
+  padding: $spacing-04 $spacing-05;
+  border-top: 1px solid $border-subtle;
+  @include type.type-style('body-compact-01');
+}
+
 // A tag that opens its glossary entry.
 a.tag-link {
   display: inline-flex;

@@ -214,6 +214,8 @@ const state = {
   api: { open: false, copied: '' },
   help: { open: false },
   glossary: { filter: '', focus: '' },
+  // gpanel is the glossary side panel: the entries opened, newest last.
+  gpanel: { stack: [] },
   explore: { f: { ...DEFAULT_FILTERS, tag: [] }, loading: false, error: '', data: null, allTags: [], copied: '', ran: '' },
 };
 
@@ -2157,6 +2159,114 @@ function sourceGlossary(name) {
   return term ? html`<a class="term-link glossary-mini" href="#/glossary?t=${slug(term[1])}" title="${term[1]}: what it means">glossary</a>` : nothing;
 }
 
+// entryBody is a glossary entry's text: the definition, what it means in
+// an investigation, how it works, and where to read more. linkify turns
+// mentions of other entries into links when given.
+function entryBody(t, linkify = (x) => x) {
+  return html`<p class="g-body">${linkify(t.body)}</p>
+    ${t.practice?.length
+      ? html`<div class="g-block g-practice">
+          <div class="g-label">In an investigation</div>
+          <ul>${t.practice.map((x) => html`<li>${linkify(x)}</li>`)}</ul>
+        </div>`
+      : nothing}
+    ${t.detail?.length
+      ? html`<div class="g-block g-detail">
+          <div class="g-label">Under the hood</div>
+          <ul>${t.detail.map((x) => html`<li>${linkify(x)}</li>`)}</ul>
+        </div>`
+      : nothing}
+    ${t.links?.length
+      ? html`<div class="g-links">${t.links.map(([label, url]) => html`<a href=${url} target="_blank" rel="noopener noreferrer">${label}</a>`)}</div>`
+      : nothing}`;
+}
+
+// glossaryEntries is every glossary entry by its slug.
+function glossaryEntries() {
+  const out = new Map();
+  for (const sec of [...GLOSSARY, tagGlossary()]) for (const t of sec.terms) if (!out.has(slug(t.term))) out.set(slug(t.term), { ...t, section: sec.section });
+  return out;
+}
+
+// ---------- glossary side panel ----------
+// A glossary link opens its entry in a panel beside the page, so the
+// result stays where it was. Ctrl-, Cmd-, Shift- or middle-click still
+// follow the link to the Glossary page.
+
+function openTerm(id) {
+  const p = state.gpanel;
+  if (p.stack[p.stack.length - 1] !== id) p.stack.push(id);
+  update();
+  setTimeout(() => document.querySelector('.gpanel-body')?.scrollTo(0, 0), 0);
+}
+
+function closeTerms() {
+  state.gpanel.stack = [];
+  update();
+}
+
+// seeLinks turns "see Tor exit node above" in an entry's text into a link
+// that opens that entry in the panel.
+function seeLinks(entries) {
+  return (text) => {
+    const parts = String(text).split(/(see [^.;:,()]+? (?:above|below))/);
+    return parts.map((part) => {
+      const m = part.match(/^see (.+) (above|below)$/);
+      const id = m && slug(m[1]);
+      return id && entries.has(id)
+        ? html`see <a class="term-link" href="#/glossary?t=${id}">${m[1]}</a>`
+        : part;
+    });
+  };
+}
+
+function gpanelView() {
+  const p = state.gpanel;
+  if (!p.stack.length) return nothing;
+  const entries = glossaryEntries();
+  const id = p.stack[p.stack.length - 1];
+  const t = entries.get(id);
+  const back = () => {
+    p.stack.pop();
+    update();
+  };
+  return html`
+    <div class="gpanel-scrim" @click=${closeTerms}></div>
+    <aside class="gpanel" role="dialog" aria-modal="false" aria-label="Glossary: ${t?.term || id}">
+      <div class="gpanel-head">
+        ${p.stack.length > 1
+          ? html`<button type="button" class="gpanel-btn" title="Back to ${entries.get(p.stack[p.stack.length - 2])?.term || 'the previous entry'}" aria-label="Back" @click=${back}>←</button>`
+          : nothing}
+        <div class="gpanel-title">
+          <div class="gpanel-section">${t?.section || 'Glossary'}</div>
+          <h2>${t?.term || id}</h2>
+          ${t?.aka ? html`<div class="g-aka">${t.aka}</div>` : nothing}
+        </div>
+        <button type="button" class="gpanel-btn" title="Close (Esc)" aria-label="Close" @click=${closeTerms}>✕</button>
+      </div>
+      <div class="gpanel-body glossary-entry">
+        ${t ? entryBody(t, seeLinks(entries)) : html`<p class="empty">No glossary entry for this.</p>`}
+      </div>
+      <div class="gpanel-foot">
+        <a class="g-open-full" href="#/glossary?t=${id}" @click=${() => (state.gpanel.stack = [])}>Open in Glossary</a>
+      </div>
+    </aside>
+  `;
+}
+
+document.addEventListener('click', (e) => {
+  if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+  const a = e.composedPath().find((el) => el instanceof HTMLAnchorElement);
+  const href = a?.getAttribute('href') || '';
+  if (!href.startsWith('#/glossary?t=') || a.classList.contains('g-open-full') || state.tab === 'glossary') return;
+  e.preventDefault();
+  openTerm(new URLSearchParams(href.split('?')[1]).get('t'));
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.gpanel.stack.length) closeTerms();
+});
+
 // focusGlossary scrolls to a glossary entry and marks it.
 function focusGlossary(id) {
   const g = state.glossary;
@@ -2208,24 +2318,7 @@ function glossaryView() {
                     <span class="g-term">${t.term}</span>
                     ${t.aka ? html`<span class="g-aka">${t.aka}</span>` : nothing}
                   </dt>
-                  <dd>
-                    <p class="g-body">${t.body}</p>
-                    ${t.practice?.length
-                      ? html`<div class="g-block g-practice">
-                          <div class="g-label">In an investigation</div>
-                          <ul>${t.practice.map((x) => html`<li>${x}</li>`)}</ul>
-                        </div>`
-                      : nothing}
-                    ${t.detail?.length
-                      ? html`<div class="g-block g-detail">
-                          <div class="g-label">Under the hood</div>
-                          <ul>${t.detail.map((x) => html`<li>${x}</li>`)}</ul>
-                        </div>`
-                      : nothing}
-                    ${t.links?.length
-                      ? html`<div class="g-links">${t.links.map(([label, url]) => html`<a href=${url} target="_blank" rel="noopener noreferrer">${label}</a>`)}</div>`
-                      : nothing}
-                  </dd>
+                  <dd>${entryBody(t)}</dd>
                 </div>`,
               )}
             </dl>
@@ -2591,6 +2684,7 @@ function view() {
     ${settingsView()}
     ${apiView()}
     ${helpView()}
+    ${gpanelView()}
   `;
 }
 
