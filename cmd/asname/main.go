@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1574,7 +1573,7 @@ func runDatabaseUpdate(ctx context.Context, cfg sources.Config, sel updateSelect
 			path, core := missing[key]
 			switch {
 			case rec[key].Incomplete():
-				retry = append(retry, describeOutcome(key, rec[key]))
+				retry = append(retry, describeOutcome(cfg, key, rec[key]))
 			case core && sources.Stale(path, 0):
 				retry = append(retry, key+" (missing)")
 			default:
@@ -1588,38 +1587,57 @@ func runDatabaseUpdate(ctx context.Context, cfg sources.Config, sel updateSelect
 		fmt.Fprintf(errOut, "asname: retrying %s\n", strings.Join(retry, ", "))
 	}
 
+	// The geofeed update reads the geofeed references the netblock update
+	// writes beside its database. A netblock database built before asname
+	// kept them has none, so rebuild it first rather than fail every time.
+	if run[sources.KeyGeofeed] && !run[sources.KeyNetblock] && !sources.GeofeedRefsPresent(cfg.NetblockPath) {
+		if sources.NetblockDBPresent(cfg.NetblockPath) {
+			fmt.Fprintln(errOut, "asname: the geofeed update needs the geofeed references the netblock update writes, and this netblock database predates them: rebuilding the netblock database first")
+		} else {
+			fmt.Fprintln(errOut, "asname: the geofeed update needs the netblock database: building it first")
+		}
+		run[sources.KeyNetblock] = true
+	}
+
 	// A database that fails keeps its existing file; the others are still
-	// rebuilt, since they come from different hosts.
+	// rebuilt, since they come from different hosts. Each failure is
+	// reported as it happens, so its reason comes before the summary.
 	var failed []error
+	var failedKeys []string
+	fail := func(key string, err error) {
+		fmt.Fprintf(errOut, "asname: %v\n", err)
+		failed = append(failed, err)
+		failedKeys = append(failedKeys, key)
+	}
 	if run[sources.KeyASN] {
 		if err := sources.UpdateDatabase(rctx, cfg, sel.RIBURL); err != nil {
-			failed = append(failed, fmt.Errorf("updating ASN database: %v", err))
+			fail(sources.KeyASN, fmt.Errorf("updating ASN database: %v", err))
 		}
 	}
 	if run[sources.KeyNames] {
 		if err := sources.UpdateNames(rctx, cfg); err != nil {
-			failed = append(failed, fmt.Errorf("updating name database: %v", err))
+			fail(sources.KeyNames, fmt.Errorf("updating name database: %v", err))
 		}
 	}
 	if run[sources.KeyCountry] {
 		if err := sources.UpdateCountryDB(rctx, cfg); err != nil {
-			failed = append(failed, fmt.Errorf("updating country database: %v", err))
+			fail(sources.KeyCountry, fmt.Errorf("updating country database: %v", err))
 		}
 	}
 	if run[sources.KeyCity] {
 		if err := sources.UpdateCityDB(rctx, cfg); err != nil {
-			failed = append(failed, fmt.Errorf("updating city database: %v", err))
+			fail(sources.KeyCity, fmt.Errorf("updating city database: %v", err))
 		}
 	}
 	if run[sources.KeyNetblock] {
 		if err := sources.UpdateNetblockDB(rctx, cfg); err != nil {
-			failed = append(failed, fmt.Errorf("updating netblock database: %v", err))
+			fail(sources.KeyNetblock, fmt.Errorf("updating netblock database: %v", err))
 		}
 	}
 	// After the netblock database, whose ranges name the feeds.
 	if run[sources.KeyGeofeed] {
 		if err := sources.UpdateGeofeedDB(rctx, cfg); err != nil {
-			failed = append(failed, fmt.Errorf("updating geofeed database: %v", err))
+			fail(sources.KeyGeofeed, fmt.Errorf("updating geofeed database: %v", err))
 		}
 	}
 	if run[sources.KeyCategory] {
@@ -1628,13 +1646,13 @@ func runDatabaseUpdate(ctx context.Context, cfg sources.Config, sel updateSelect
 			contact.Terminal, contact.Out = false, errOut
 		}
 		if err := sources.UpdateCategoryDB(rctx, cfg, contact); err != nil {
-			failed = append(failed, fmt.Errorf("updating category database: %v", err))
+			fail(sources.KeyCategory, fmt.Errorf("updating category database: %v", err))
 		}
 	}
 	// Built last, so its per-ASN counts use the ASN database just refreshed.
 	if run[sources.KeyReputation] {
 		if err := sources.UpdateReputationDB(rctx, cfg); err != nil {
-			failed = append(failed, fmt.Errorf("updating reputation database: %v", err))
+			fail(sources.KeyReputation, fmt.Errorf("updating reputation database: %v", err))
 		}
 	}
 
@@ -1643,22 +1661,48 @@ func runDatabaseUpdate(ctx context.Context, cfg sources.Config, sel updateSelect
 		var incomplete []string
 		for _, key := range sources.UpdateKeys {
 			if run[key] && rec[key].Incomplete() {
-				incomplete = append(incomplete, describeOutcome(key, rec[key]))
+				incomplete = append(incomplete, describeOutcome(cfg, key, rec[key]))
 			}
 		}
 		if len(incomplete) > 0 {
 			fmt.Fprintf(errOut, "asname: incomplete: %s\nasname: run `asname update --incremental` to retry only these\n", strings.Join(incomplete, ", "))
 		}
 	}
-	return errors.Join(failed...)
+	if len(failed) > 0 {
+		// The reasons are already printed above; this is the exit status.
+		return fmt.Errorf("%d database update(s) failed: %s", len(failed), strings.Join(failedKeys, ", "))
+	}
+	return nil
 }
 
 // describeOutcome names a database and what its last update left out.
-func describeOutcome(key string, o sources.UpdateOutcome) string {
+func describeOutcome(cfg sources.Config, key string, o sources.UpdateOutcome) string {
 	if o.Error != "" {
-		return key + " (failed, previous file kept)"
+		if keyFilePresent(cfg, key) {
+			return key + " (failed, previous file kept)"
+		}
+		return key + " (failed)"
 	}
 	return key + " (missing " + strings.Join(o.Failed, ", ") + ")"
+}
+
+// keyFilePresent reports whether the database an update key builds exists.
+func keyFilePresent(cfg sources.Config, key string) bool {
+	path := map[string]string{
+		sources.KeyASN:        cfg.DBPath,
+		sources.KeyNames:      cfg.NamesPath,
+		sources.KeyCountry:    cfg.CountryPath,
+		sources.KeyCity:       cfg.CityPath,
+		sources.KeyNetblock:   cfg.NetblockPath,
+		sources.KeyGeofeed:    cfg.GeofeedPath,
+		sources.KeyCategory:   cfg.CategoryPath,
+		sources.KeyReputation: cfg.ReputationPath,
+	}[key]
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func versionCommand() *cli.Command {

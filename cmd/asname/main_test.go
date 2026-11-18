@@ -672,3 +672,18 @@ func TestMaxAgeSavedFlagEnvAndOff(t *testing.T) {
 	t.Setenv("ASNAME_MAX_AGE", "48h")
 	assert.Equal(t, 48.0, maxAge(), "ASNAME_MAX_AGE overrides the saved age")
 }
+
+func TestDescribeOutcomeSaysKeptOnlyWhenAFileExists(t *testing.T) {
+	dir := t.TempDir()
+	cfg := sources.Config{GeofeedPath: filepath.Join(dir, "geofeed.db"), NetblockPath: filepath.Join(dir, "netblock.db")}
+	failed := sources.UpdateOutcome{Error: "no geofeed references"}
+	require.Equal(t, "geofeed (failed)", describeOutcome(cfg, sources.KeyGeofeed, failed))
+	require.NoError(t, os.WriteFile(cfg.GeofeedPath, []byte("x"), 0o644))
+	require.Equal(t, "geofeed (failed, previous file kept)", describeOutcome(cfg, sources.KeyGeofeed, failed))
+	require.Equal(t, "category (missing Tor)", describeOutcome(cfg, sources.KeyCategory, sources.UpdateOutcome{Failed: []string{"Tor"}}))
+
+	// A netblock database without references beside it predates them.
+	require.False(t, sources.GeofeedRefsPresent(cfg.NetblockPath))
+	require.NoError(t, os.WriteFile(sources.GeofeedRefsPath(cfg.NetblockPath), []byte("x"), 0o644))
+	require.True(t, sources.GeofeedRefsPresent(cfg.NetblockPath))
+}

@@ -38,6 +38,14 @@ const (
 	geofeedMagic = "ASNGEO\x00\x01"
 )
 
+// GeofeedRefsPresent reports whether the netblock database at netblockPath
+// has its geofeed references beside it. A netblock database built before
+// asname kept them lacks them, and the geofeed update needs them.
+func GeofeedRefsPresent(netblockPath string) bool {
+	info, err := os.Stat(GeofeedRefsPath(netblockPath))
+	return err == nil && info.Mode().IsRegular()
+}
+
 // GeofeedRefsPath is where the netblock database at netblockPath keeps its
 // geofeed references.
 func GeofeedRefsPath(netblockPath string) string {
