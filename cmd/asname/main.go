@@ -1747,7 +1747,14 @@ func describeOutcome(cfg sources.Config, key string, o sources.UpdateOutcome) st
 		}
 		return key + " (failed)"
 	}
-	return key + " (missing " + strings.Join(o.Failed, ", ") + ")"
+	var parts []string
+	if len(o.Failed) > 0 {
+		parts = append(parts, "missing "+strings.Join(o.Failed, ", "))
+	}
+	if len(o.Stale) > 0 {
+		parts = append(parts, "last good copy of "+strings.Join(o.Stale, ", "))
+	}
+	return key + " (" + strings.Join(parts, "; ") + ")"
 }
 
 // keyFilePresent reports whether the database an update key builds exists.

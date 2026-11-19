@@ -1803,7 +1803,7 @@ function databasesView() {
   const job = st.update || {};
   const running = !!job.running;
   const canUpdate = st.updates_enabled && !running && !d.busy;
-  const incomplete = dbs.some((db) => db.missing?.length || db.last_error);
+  const incomplete = dbs.some((db) => db.missing?.length || db.last_error || db.sources?.some((s) => s.stale_since));
   const seenKeys = new Set();
 
   const toggle = (key, checked) => {
@@ -1958,8 +1958,9 @@ function sourcesView(dbs) {
     <cds-accordion>
       ${groups.map((g) => {
         const failed = g.sources.filter((s) => s.failed).length;
+        const stale = g.sources.filter((s) => s.stale_since).length;
         const title = `${g.names.join(' and ')}: ${g.sources.length} source${g.sources.length === 1 ? '' : 's'}${
-          g.vpnLists.length ? `, ${g.vpnLists.length} VPN lists` : ''}${failed ? `, ${failed} failed` : ''}`;
+          g.vpnLists.length ? `, ${g.vpnLists.length} VPN lists` : ''}${failed ? `, ${failed} failed` : ''}${stale ? `, ${stale} stale` : ''}`;
         return html`<cds-accordion-item id="sources-${g.key}" title=${title} ?open=${open.has(g.key)}
             @cds-accordion-item-toggled=${toggled(g.key)}>
           ${sourceTable(g)}
@@ -2008,6 +2009,12 @@ function sourceTable(g) {
 }
 
 function sourceResult(s, present, recorded) {
+  if (s.stale_since) {
+    const when = new Date(s.stale_since).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return html`<cds-tag size="sm" type="warm-gray">Stale</cds-tag>
+      ${s.entries ? html`<span class="hint">${s.entries.toLocaleString()} entries</span>` : nothing}
+      <div class="hint">The download failed; built from the last good copy, downloaded ${when}. Retry incomplete tries again.</div>`;
+  }
   if (s.failed) {
     return html`<cds-tag size="sm" type="red">Failed</cds-tag>
       <div class="hint">${s.group === 'VPN providers' ? "Built from gluetun's copy instead." : 'Built without it; Retry incomplete tries again.'}</div>`;

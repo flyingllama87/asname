@@ -146,6 +146,9 @@ type SourceStatus struct {
 	Entries  int    `json:"entries,omitempty"`
 	Failed   bool   `json:"failed,omitempty"`
 	Note     string `json:"note,omitempty"`
+	// StaleSince is when the last good copy it was built from was
+	// downloaded, when its download failed.
+	StaleSince time.Time `json:"stale_since,omitzero"`
 }
 
 // sourceStatuses merges the catalog for key with the recorded outcomes:
@@ -168,7 +171,7 @@ func sourceStatuses(key string, o UpdateOutcome) []SourceStatus {
 	for _, c := range SourceCatalog(key) {
 		st := SourceStatus{CatalogSource: c}
 		if r, ok := byName[c.Name]; ok {
-			st.Recorded, st.Entries, st.Failed, st.Note = true, r.Entries, r.Failed, r.Note
+			st.Recorded, st.Entries, st.Failed, st.Note, st.StaleSince = true, r.Entries, r.Failed, r.Note, r.StaleSince
 		}
 		seen[c.Name] = true
 		out = append(out, st)
@@ -178,7 +181,7 @@ func sourceStatuses(key string, o UpdateOutcome) []SourceStatus {
 			continue
 		}
 		out = append(out, SourceStatus{CatalogSource: CatalogSource{Name: r.Name}, Recorded: true,
-			Entries: r.Entries, Failed: r.Failed, Note: r.Note})
+			Entries: r.Entries, Failed: r.Failed, Note: r.Note, StaleSince: r.StaleSince})
 	}
 	return out
 }

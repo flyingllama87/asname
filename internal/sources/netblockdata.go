@@ -127,7 +127,8 @@ func UpdateNetblockDB(ctx context.Context, cfg Config) (err error) {
 	imported := 0
 	var failed []string
 	for _, src := range sources {
-		n, err := b.importSource(ctx, src, cache)
+		sctx, stale := withStaleTracker(ctx)
+		n, err := b.importSource(sctx, src, cache)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
@@ -139,6 +140,7 @@ func UpdateNetblockDB(ctx context.Context, cfg Config) (err error) {
 		}
 		logf(ctx, "asname: %s: %d ranges\n", src.name, n)
 		noteSource(ctx, src.name, n, "")
+		noteStale(ctx, src.name, stale.since())
 		imported += n
 	}
 	if delegated {

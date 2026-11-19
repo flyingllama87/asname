@@ -36,6 +36,9 @@ type UpdateOutcome struct {
 	// Failed names the sources that could not be read. The database was
 	// still written, without them (or, for VPN providers, from a fallback copy).
 	Failed []string `json:"failed,omitempty"`
+	// Stale names the sources that could not be downloaded and were built
+	// from their last good copy instead.
+	Stale []string `json:"stale,omitempty"`
 	// Sources lists every source the update read or tried, in order.
 	// Records written before asname 0.17 have none.
 	Sources []SourceOutcome `json:"sources,omitempty"`
@@ -53,10 +56,17 @@ type SourceOutcome struct {
 	// Note says anything else worth knowing, e.g. that an archive was
 	// skipped because an earlier one worked.
 	Note string `json:"note,omitempty"`
+	// StaleSince, when set, means the download failed and the source was
+	// read from its last good copy, downloaded then.
+	StaleSince time.Time `json:"stale_since,omitzero"`
 }
 
 // Incomplete reports whether the last update left anything out.
-func (s UpdateOutcome) Incomplete() bool { return s.Error != "" || len(s.Failed) > 0 }
+// A source built from its last good copy counts, so --incremental tries it
+// again.
+func (s UpdateOutcome) Incomplete() bool {
+	return s.Error != "" || len(s.Failed) > 0 || len(s.Stale) > 0
+}
 
 // UpdateRecord maps a database key to its last update outcome.
 type UpdateRecord map[string]UpdateOutcome
@@ -108,6 +118,7 @@ type failKey struct{}
 type failures struct {
 	mu      sync.Mutex
 	names   []string
+	stale   []string
 	sources []SourceOutcome
 }
 
@@ -152,6 +163,24 @@ func noteUnused(ctx context.Context, source, note string) {
 	f.source(source).Note = note
 }
 
+// noteStale records that source could not be downloaded during the update
+// running under ctx and was read from its last good copy, from when.
+func noteStale(ctx context.Context, source string, when time.Time) {
+	f, ok := ctx.Value(failKey{}).(*failures)
+	if !ok || when.IsZero() {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.source(source).StaleSince = when.UTC()
+	for _, n := range f.stale {
+		if n == source {
+			return
+		}
+	}
+	f.stale = append(f.stale, source)
+}
+
 // noteFailed records that source could not be read during the update running
 // under ctx. Outside an update it does nothing.
 func noteFailed(ctx context.Context, source string) {
@@ -190,6 +219,7 @@ func beginUpdate(ctx context.Context, cfg Config, key string) (context.Context, 
 		st := UpdateOutcome{Attempted: time.Now().UTC()}
 		f.mu.Lock()
 		st.Failed = append([]string(nil), f.names...)
+		st.Stale = append([]string(nil), f.stale...)
 		st.Sources = append([]SourceOutcome(nil), f.sources...)
 		f.mu.Unlock()
 		if err != nil {

@@ -378,6 +378,10 @@ func UpdateGeofeedDB(ctx context.Context, cfg Config) (err error) {
 		logf(ctx, "asname: geofeeds that failed: %s\n", strings.Join(parts, ", "))
 	}
 	note := fmt.Sprintf("%d of %d feeds read; %d unreachable or invalid", read, feeds, failed)
+	if n, oldest := cache.staleUse(); n > 0 {
+		note += fmt.Sprintf("; %d from their last good copy", n)
+		noteStale(ctx, GeofeedSourceName, oldest)
+	}
 	if outside > 0 {
 		note += fmt.Sprintf("; %d placed no address inside the ranges naming them", outside)
 	}
@@ -444,7 +448,14 @@ func fetchGeofeed(ctx context.Context, feedURL string) ([]geofeedEntry, int, err
 // feedCache keeps each feed, or why it could not be had, for CacheTTL, so
 // a rebuild or retry the same day asks no host again for what it already
 // answered. A nil feedCache keeps nothing.
-type feedCache struct{ dir string }
+type feedCache struct {
+	dir string
+	// stale counts the feeds read from their last good copy because they
+	// could not be fetched, and oldest is the oldest such copy.
+	mu     sync.Mutex
+	stale  int
+	oldest time.Time
+}
 
 func newFeedCache(dir string) *feedCache {
 	if dir == "" || os.MkdirAll(dir, 0o755) != nil {
@@ -480,6 +491,52 @@ func (c *feedCache) put(feedURL string, body []byte) {
 		os.Remove(c.path(feedURL) + ".failed")
 		_ = WriteFileAtomic(c.path(feedURL), body)
 	}
+}
+
+// keep makes body, which parsed, feedURL's last good copy.
+func (c *feedCache) keep(feedURL string, body []byte) {
+	if c == nil {
+		return
+	}
+	lg := filepath.Join(c.dir, LastGoodDirName, cacheName(feedURL))
+	if os.MkdirAll(filepath.Dir(lg), 0o755) == nil {
+		_ = WriteFileAtomic(lg, body)
+	}
+}
+
+// lastGood returns feedCache's last good copy of feedURL when it is younger
+// than LastGoodMaxAge, and counts it as used.
+func (c *feedCache) lastGood(feedURL string) ([]byte, bool) {
+	if c == nil {
+		return nil, false
+	}
+	lg := filepath.Join(c.dir, LastGoodDirName, cacheName(feedURL))
+	info, err := os.Stat(lg)
+	if err != nil || time.Since(info.ModTime()) > LastGoodMaxAge {
+		return nil, false
+	}
+	body, err := os.ReadFile(lg)
+	if err != nil {
+		return nil, false
+	}
+	c.mu.Lock()
+	c.stale++
+	if c.oldest.IsZero() || info.ModTime().Before(c.oldest) {
+		c.oldest = info.ModTime()
+	}
+	c.mu.Unlock()
+	return body, true
+}
+
+// staleUse reports how many feeds came from their last good copy, and the
+// oldest such copy.
+func (c *feedCache) staleUse() (int, time.Time) {
+	if c == nil {
+		return 0, time.Time{}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stale, c.oldest
 }
 
 func (c *feedCache) fail(feedURL string, err error) {
@@ -630,12 +687,31 @@ type hostGate struct {
 }
 
 // fetch fetches one feed through the gate, or from cache.
+// fetch reads feedURL from the cache or its host. A feed that cannot be had
+// is read from its last good copy, if it has one young enough.
 func (g *hostGate) fetch(ctx context.Context, feedURL string, cache *feedCache) ([]geofeedEntry, int, error) {
+	entries, bad, err := g.fetchFresh(ctx, feedURL, cache)
+	if err == nil || ctx.Err() != nil {
+		return entries, bad, err
+	}
+	if body, ok := cache.lastGood(feedURL); ok {
+		if e, b, perr := parseGeofeedBody(body); perr == nil {
+			return e, b, nil
+		}
+	}
+	return entries, bad, err
+}
+
+func (g *hostGate) fetchFresh(ctx context.Context, feedURL string, cache *feedCache) ([]geofeedEntry, int, error) {
 	if body, failure, ok := cache.get(feedURL); ok {
 		if failure != nil {
 			return nil, 0, failure
 		}
-		return parseGeofeedBody(body)
+		entries, bad, err := parseGeofeedBody(body)
+		if err == nil && !fileExists(filepath.Join(cache.dir, LastGoodDirName, cacheName(feedURL))) {
+			cache.keep(feedURL, body)
+		}
+		return entries, bad, err
 	}
 	var err error
 	for attempt := 1; attempt <= geofeedAttempts; attempt++ {
@@ -654,7 +730,11 @@ func (g *hostGate) fetch(ctx context.Context, feedURL string, cache *feedCache) 
 		case err == nil:
 			g.reached()
 			cache.put(feedURL, body)
-			return parseGeofeedBody(body)
+			entries, bad, perr := parseGeofeedBody(body)
+			if perr == nil {
+				cache.keep(feedURL, body)
+			}
+			return entries, bad, perr
 		case ctx.Err() != nil:
 			return nil, 0, ctx.Err()
 		case errors.As(err, &slow):

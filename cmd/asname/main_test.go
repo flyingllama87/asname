@@ -681,6 +681,8 @@ func TestDescribeOutcomeSaysKeptOnlyWhenAFileExists(t *testing.T) {
 	require.NoError(t, os.WriteFile(cfg.GeofeedPath, []byte("x"), 0o644))
 	require.Equal(t, "geofeed (failed, previous file kept)", describeOutcome(cfg, sources.KeyGeofeed, failed))
 	require.Equal(t, "category (missing Tor)", describeOutcome(cfg, sources.KeyCategory, sources.UpdateOutcome{Failed: []string{"Tor"}}))
+	require.Equal(t, "category (missing PeeringDB; last good copy of Tor)",
+		describeOutcome(cfg, sources.KeyCategory, sources.UpdateOutcome{Failed: []string{"PeeringDB"}, Stale: []string{"Tor"}}))
 
 	// A netblock database without references beside it predates them.
 	require.False(t, sources.GeofeedRefsPresent(cfg.NetblockPath))

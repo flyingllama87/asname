@@ -63,11 +63,92 @@ func cacheName(url string) string {
 	return hex.EncodeToString(sum[:6]) + "-" + base
 }
 
-// fetchCached downloads url into dir and returns the path of the local copy. A
-// copy younger than CacheTTL is reused without contacting the server, and a
-// download interrupted by a network failure is resumed where it stopped rather
-// than started again.
+// LastGoodDirName is the subdirectory of the cache holding the last copy of
+// each source that downloaded successfully (and, for the category and
+// reputation lists, also parsed). Age-based pruning never touches it, so a
+// source that cannot be reached is built from its last good copy instead of
+// being left out of the database.
+const LastGoodDirName = "last-good"
+
+// LastGoodMaxAge is how long a last good copy may stand in for a source that
+// cannot be downloaded. Past it the source is left out, as one that never
+// worked is, rather than served from ever older data.
+const LastGoodMaxAge = 90 * 24 * time.Hour
+
+func lastGoodPath(dir, url string) string {
+	return filepath.Join(dir, LastGoodDirName, cacheName(url))
+}
+
+// keepLastGood records path, a good copy of url, as its last good copy: a
+// hard link, so it costs no space while the cached copy lasts, or else a
+// copy.
+func keepLastGood(dir, url, path string) {
+	lg := lastGoodPath(dir, url)
+	if path == lg {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(lg), 0o755); err != nil {
+		return
+	}
+	tmp := lg + ".new"
+	os.Remove(tmp)
+	if err := os.Link(path, tmp); err != nil {
+		if err := copyFileTo(path, tmp); err != nil {
+			os.Remove(tmp)
+			return
+		}
+	}
+	if err := os.Rename(tmp, lg); err != nil {
+		os.Remove(tmp)
+	}
+}
+
+func copyFileTo(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// fetchCached returns the path of a local copy of url in dir: a cached copy
+// younger than CacheTTL, else a fresh download (resuming one a network
+// failure interrupted), else, when the download fails, the last good copy,
+// logged and recorded as stale. Outside a source cache each fresh copy
+// becomes the last good one at once; a source cache promotes its copies
+// only once they have parsed (sourceCache.keep).
 func fetchCached(ctx context.Context, dir, url, userAgent string) (string, error) {
+	path, err := downloadCached(ctx, dir, url, userAgent)
+	if err == nil {
+		if _, deferred := ctx.Value(sourceCacheKey{}).(*sourceCache); !deferred {
+			keepLastGood(dir, url, path)
+		}
+		return path, nil
+	}
+	if ctx.Err() != nil {
+		return "", err
+	}
+	lg := lastGoodPath(dir, url)
+	info, serr := os.Stat(lg)
+	if serr != nil || time.Since(info.ModTime()) > LastGoodMaxAge {
+		return "", err
+	}
+	logf(ctx, "asname: %v; using the last good copy, from %s\n", err, info.ModTime().Local().Format("2 Jan 2006 15:04"))
+	noteStaleCopy(ctx, info.ModTime())
+	return lg, nil
+}
+
+// downloadCached is fetchCached without the fallback to the last good copy.
+func downloadCached(ctx context.Context, dir, url, userAgent string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

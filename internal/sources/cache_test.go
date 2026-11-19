@@ -139,3 +139,54 @@ func TestFetchCachedRejectsAWrongRange(t *testing.T) {
 	_, err = os.Stat(part)
 	require.True(t, os.IsNotExist(err), "a partial file the server will not resume must be discarded")
 }
+
+func TestFetchCachedFallsBackToTheLastGoodCopy(t *testing.T) {
+	up := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !up {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte("payload"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	url := srv.URL + "/list.txt"
+	path, err := fetchCached(context.Background(), dir, url, "")
+	require.NoError(t, err)
+	old := time.Now().Add(-CacheTTL - time.Hour)
+	require.NoError(t, os.Chtimes(path, old, old))
+
+	up = false
+	ctx, stale := withStaleTracker(context.Background())
+	got, err := fetchCached(ctx, dir, url, "")
+	require.NoError(t, err, "the last good copy stands in for the failed download")
+	body, err := os.ReadFile(got)
+	require.NoError(t, err)
+	require.Equal(t, "payload", string(body))
+	require.WithinDuration(t, old, stale.since(), time.Second, "the fallback is dated by the copy")
+
+	_, err = fetchCached(context.Background(), t.TempDir(), url, "")
+	require.Error(t, err, "with no good copy ever, the failure stands")
+}
+
+func TestFeedCacheLastGood(t *testing.T) {
+	c := newFeedCache(t.TempDir())
+	url := "https://example.net/geofeed.csv"
+	_, ok := c.lastGood(url)
+	require.False(t, ok, "nothing kept yet")
+	c.keep(url, []byte("192.0.2.0/24,AU,AU-QLD,Brisbane,\n"))
+	body, ok := c.lastGood(url)
+	require.True(t, ok)
+	require.Contains(t, string(body), "Brisbane")
+	n, oldest := c.staleUse()
+	require.Equal(t, 1, n)
+	require.False(t, oldest.IsZero())
+
+	lg := filepath.Join(c.dir, LastGoodDirName, cacheName(url))
+	old := time.Now().Add(-LastGoodMaxAge - time.Hour)
+	require.NoError(t, os.Chtimes(lg, old, old))
+	_, ok = c.lastGood(url)
+	require.False(t, ok, "too old to stand in")
+}
