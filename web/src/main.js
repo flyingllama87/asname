@@ -226,14 +226,15 @@ let wasRunning = false;
 
 // ---------- theme ----------
 
+// initialTheme is the theme chosen in this browser, or dark.
 function initialTheme() {
   try {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved === 'light' || saved === 'dark') return saved;
   } catch {
-    // Storage blocked: follow the system.
+    // Storage blocked: the default.
   }
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return 'dark';
 }
 
 function applyTheme() {
