@@ -335,3 +335,26 @@ func TestRequestLogWriter(t *testing.T) {
 	assert.NoError(t, err, "each line starts with the date and time")
 	assert.True(t, strings.HasPrefix(rest, "[REST] GET /v1/lookup?q=8.8.8.8 200 "), rest)
 }
+
+func TestRequestLogNamesTheClientBehindATrustedProxy(t *testing.T) {
+	s := NewServerWithOptions(engine.NewTestEngine(t), Options{TrustedProxies: []string{"127.0.0.1", "10.0.0.0/8"}})
+	req := func(remote string, xff ...string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/v1/lookup?q=8.8.8.8", nil)
+		r.RemoteAddr = remote
+		for _, v := range xff {
+			r.Header.Add("X-Forwarded-For", v)
+		}
+		return r
+	}
+	assert.Equal(t, "198.51.100.7", s.clientAddr(req("127.0.0.1:5000", "198.51.100.7")))
+	assert.Equal(t, "198.51.100.7", s.clientAddr(req("127.0.0.1:5000", "6.6.6.6, 198.51.100.7")), "a client's own entry on the left is ignored")
+	assert.Equal(t, "198.51.100.7", s.clientAddr(req("127.0.0.1:5000", "198.51.100.7, 10.1.2.3")), "past a chain of trusted proxies")
+	assert.Equal(t, "127.0.0.1:5000", s.clientAddr(req("127.0.0.1:5000")), "no header")
+	assert.Equal(t, "127.0.0.1:5000", s.clientAddr(req("127.0.0.1:5000", "not-an-ip")))
+	assert.Equal(t, "192.0.2.9:5000", s.clientAddr(req("192.0.2.9:5000", "1.2.3.4")), "an untrusted sender cannot name someone else")
+
+	var logged strings.Builder
+	s = NewServerWithOptions(engine.NewTestEngine(t), Options{TrustedProxies: []string{"127.0.0.1"}, RequestLog: &logged})
+	s.Routes().ServeHTTP(httptest.NewRecorder(), req("127.0.0.1:5000", "198.51.100.7"))
+	assert.Contains(t, logged.String(), "(198.51.100.7)")
+}

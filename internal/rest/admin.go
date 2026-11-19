@@ -28,6 +28,11 @@ type Options struct {
 	// WebDir, when set, is served at / so the web UI shares the API's origin.
 	WebDir string
 
+	// TrustedProxies are the addresses or CIDR ranges of reverse proxies in
+	// front of the server (nginx, say), whose X-Forwarded-For header names
+	// the client the request log records.
+	TrustedProxies []string
+
 	// RequestLog, when set, also receives each request's log line, prefixed
 	// with the date and time, so the history of lookups outlives the server.
 	RequestLog io.Writer

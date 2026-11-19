@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -116,12 +117,58 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 			note = " " + rw.note
 		}
 		line := fmt.Sprintf("[REST] %s %s %d %v (%s)%s\n",
-			r.Method, r.URL.RequestURI(), rw.statusCode, time.Since(start), r.RemoteAddr, note)
+			r.Method, r.URL.RequestURI(), rw.statusCode, time.Since(start), s.clientAddr(r), note)
 		fmt.Fprint(os.Stdout, line)
 		if s.opts.RequestLog != nil {
 			fmt.Fprint(s.opts.RequestLog, start.Format(time.RFC3339)+" "+line)
 		}
 	})
+}
+
+// clientAddr is the address a request came from: RemoteAddr, or, when that
+// is a trusted proxy, the nearest address in X-Forwarded-For that is not
+// one. Addresses a client puts at the left of the header are ignored, since
+// only the proxies' own additions can be believed.
+func (s *Server) clientAddr(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || !s.trustedProxy(host) {
+		return r.RemoteAddr
+	}
+	var hops []string
+	for _, h := range r.Header.Values("X-Forwarded-For") {
+		for _, a := range strings.Split(h, ",") {
+			if a = strings.TrimSpace(a); a != "" {
+				hops = append(hops, a)
+			}
+		}
+	}
+	for i := len(hops) - 1; i >= 0; i-- {
+		if net.ParseIP(hops[i]) == nil {
+			break
+		}
+		if !s.trustedProxy(hops[i]) {
+			return hops[i]
+		}
+	}
+	return r.RemoteAddr
+}
+
+// trustedProxy reports whether addr is one of Options.TrustedProxies.
+func (s *Server) trustedProxy(addr string) bool {
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return false
+	}
+	for _, p := range s.opts.TrustedProxies {
+		if _, n, err := net.ParseCIDR(p); err == nil {
+			if n.Contains(ip) {
+				return true
+			}
+		} else if pip := net.ParseIP(p); pip != nil && pip.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // quietPath reports whether a successful GET of path goes unlogged.

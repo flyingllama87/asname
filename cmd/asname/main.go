@@ -51,6 +51,7 @@ EXECUTION MODES:
    --cors                         enable permissive CORS headers on the REST API server
    --web-dir directory            serve the web UI from this directory (built with ` + "`make web`" + `) at / on the REST API server [$ASNAME_WEB_DIR]
    --allow-updates                let the REST API server update its databases (POST /v1/update, used by the web UI), and refresh stale ones while it runs [$ASNAME_ALLOW_UPDATES]
+   --trusted-proxy address        a reverse proxy (address or CIDR) whose X-Forwarded-For names the client in the request log [$ASNAME_TRUSTED_PROXIES]
    --request-log file             append the REST API server's request log to this file (default: <dir>/requests.log; "off" for none) [$ASNAME_REQUEST_LOG]
 
 OPTIONAL LOOKUPS & METADATA:
@@ -177,6 +178,12 @@ func newApp() *cli.Command {
 				Name:    "web-dir",
 				Sources: cli.EnvVars("ASNAME_WEB_DIR"),
 				Usage:   "serve the web UI from this `directory` (built with `make web`) at / on the REST API server",
+				Local:   true,
+			},
+			&cli.StringSliceFlag{
+				Name:    "trusted-proxy",
+				Sources: cli.EnvVars("ASNAME_TRUSTED_PROXIES"),
+				Usage:   "an `address` or CIDR range of a reverse proxy in front of the REST API server, whose X-Forwarded-For header names the client in the request log (repeat or comma-separate for several)",
 				Local:   true,
 			},
 			&cli.StringFlag{
@@ -1402,6 +1409,13 @@ func restOptions(cmd *cli.Command, whois, onlinePrefixes sources.WhoisMode) rest
 		ReverseDNS: cmd.Bool("reverse-dns"),
 		Version:    version,
 		WebDir:     cmd.String("web-dir"),
+	}
+	for _, p := range cmd.StringSlice("trusted-proxy") {
+		for _, a := range strings.Split(p, ",") {
+			if a = strings.TrimSpace(a); a != "" {
+				opts.TrustedProxies = append(opts.TrustedProxies, a)
+			}
+		}
 	}
 	if w, err := openRequestLog(cmd); err != nil {
 		fmt.Fprintf(cmd.Root().ErrWriter, "asname: request log: %v\n", err)

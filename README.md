@@ -1326,6 +1326,12 @@ The request lines are also appended, each prefixed with the date and time, to
 by you, so the history of lookups survives a restart. `--request-log FILE`
 (`ASNAME_REQUEST_LOG`) writes them elsewhere; `--request-log off` keeps no file.
 
+Behind a reverse proxy every request comes from the proxy's own address. Name
+the proxy with `--trusted-proxy 127.0.0.1` (an address or a CIDR range,
+repeated or comma-separated; `ASNAME_TRUSTED_PROXIES`) and the log records the
+client from its `X-Forwarded-For` header instead: the nearest address in it
+that is not itself a trusted proxy, so a client cannot name someone else.
+
 ```bash
 # Every address and ASN looked up, most recent last
 grep -oE '(q=|targets=)[^ &]+' ~/.asname/requests.log
