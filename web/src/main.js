@@ -611,7 +611,8 @@ function asnTooltip(asn, r) {
   const rep = r?.reputation?.asn || r?.reputation;
   if (p?.total) {
     const v4 = rep?.announced_ipv4 ? ` (${Number(rep.announced_ipv4).toLocaleString('en-AU')} IPv4 addresses)` : '';
-    lines.push(`Announces: ${p.ipv4_count.toLocaleString('en-AU')} IPv4 and ${p.ipv6_count.toLocaleString('en-AU')} IPv6 prefixes${v4}`);
+    const six = p.ipv6_count ? ` and ${p.ipv6_count.toLocaleString('en-AU')} IPv6` : '';
+    lines.push(`Announces: ${p.ipv4_count.toLocaleString('en-AU')} IPv4${six} prefixes${v4}`);
   } else if (a.announced === false) {
     lines.push('Announces nothing in the routing table');
   }
@@ -628,7 +629,8 @@ function asnTooltip(asn, r) {
     if (rep.drop_prefixes) lines.push(`${rep.drop_prefixes} prefixes on Spamhaus DROP`);
     if (rep.listed_ips) {
       const pct = rep.listed_share_pct >= 0.1 ? `${rep.listed_share_pct.toFixed(1)}%` : '<0.1%';
-      lines.push(`${Number(rep.listed_ips).toLocaleString('en-AU')} listed IPs (${pct} of its IPv4), on up to ${rep.max_lists} lists`);
+      const lists = rep.max_lists > 1 ? `on up to ${rep.max_lists} lists` : 'on 1 list';
+      lines.push(`${Number(rep.listed_ips).toLocaleString('en-AU')} listed IP${rep.listed_ips === 1 ? '' : 's'} (${pct} of its IPv4), ${lists}`);
     } else if (!rep.spamhaus_asn_drop) lines.push('Not listed');
   }
   lines.push('', `Click to look up ${asn}`);
