@@ -1,4 +1,4 @@
-VERSION ?= 0.20.0
+VERSION ?= 0.21.0
 # A fork sets VERSION_SUFFIX (such as -mycompany) in fork.mk, so its builds
 # say which they are; upstream has no fork.mk.
 -include fork.mk
