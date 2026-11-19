@@ -78,6 +78,7 @@ import { api, ApiError, getApiBase, setApiBase } from './api.js';
 import { extractTargets } from './targets.js';
 import { COUNTRIES, countryName } from './countries.js';
 import { asnList, csvText, prefixList, tableText } from './searchcopy.js';
+import { blockFacts, firstUsable } from './cidr.js';
 import { GLOSSARY, LABEL_TERMS, glossaryMentions, glossaryTerm, sourceTerms, tagGlossary } from './glossary.js';
 import {
   DEFAULT_FILTERS,
@@ -1070,7 +1071,7 @@ function resultCard(r, i) {
                     · <a href="#/explore?asn=${encodeURIComponent(r.asn.asn_string)}" title="These prefixes with their tags and blocklist hits">Explore</a>`
                 : nothing}
             </div>
-            ${shown.length ? html`<div class="prefix-list">${shown.map((p) => html`<span>${p}</span>`)}</div>` : nothing}
+            ${shown.length ? html`<div class="prefix-list">${shown.map((p) => html`<span>${blockLink(p)}</span>`)}</div>` : nothing}
             ${prefixes.length > PREFIX_PREVIEW && !l.showAll[i]
               ? html`<cds-button kind="tertiary" size="sm" @click=${() => {
                   l.showAll[i] = true;
@@ -1426,7 +1427,7 @@ function searchResults(d) {
                       (b) => html`<cds-table-row>
                         ${fuzzy ? matchCell(b.match) : nothing}
                         <cds-table-cell class="mono">${(b.cidrs?.length ? b.cidrs : [`${b.range_start} – ${b.range_end}`]).map(
-                          (c) => html`<div>${c}</div>`,
+                          (c) => html`<div>${blockLink(c)}</div>`,
                         )}</cds-table-cell>
                         <cds-table-cell class="wrap">${b.netname || ''}</cds-table-cell>
                         <cds-table-cell class="wrap">${b.org || ''}</cds-table-cell>
@@ -1692,7 +1693,7 @@ function exploreResults(d) {
               <cds-table-body>
                 ${rows.map(
                   (r) => html`<cds-table-row>
-                    <cds-table-cell class="mono nowrap"><a href="#/lookup?q=${encodeURIComponent(r.prefix.split('/')[0])}" title="Look up its first address">${r.prefix}</a></cds-table-cell>
+                    <cds-table-cell class="mono nowrap">${blockLink(r.prefix)}</cds-table-cell>
                     <cds-table-cell class="wrap">${asnLink(r.asn)} <span class="as-name">${(r.as_name || '').replace(/, [A-Z]{2}$/, '')}</span></cds-table-cell>
                     <cds-table-cell class="nowrap" title=${r.as_country && r.as_country !== r.country ? `Origin AS registered in ${r.as_country}` : ''}>${r.country ? r.country.split(', ').slice(1).join(', ') || r.country : html`<span class="muted">—</span>`}</cds-table-cell>
                     <cds-table-cell class="wrap kind-cell">${(r.tags || []).length ? r.tags.join(', ') : html`<span class="muted">—</span>`}</cds-table-cell>
@@ -2162,6 +2163,17 @@ function glossaryTag(tagHtml, key) {
 // termLink links a label to its glossary entry (LABEL_TERMS, or term).
 function termLink(label, term = LABEL_TERMS[label]) {
   return term ? html`<a class="term-link" href="#/glossary?t=${slug(term)}" title="${term}: what it means">${label}</a>` : label;
+}
+
+// blockLink shows an address block (a prefix or a registry range) as a link
+// that looks up its first usable address, with its size, boundaries and
+// masks in the tooltip.
+function blockLink(block) {
+  const first = firstUsable(block);
+  if (!first) return block;
+  return html`<a class="block-link" href="#/lookup?q=${encodeURIComponent(first)}" title="${blockFacts(block)}
+
+Click to look up ${first}">${block}</a>`;
 }
 
 // linkTerms links every glossary term a data source's description names.
