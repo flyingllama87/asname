@@ -717,7 +717,8 @@ function lookupView() {
   };
   return html`
     <p class="lede">
-      Intelligence on ${termLink('IP addresses', 'IP address')} and the networks (${termLink('ASNs', 'ASN')}) that hold them. A hostname or
+      Intelligence on ${termLink('IP addresses', 'IP address')} and the networks (${termLink('ASNs', 'ASN')} and ${termLink('netblocks', 'Netblock')}) that serve
+      them. A hostname or
       URL is resolved to its IP addresses and those are assessed, not the domain or the page itself. Answers come from the
       <a href="#/databases?s=sources">local databases</a>.
     </p>
