@@ -566,7 +566,74 @@ function sortHeader(table, key, label, help) {
 // ---------- views ----------
 
 const asnLink = (asn, label) =>
-  html`<button class="linkish mono" type="button" title="Look up ${asn}" @click=${() => go(`#/lookup?q=${encodeURIComponent(asn)}`)}>${label ?? asn}</button>`;
+  html`<button class="linkish mono" type="button" title=${asnPreviews.get(asn) || `Look up ${asn}`}
+    @mouseenter=${(e) => previewASN(e.currentTarget, asn)} @focus=${(e) => previewASN(e.currentTarget, asn)}
+    @click=${() => go(`#/lookup?q=${encodeURIComponent(asn)}`)}>${label ?? asn}</button>`;
+
+// ASN_TOOLTIP_PREFIXES is how many prefixes an ASN tooltip lists in full;
+// past it, it lists the five largest.
+const ASN_TOOLTIP_PREFIXES = 10;
+
+// asnPreviews caches each ASN's tooltip: who it is, its kind of network,
+// how much it announces and how it stands on the blocklists, from one quick
+// offline lookup made the first time the pointer rests on it.
+const asnPreviews = new Map();
+const asnPending = new Set();
+
+async function previewASN(el, asn) {
+  if (asnPreviews.has(asn)) {
+    el.title = asnPreviews.get(asn);
+    return;
+  }
+  if (asnPending.has(asn)) return;
+  asnPending.add(asn);
+  try {
+    const r = await api.preview(asn);
+    const text = asnTooltip(asn, r?.results?.[0] || r);
+    asnPreviews.set(asn, text);
+    el.title = text;
+  } catch {
+    // Leave the plain title; the next hover tries again.
+  } finally {
+    asnPending.delete(asn);
+  }
+}
+
+function asnTooltip(asn, r) {
+  const lines = [];
+  const a = r?.asn || {};
+  lines.push(a.organization ? `${asn} · ${a.organization}` : `${asn} · ${a.name || 'no registered name'}`);
+  if (a.handle && a.handle !== asn) lines.push(`Handle: ${a.handle}`);
+  if (r?.country?.name) lines.push(`Registered in: ${r.country.name}`);
+  const tags = r?.category?.tags || [];
+  if (tags.length) lines.push(`Kind: ${tags.join(', ')}`);
+  const p = r?.prefixes;
+  const rep = r?.reputation?.asn || r?.reputation;
+  if (p?.total) {
+    const v4 = rep?.announced_ipv4 ? ` (${Number(rep.announced_ipv4).toLocaleString('en-AU')} IPv4 addresses)` : '';
+    lines.push(`Announces: ${p.ipv4_count.toLocaleString('en-AU')} IPv4 and ${p.ipv6_count.toLocaleString('en-AU')} IPv6 prefixes${v4}`);
+  } else if (a.announced === false) {
+    lines.push('Announces nothing in the routing table');
+  }
+  // Every prefix when there are few; the largest few when there are many.
+  const list = p?.list || [];
+  if (list.length) {
+    const bits = (c) => (c.includes(':') ? 128 : 32) - Number(c.split('/')[1]);
+    const shown = list.length <= ASN_TOOLTIP_PREFIXES ? list : [...list].sort((x, y) => bits(y) - bits(x)).slice(0, 5);
+    lines.push(list.length <= ASN_TOOLTIP_PREFIXES ? 'Prefixes:' : 'Largest prefixes:', ...shown.map((c) => `  ${c}`));
+    if (shown.length < list.length) lines.push(`  and ${(list.length - shown.length).toLocaleString('en-AU')} more`);
+  }
+  if (rep) {
+    if (rep.spamhaus_asn_drop) lines.push('On Spamhaus ASN-DROP: run by or for criminals');
+    if (rep.drop_prefixes) lines.push(`${rep.drop_prefixes} prefixes on Spamhaus DROP`);
+    if (rep.listed_ips) {
+      const pct = rep.listed_share_pct >= 0.1 ? `${rep.listed_share_pct.toFixed(1)}%` : '<0.1%';
+      lines.push(`${Number(rep.listed_ips).toLocaleString('en-AU')} listed IPs (${pct} of its IPv4), on up to ${rep.max_lists} lists`);
+    } else if (!rep.spamhaus_asn_drop) lines.push('Not listed');
+  }
+  lines.push('', `Click to look up ${asn}`);
+  return lines.join('\n');
+}
 
 // field is one labelled value on a result card, with where it came from
 // and an (i) explaining it.

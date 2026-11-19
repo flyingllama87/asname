@@ -373,3 +373,13 @@ func TestServerNamesMayChangeTheServer(t *testing.T) {
 	assert.Error(t, post("evil.example", names))
 	assert.Error(t, post("ipinfo.example.com.evil.example", names))
 }
+
+func TestPreviewLookupsStayOutOfTheRequestLog(t *testing.T) {
+	var logged strings.Builder
+	s := NewServerWithOptions(engine.NewTestEngine(t), Options{RequestLog: &logged})
+	h := s.Routes()
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/lookup?q=AS13335&preview=true", nil))
+	assert.Empty(t, logged.String(), "a tooltip preview is not a lookup someone made")
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/lookup?q=AS13335", nil))
+	assert.Contains(t, logged.String(), "q=AS13335")
+}

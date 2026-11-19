@@ -66,6 +66,10 @@ export const api = {
   // online is {whois, prefixes}; a key left undefined keeps the server's
   // default, as asking for a lookup the server has turned off is an error.
   // family is 'v4' or 'v6' to keep one family of a hostname's addresses.
+  // preview is a quick offline lookup for a tooltip, left out of the
+  // server's request log.
+  preview: (target, { signal } = {}) =>
+    request(`/v1/lookup?${new URLSearchParams({ q: target, text: 'false', whois: 'false', online_prefixes: 'false', preview: 'true' })}`, { signal }),
   lookup: (target, { reverseDNS, online = {}, family, signal } = {}) => {
     // text=true: each result also comes as the command line prints it, for
     // Copy summary.

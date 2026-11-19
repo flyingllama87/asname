@@ -212,6 +212,9 @@ func (s *Server) startUpdate(trigger string, req UpdateRequest) bool {
 			if eng, rerr := s.opts.Reload(); rerr != nil {
 				fmt.Fprintf(j, "asname: reopening the databases failed, still serving the previous ones: %v\n", rerr)
 			} else {
+				// Build the new databases' explore index before switching
+				// to them, so Explore never waits on it.
+				eng.WarmExplore()
 				s.swapEngine(eng)
 				reloaded = true
 			}

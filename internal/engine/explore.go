@@ -141,6 +141,14 @@ type repSpan struct {
 	c2         []string // the malware families of its C2 entries
 }
 
+// WarmExplore builds the explore index now, so the first explore request
+// does not wait for it. It does nothing when explore is unavailable.
+func (e *Engine) WarmExplore() {
+	if e.explore != nil {
+		_, _ = e.exploreIndex()
+	}
+}
+
 func (e *Engine) exploreIndex() (*exploreIndex, error) {
 	x := e.explore
 	if x == nil {

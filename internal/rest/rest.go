@@ -102,14 +102,15 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 // loggingMiddleware logs each request with its query string, so the log
 // shows what was looked up and searched for; a bulk lookup adds its targets.
 // Each line also goes to Options.RequestLog, when set.
-// The web UI's polling of /v1/status and /v1/update, and the UI's own
-// files, are left out when they succeed, or they would drown the rest.
+// The web UI's polling of /v1/status and /v1/update, the UI's own files and
+// its tooltip previews (preview=true) are left out when they succeed, or
+// they would drown the lookups people made.
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rw := &responseWriterTracker{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(rw, r)
-		if rw.statusCode < 400 && r.Method == http.MethodGet && quietPath(r.URL.Path) {
+		if rw.statusCode < 400 && r.Method == http.MethodGet && (quietPath(r.URL.Path) || r.URL.Query().Get("preview") == "true") {
 			return
 		}
 		note := ""
@@ -220,6 +221,9 @@ func (s *Server) Start(ctx context.Context) error {
 	defer stop()
 
 	serverErr := make(chan error, 1)
+	// Build the explore index in the background, so the first Explore
+	// request does not wait for it.
+	go s.engine().WarmExplore()
 	go func() {
 		fmt.Fprintf(os.Stdout, "asname REST API listening on http://%s\n", s.listenAddr)
 		fmt.Fprintf(os.Stdout, "Databases: ASN (yes), Names (yes), Country (%v), City (%v), Netblock (%v), Category (%v), Reputation (%v)\n",
