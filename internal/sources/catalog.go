@@ -70,6 +70,8 @@ func SourceCatalog(key string) []CatalogSource {
 				Provides: "North American registrations, including customer reassignments."},
 			{Name: "ARIN (delegated statistics)", URL: arinDelegatedURL, Condition: "without an ARIN key",
 				Provides: "ARIN's allocations, named after the AS that routes them: coarser than bulk whois."},
+			{Name: "LACNIC", URL: lacnicBulkWhois,
+				Provides: "Latin American and Caribbean registrations. Never downloaded: LACNIC gives its bulk whois only to organisations that sign an agreement with it, so asname names LACNIC space online over RDAP instead (Online lookups)."},
 		}
 	case KeyGeofeed:
 		return []CatalogSource{{Name: GeofeedSourceName, URL: "https://www.rfc-editor.org/rfc/rfc8805",
@@ -127,6 +129,10 @@ func SourceCatalog(key string) []CatalogSource {
 	}
 	return nil
 }
+
+// lacnicBulkWhois is LACNIC's page on getting its bulk whois, which needs a
+// signed agreement; asname does not use it.
+const lacnicBulkWhois = "https://www.lacnic.net/2472/2/lacnic/accessing-bulk-whois"
 
 // listingRoot trims a dated listing URL ("…/bgpdata/%s/RIBS/") to the part
 // before the date.
