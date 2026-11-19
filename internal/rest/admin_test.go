@@ -358,3 +358,18 @@ func TestRequestLogNamesTheClientBehindATrustedProxy(t *testing.T) {
 	s.Routes().ServeHTTP(httptest.NewRecorder(), req("127.0.0.1:5000", "198.51.100.7"))
 	assert.Contains(t, logged.String(), "(198.51.100.7)")
 }
+
+func TestServerNamesMayChangeTheServer(t *testing.T) {
+	post := func(host string, names []string) error {
+		r := httptest.NewRequest(http.MethodPost, "/v1/update", strings.NewReader(`{}`))
+		r.Host = host
+		r.Header.Set("Content-Type", "application/json")
+		return checkLocalWrite(r, names)
+	}
+	names := []string{"ipinfo.example.com"}
+	assert.NoError(t, post("ipinfo.example.com", names))
+	assert.NoError(t, post("IPINFO.example.com.:443", names), "any case, a trailing dot and a port")
+	assert.Error(t, post("ipinfo.example.com", nil), "not without --server-name")
+	assert.Error(t, post("evil.example", names))
+	assert.Error(t, post("ipinfo.example.com.evil.example", names))
+}

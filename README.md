@@ -1302,6 +1302,13 @@ machine. The API has no login, so keep `--allow-updates` servers on
 `127.0.0.1`, or behind something that authenticates, rather than open to a
 network.
 
+Published under a hostname, behind a reverse proxy for example, the server
+refuses changes addressed to that name until it is told the name is its own:
+`--server-name ipinfo.example.com` (repeat or comma-separate for several;
+`ASNAME_SERVER_NAMES`). Limit who may start updates at the proxy, such as
+nginx allowing `POST /v1/update` and `POST /v1/settings` only from your own
+networks.
+
 #### What the server logs
 
 The server writes one line per request to standard output (the journal, under

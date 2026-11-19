@@ -28,6 +28,12 @@ type Options struct {
 	// WebDir, when set, is served at / so the web UI shares the API's origin.
 	WebDir string
 
+	// ServerNames are the hostnames the server is published under (behind a
+	// reverse proxy, say), which may change it as its IP address and its
+	// own name may. Any other domain is refused, since its owner could point
+	// it at this address.
+	ServerNames []string
+
 	// TrustedProxies are the addresses or CIDR ranges of reverse proxies in
 	// front of the server (nginx, say), whose X-Forwarded-For header names
 	// the client the request log records.
@@ -343,7 +349,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusForbidden, "database updates through the API are disabled; start the server with --allow-updates")
 		return
 	}
-	if err := checkLocalWrite(r); err != nil {
+	if err := checkLocalWrite(r, s.opts.ServerNames); err != nil {
 		writeJSONError(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -388,7 +394,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusForbidden, "settings cannot be changed through the API; start the server with --allow-updates")
 		return
 	}
-	if err := checkLocalWrite(r); err != nil {
+	if err := checkLocalWrite(r, s.opts.ServerNames); err != nil {
 		writeJSONError(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -450,8 +456,9 @@ func firstNonEmpty(a, b string) string {
 // from a page on the server's own origin. A JSON body forces browsers to ask
 // before sending it cross-origin; the Origin check stops a page on another
 // site from sending it anyway (CSRF), and the Host check stops a site that
-// re-points its own name at this address (DNS rebinding).
-func checkLocalWrite(r *http.Request) error {
+// re-points its own name at this address (DNS rebinding). names are the
+// hostnames the server is published under, accepted as well.
+func checkLocalWrite(r *http.Request, names []string) error {
 	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
 		return errors.New("Content-Type must be application/json")
 	}
@@ -464,10 +471,25 @@ func checkLocalWrite(r *http.Request) error {
 			return errors.New("cross-origin requests may not change the server")
 		}
 	}
-	if !localHostName(r.Host) {
-		return fmt.Errorf("host %q may not change the server; use an IP address, localhost or this machine's name", r.Host)
+	if !localHostName(r.Host) && !serverName(r.Host, names) {
+		return fmt.Errorf("host %q may not change the server; use an IP address, localhost, this machine's name or a name given with --server-name", r.Host)
 	}
 	return nil
+}
+
+// serverName reports whether a Host header is one of names.
+func serverName(hostport string, names []string) bool {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host = hostport
+	}
+	host = strings.TrimSuffix(host, ".")
+	for _, n := range names {
+		if strings.EqualFold(host, strings.TrimSuffix(n, ".")) {
+			return true
+		}
+	}
+	return false
 }
 
 // localHostName reports whether a Host header names this machine without

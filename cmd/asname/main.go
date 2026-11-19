@@ -51,6 +51,7 @@ EXECUTION MODES:
    --cors                         enable permissive CORS headers on the REST API server
    --web-dir directory            serve the web UI from this directory (built with ` + "`make web`" + `) at / on the REST API server [$ASNAME_WEB_DIR]
    --allow-updates                let the REST API server update its databases (POST /v1/update, used by the web UI), and refresh stale ones while it runs [$ASNAME_ALLOW_UPDATES]
+   --server-name hostname         a hostname the REST API server is published under, which may start updates as its IP address may [$ASNAME_SERVER_NAMES]
    --trusted-proxy address        a reverse proxy (address or CIDR) whose X-Forwarded-For names the client in the request log [$ASNAME_TRUSTED_PROXIES]
    --request-log file             append the REST API server's request log to this file (default: <dir>/requests.log; "off" for none) [$ASNAME_REQUEST_LOG]
 
@@ -178,6 +179,12 @@ func newApp() *cli.Command {
 				Name:    "web-dir",
 				Sources: cli.EnvVars("ASNAME_WEB_DIR"),
 				Usage:   "serve the web UI from this `directory` (built with `make web`) at / on the REST API server",
+				Local:   true,
+			},
+			&cli.StringSliceFlag{
+				Name:    "server-name",
+				Sources: cli.EnvVars("ASNAME_SERVER_NAMES"),
+				Usage:   "a `hostname` the REST API server is published under (behind a reverse proxy, say), from which the web UI may start updates and change settings as from its IP address (repeat or comma-separate for several)",
 				Local:   true,
 			},
 			&cli.StringSliceFlag{
@@ -1375,6 +1382,20 @@ func updateAction(ctx context.Context, cmd *cli.Command) error {
 	return runDatabaseUpdate(ctx, cfg, sel, cmd.Root().ErrWriter)
 }
 
+// splitList flattens a repeatable flag whose values may also be
+// comma-separated.
+func splitList(values []string) []string {
+	var out []string
+	for _, v := range values {
+		for _, a := range strings.Split(v, ",") {
+			if a = strings.TrimSpace(a); a != "" {
+				out = append(out, a)
+			}
+		}
+	}
+	return out
+}
+
 // RequestLogFilename is the REST API server's request log in the data
 // directory, unless --request-log names another file.
 const RequestLogFilename = "requests.log"
@@ -1410,13 +1431,8 @@ func restOptions(cmd *cli.Command, whois, onlinePrefixes sources.WhoisMode) rest
 		Version:    version,
 		WebDir:     cmd.String("web-dir"),
 	}
-	for _, p := range cmd.StringSlice("trusted-proxy") {
-		for _, a := range strings.Split(p, ",") {
-			if a = strings.TrimSpace(a); a != "" {
-				opts.TrustedProxies = append(opts.TrustedProxies, a)
-			}
-		}
-	}
+	opts.TrustedProxies = splitList(cmd.StringSlice("trusted-proxy"))
+	opts.ServerNames = splitList(cmd.StringSlice("server-name"))
 	if w, err := openRequestLog(cmd); err != nil {
 		fmt.Fprintf(cmd.Root().ErrWriter, "asname: request log: %v\n", err)
 	} else if w != nil {
